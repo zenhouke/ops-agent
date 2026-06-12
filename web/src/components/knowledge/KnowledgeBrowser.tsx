@@ -89,23 +89,10 @@ export function KnowledgeBrowser({
   const canGoPrevious = offset > 0 && !loading
   const canGoNext = offset + effectiveLimit < total && !loading
 
-  const baseParams = useMemo<KnowledgeSearchParams>(() => {
-    const params: KnowledgeSearchParams = {
-      limit: PAGE_SIZE,
-      offset: 0,
-    }
-    const compactQuery = query.trim()
-    const compactTag = tag.trim()
-
-    if (compactQuery) {
-      params.query = compactQuery
-    }
-    if (compactTag) {
-      params.tag = compactTag
-    }
-
-    return params
-  }, [query, tag])
+  const [appliedFilters, setAppliedFilters] = useState<KnowledgeSearchParams>({
+    limit: PAGE_SIZE,
+    offset: 0,
+  })
 
   useEffect(() => {
     if (!expanded || hasLoadedRef.current) {
@@ -116,8 +103,26 @@ export function KnowledgeBrowser({
     void onSearch({ limit: PAGE_SIZE, offset: 0 })
   }, [expanded, onSearch])
 
-  const handleSearch = (nextOffset = 0) => {
-    void onSearch({ ...baseParams, offset: nextOffset })
+  const handleSearch = (nextOffset = 0, isNewSearch = false) => {
+    const nextParams: KnowledgeSearchParams = isNewSearch
+      ? {
+          limit: PAGE_SIZE,
+          offset: 0,
+          query: query.trim() || undefined,
+          tag: tag.trim() || undefined,
+        }
+      : {
+          ...appliedFilters,
+          offset: nextOffset,
+        }
+
+    if (isNewSearch) {
+      setAppliedFilters(nextParams)
+    } else {
+      setAppliedFilters((current) => ({ ...current, offset: nextOffset }))
+    }
+
+    void onSearch(nextParams)
   }
 
   const handleDelete = (entry: KnowledgeEntry) => {
@@ -165,7 +170,7 @@ export function KnowledgeBrowser({
               onChange={(event) => setQuery(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') {
-                  handleSearch()
+                  handleSearch(0, true)
                 }
               }}
             />
@@ -176,7 +181,7 @@ export function KnowledgeBrowser({
               onChange={(event) => setTag(event.target.value)}
               onKeyDown={(event) => {
                 if (event.key === 'Enter') {
-                  handleSearch()
+                  handleSearch(0, true)
                 }
               }}
             />
@@ -185,7 +190,7 @@ export function KnowledgeBrowser({
                 type="button"
                 className="rounded-xl border border-ops-emerald/30 bg-ops-emerald/10 px-3 py-2 text-[10px] font-black tracking-[0.08em] text-ops-emerald transition hover:bg-ops-emerald/20 active:scale-95 disabled:cursor-not-allowed disabled:opacity-45"
                 disabled={loading}
-                onClick={() => handleSearch()}
+                onClick={() => handleSearch(0, true)}
               >
                 {loading ? '搜索中' : '搜索'}
               </button>
@@ -269,7 +274,7 @@ export function KnowledgeBrowser({
                 type="button"
                 className="rounded-xl border border-ops-border/20 px-3 py-2 transition hover:border-ops-emerald/40 hover:text-ops-emerald active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
                 disabled={!canGoPrevious}
-                onClick={() => handleSearch(Math.max(0, offset - effectiveLimit))}
+                onClick={() => handleSearch(Math.max(0, offset - effectiveLimit), false)}
               >
                 上一页
               </button>
@@ -277,7 +282,7 @@ export function KnowledgeBrowser({
                 type="button"
                 className="rounded-xl border border-ops-border/20 px-3 py-2 transition hover:border-ops-emerald/40 hover:text-ops-emerald active:scale-95 disabled:cursor-not-allowed disabled:opacity-40"
                 disabled={!canGoNext}
-                onClick={() => handleSearch(offset + effectiveLimit)}
+                onClick={() => handleSearch(offset + effectiveLimit, false)}
               >
                 下一页
               </button>

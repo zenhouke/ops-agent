@@ -29,3 +29,4 @@ ops-agent-backend.spec
 web/bin/
 logs/
 .playwright-mcp/
+.codegraph/

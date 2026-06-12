@@ -108,9 +108,16 @@ class KnowledgeService:
         source_conversation: KnowledgeSourceConversation,
     ) -> KnowledgeEntry:
         redacted_draft = self._redact_draft(draft)
-        entry = self._document_store.create(redacted_draft, source_conversation)
+        embedding = None
         try:
-            self._search_index.index_entry(entry)
+            text = f"{redacted_draft.title}\n{redacted_draft.summary}\n{redacted_draft.problem}\n{redacted_draft.resolution}"
+            embedding = self._model_service.generate_embedding(text)
+        except Exception as exc:
+            raise KnowledgeDraftGenerationError("Failed to generate embedding for the knowledge entry.") from exc
+
+        entry = self._document_store.create(redacted_draft, source_conversation, embedding=embedding)
+        try:
+            self._search_index.index_entry(entry, embedding)
         except Exception as exc:
             raise KnowledgeIndexUpdateError("Knowledge entry was saved but search index update failed. Reindex is required.") from exc
         return entry
@@ -125,9 +132,16 @@ class KnowledgeService:
         source_conversation: KnowledgeSourceConversation,
     ) -> KnowledgeEntry:
         redacted_draft = self._redact_draft(draft)
-        entry = self._document_store.update(entry_id, redacted_draft, source_conversation)
+        embedding = None
         try:
-            self._search_index.index_entry(entry)
+            text = f"{redacted_draft.title}\n{redacted_draft.summary}\n{redacted_draft.problem}\n{redacted_draft.resolution}"
+            embedding = self._model_service.generate_embedding(text)
+        except Exception as exc:
+            raise KnowledgeDraftGenerationError("Failed to generate embedding for the updated knowledge entry.") from exc
+
+        entry = self._document_store.update(entry_id, redacted_draft, source_conversation, embedding=embedding)
+        try:
+            self._search_index.index_entry(entry, embedding)
         except Exception as exc:
             raise KnowledgeIndexUpdateError("Knowledge entry was updated but search index update failed. Reindex is required.") from exc
         return entry
@@ -140,7 +154,14 @@ class KnowledgeService:
         self._document_store.delete(entry_id)
 
     def search(self, filters: KnowledgeSearchFilters) -> KnowledgeSearchPage:
-        hits = self._search_index.search(filters)
+        query_embedding = None
+        if filters.query.strip():
+            try:
+                query_embedding = self._model_service.generate_embedding(filters.query)
+            except Exception:
+                pass
+
+        hits = self._search_index.search(query_embedding, filters)
         total = self._search_index.count(filters)
         items: list[KnowledgeEntry] = []
         for hit in hits:
@@ -156,7 +177,29 @@ class KnowledgeService:
         )
 
     def reindex(self) -> KnowledgeReindexResult:
-        return self._search_index.rebuild(self._document_store.list())
+        entries = self._document_store.list()
+        healed_entries = []
+        for entry in entries:
+            if not entry.embedding:
+                try:
+                    text = f"{entry.title}\n{entry.summary}\n{entry.problem}\n{entry.resolution}"
+                    embedding = self._model_service.generate_embedding(text)
+                    draft = KnowledgeDraft(
+                        title=entry.title,
+                        summary=entry.summary,
+                        problem=entry.problem,
+                        diagnosis=entry.diagnosis,
+                        resolution=entry.resolution,
+                        commands=entry.commands,
+                        assets=entry.assets,
+                        tags=entry.tags,
+                        sources=entry.sources,
+                    )
+                    entry = self._document_store.update(entry.id, draft, entry.source_conversation, embedding=embedding)
+                except Exception:
+                    pass
+            healed_entries.append(entry)
+        return self._search_index.rebuild(healed_entries)
 
     def search_for_agent(
         self,

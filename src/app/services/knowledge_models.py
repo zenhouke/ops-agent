@@ -52,6 +52,7 @@ class KnowledgeEntry(BaseModel):
         default_factory=KnowledgeSourceConversation,
         alias="sourceConversation",
     )
+    embedding: list[float] | None = Field(default=None)
     created_at: str = Field(alias="createdAt")
     updated_at: str = Field(alias="updatedAt")
 

@@ -105,8 +105,9 @@ type DeleteAssetModalProps = {
 
 function AssetFormModal({ mode, form, assets, targetAsset, groups, sshKeys, serialPorts, error, onChange, onClose, onSubmit }: AssetFormModalProps) {
   const { t } = useAppearance()
+  const isUsedAsProxy = targetAsset ? assets.some((a) => a.proxyAssetId === targetAsset.id) : false
   const proxyCandidates = assets.filter((asset) => isProxyCandidate(asset, targetAsset?.id ?? null))
-  const proxySelectorDisabled = !supportsSshProxyTarget(form.assetKind)
+  const proxySelectorDisabled = !supportsSshProxyTarget(form.assetKind) || isUsedAsProxy
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-ops-bg/60 backdrop-blur-md animate-in fade-in duration-300" role="presentation">
@@ -187,7 +188,9 @@ function AssetFormModal({ mode, form, assets, targetAsset, groups, sshKeys, seri
                 </select>
                 {proxySelectorDisabled ? (
                   <span className="text-[10px] normal-case tracking-normal text-ops-muted/70">
-                    SSH proxy is supported only for Linux and network device assets in this version.
+                    {isUsedAsProxy
+                      ? 'This asset is used as a proxy by other assets and cannot use a jump proxy itself.'
+                      : 'SSH proxy is supported only for Linux and network device assets in this version.'}
                   </span>
                 ) : null}
               </label>

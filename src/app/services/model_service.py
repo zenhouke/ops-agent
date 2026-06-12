@@ -111,6 +111,60 @@ class ModelService:
         response = provider.complete(config=config, request=request)
         return (response.text or "").strip()
 
+    def generate_embedding(self, text: str) -> list[float]:
+        config = self.load_settings()
+        if config.provider is ModelProvider.GOOGLE_GEMINI:
+            import importlib
+            genai = importlib.import_module("google.genai")
+            options = config.provider_options or {}
+            client_kwargs: dict[str, Any] = {"api_key": config.api_key.get_secret_value()}
+            if options.get("vertexai") is True:
+                client_kwargs = {
+                    "vertexai": True,
+                    "project": options.get("project"),
+                    "location": options.get("location"),
+                }
+            elif config.base_url:
+                client_kwargs["http_options"] = {"base_url": config.base_url}
+            client = genai.Client(**client_kwargs)
+            
+            # Default embedding model for Gemini
+            model = os.environ.get("OPS_AGENT_EMBEDDING_MODEL") or "text-embedding-004"
+            response = client.models.embed_content(
+                model=model,
+                contents=text.strip(),
+            )
+            
+            if hasattr(response, "embeddings") and response.embeddings:
+                return [float(x) for x in response.embeddings[0].values]
+            elif hasattr(response, "embedding") and response.embedding:
+                return [float(x) for x in response.embedding.values]
+            raise ValueError("Failed to retrieve embedding values from Gemini response")
+
+        elif config.provider is ModelProvider.ANTHROPIC:
+            raise ValueError("Anthropic provider does not support native embeddings. Please configure an OpenAI-compatible or Google Gemini provider.")
+
+        else:
+            from openai import OpenAI
+            client = OpenAI(
+                api_key=config.api_key.get_secret_value(),
+                base_url=config.base_url,
+                timeout=config.timeout_seconds,
+            )
+            model = os.environ.get("OPS_AGENT_EMBEDDING_MODEL")
+            if not model:
+                if "openai" in config.provider.value or "responses" in config.provider.value:
+                    model = "text-embedding-3-small"
+                else:
+                    # Generic default for compatible endpoints (e.g. Ollama, DeepSeek)
+                    model = "text-embedding-3-small"
+            
+            response = client.embeddings.create(
+                input=[text.strip()],
+                model=model,
+            )
+            return [float(x) for x in response.data[0].embedding]
+
     def _fallback_conversation_title(self, prompt: str) -> str:
         text = prompt.strip()
         text = re.sub(r"^(请|麻烦|帮我|你帮我|请帮我|能不能|可以|是否)+", "", text)

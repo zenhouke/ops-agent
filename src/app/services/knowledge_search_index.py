@@ -1,9 +1,10 @@
 from __future__ import annotations
 
-import re
 import sqlite3
+from array import array
 from collections.abc import Iterable
 from contextlib import closing
+from datetime import datetime, UTC
 from pathlib import Path
 
 from app.services.knowledge_models import (
@@ -13,7 +14,6 @@ from app.services.knowledge_models import (
     KnowledgeSearchHit,
 )
 
-_MATCH_TOKEN_PATTERN = re.compile(r"[A-Za-z0-9_一-鿿]+")
 _MAX_LIMIT = 100
 _DEFAULT_LIMIT = 20
 
@@ -24,32 +24,68 @@ class KnowledgeSearchIndex:
         self._index_path.parent.mkdir(parents=True, exist_ok=True)
         self._initialize_schema()
 
-    def index_entry(self, entry: KnowledgeEntry) -> None:
+    def index_entry(self, entry: KnowledgeEntry, embedding: list[float]) -> None:
         with closing(self._connect()) as connection:
             with connection:
-                self._delete_entry_rows(connection, entry.id)
-                self._insert_entry_rows(connection, entry)
+                connection.execute("DELETE FROM knowledge_index WHERE entry_id = ?", (entry.id,))
+                
+                asset_ids = ",".join(str(asset.asset_id) for asset in entry.assets if asset.asset_id is not None)
+                tags = ",".join(entry.tags)
+                
+                connection.execute(
+                    """
+                    INSERT INTO knowledge_index (
+                        entry_id, title, updated_at, source_conversation_id, asset_ids, tags, embedding
+                    ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        entry.id,
+                        entry.title,
+                        entry.updated_at,
+                        entry.source_conversation.id,
+                        asset_ids,
+                        tags,
+                        array('f', embedding).tobytes(),
+                    ),
+                )
 
     def delete_entry(self, entry_id: str) -> None:
         with closing(self._connect()) as connection:
             with connection:
-                self._delete_entry_rows(connection, entry_id)
+                connection.execute("DELETE FROM knowledge_index WHERE entry_id = ?", (entry_id,))
 
     def rebuild(self, entries: Iterable[KnowledgeEntry]) -> KnowledgeReindexResult:
         indexed = 0
         failed = 0
         with closing(self._connect()) as connection:
             with connection:
-                connection.execute("DELETE FROM knowledge_fts")
-                connection.execute("DELETE FROM knowledge_index_meta")
-                connection.execute("DELETE FROM knowledge_index_assets")
-                connection.execute("DELETE FROM knowledge_index_tags")
+                connection.execute("DELETE FROM knowledge_index")
                 for entry in entries:
+                    if not entry.embedding:
+                        # Skip if there's no embedding stored in the JSON document
+                        failed += 1
+                        continue
                     savepoint = f"entry_{indexed + failed}"
                     connection.execute(f"SAVEPOINT {savepoint}")
                     try:
-                        self._delete_entry_rows(connection, entry.id)
-                        self._insert_entry_rows(connection, entry)
+                        asset_ids = ",".join(str(asset.asset_id) for asset in entry.assets if asset.asset_id is not None)
+                        tags = ",".join(entry.tags)
+                        connection.execute(
+                            """
+                            INSERT INTO knowledge_index (
+                                entry_id, title, updated_at, source_conversation_id, asset_ids, tags, embedding
+                            ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                            """,
+                            (
+                                entry.id,
+                                entry.title,
+                                entry.updated_at,
+                                entry.source_conversation.id,
+                                asset_ids,
+                                tags,
+                                array('f', entry.embedding).tobytes(),
+                            ),
+                        )
                     except Exception:
                         connection.execute(f"ROLLBACK TO {savepoint}")
                         connection.execute(f"RELEASE {savepoint}")
@@ -59,369 +95,135 @@ class KnowledgeSearchIndex:
                         indexed += 1
         return KnowledgeReindexResult(indexed=indexed, failed=failed)
 
-    def search(self, filters: KnowledgeSearchFilters) -> list[KnowledgeSearchHit]:
-        limit = _clamp_limit(filters.limit)
-        offset = max(0, filters.offset)
-        match_query = _build_match_query(filters.query)
-
+    def search(self, query_embedding: list[float] | None, filters: KnowledgeSearchFilters) -> list[KnowledgeSearchHit]:
         with closing(self._connect()) as connection:
             connection.row_factory = sqlite3.Row
-            if match_query:
-                rows = self._search_with_query(connection, filters, match_query, limit, offset)
-            else:
-                rows = self._search_without_query(connection, filters, limit, offset)
-
-        return [
-            KnowledgeSearchHit(entryId=str(row["entry_id"]), score=float(row["score"]))
-            for row in rows
-        ]
+            
+            where_clauses = ["1 = 1"]
+            params = []
+            
+            if filters.source_conversation_id is not None:
+                where_clauses.append("source_conversation_id = ?")
+                params.append(filters.source_conversation_id)
+                
+            sql = f"""
+                SELECT entry_id, title, updated_at, source_conversation_id, asset_ids, tags, embedding
+                FROM knowledge_index
+                WHERE {' AND '.join(where_clauses)}
+            """
+            rows = connection.execute(sql, params).fetchall()
+            
+        candidates = []
+        for row in rows:
+            if filters.asset_id is not None:
+                row_asset_ids = {int(x) for x in row["asset_ids"].split(",") if x.strip()}
+                if filters.asset_id not in row_asset_ids:
+                    continue
+            if filters.tag:
+                row_tags = {x.strip().lower() for x in row["tags"].split(",") if x.strip()}
+                if filters.tag.strip().lower() not in row_tags:
+                    continue
+            candidates.append(row)
+            
+        hits = []
+        for row in candidates:
+            score = 0.0
+            if query_embedding:
+                try:
+                    candidate_emb_bytes = row["embedding"]
+                    candidate_emb = array('f')
+                    candidate_emb.frombytes(candidate_emb_bytes)
+                    candidate_emb_list = candidate_emb.tolist()
+                    
+                    dot_product = sum(a * b for a, b in zip(query_embedding, candidate_emb_list))
+                    norm_a = sum(a * a for a in query_embedding) ** 0.5
+                    norm_b = sum(b * b for b in candidate_emb_list) ** 0.5
+                    if norm_a > 0 and norm_b > 0:
+                        score = dot_product / (norm_a * norm_b)
+                except Exception:
+                    score = 0.0
+            
+            try:
+                updated_at_str = row["updated_at"]
+                dt = datetime.fromisoformat(updated_at_str.replace("Z", "+00:00"))
+                now = datetime.now(UTC)
+                days_diff = max(0.0, (now - dt).total_seconds() / 86400.0)
+                recency_boost = 1.0 / (1.0 + (days_diff / 30.0))
+                score += recency_boost * 0.1
+            except Exception:
+                pass
+                
+            hits.append(KnowledgeSearchHit(entryId=str(row["entry_id"]), score=score))
+            
+        hits.sort(key=lambda hit: (-hit.score, hit.entry_id))
+        
+        offset = max(0, filters.offset)
+        limit = _clamp_limit(filters.limit)
+        return hits[offset : offset + limit]
 
     def count(self, filters: KnowledgeSearchFilters) -> int:
-        match_query = _build_match_query(filters.query)
         with closing(self._connect()) as connection:
-            if match_query:
-                return self._count_with_query(connection, filters, match_query)
-            return self._count_without_query(connection, filters)
+            connection.row_factory = sqlite3.Row
+            where_clauses = ["1 = 1"]
+            params = []
+            if filters.source_conversation_id is not None:
+                where_clauses.append("source_conversation_id = ?")
+                params.append(filters.source_conversation_id)
+                
+            sql = f"""
+                SELECT asset_ids, tags
+                FROM knowledge_index
+                WHERE {' AND '.join(where_clauses)}
+            """
+            rows = connection.execute(sql, params).fetchall()
+            
+        count = 0
+        for row in rows:
+            if filters.asset_id is not None:
+                row_asset_ids = {int(x) for x in row["asset_ids"].split(",") if x.strip()}
+                if filters.asset_id not in row_asset_ids:
+                    continue
+            if filters.tag:
+                row_tags = {x.strip().lower() for x in row["tags"].split(",") if x.strip()}
+                if filters.tag.strip().lower() not in row_tags:
+                    continue
+            count += 1
+        return count
 
     def _initialize_schema(self) -> None:
         try:
             with closing(self._connect()) as connection:
                 with connection:
-                    connection.execute(
-                        """
-                        CREATE VIRTUAL TABLE IF NOT EXISTS knowledge_fts USING fts5(
-                            entry_id UNINDEXED,
-                            title,
-                            summary,
-                            problem,
-                            diagnosis,
-                            resolution,
-                            commands_text,
-                            assets_text,
-                            tags_text,
-                            source_text
-                        )
-                        """
+                    cursor = connection.execute(
+                        "SELECT name FROM sqlite_master WHERE type='table' AND name='knowledge_index_meta'"
                     )
+                    if cursor.fetchone():
+                        connection.execute("DROP TABLE IF EXISTS knowledge_fts")
+                        connection.execute("DROP TABLE IF EXISTS knowledge_index_meta")
+                        connection.execute("DROP TABLE IF EXISTS knowledge_index_assets")
+                        connection.execute("DROP TABLE IF EXISTS knowledge_index_tags")
+
                     connection.execute(
                         """
-                        CREATE TABLE IF NOT EXISTS knowledge_index_meta (
+                        CREATE TABLE IF NOT EXISTS knowledge_index (
                             entry_id TEXT PRIMARY KEY,
+                            title TEXT NOT NULL,
                             updated_at TEXT NOT NULL,
                             source_conversation_id TEXT,
-                            source_conversation_title TEXT NOT NULL DEFAULT ''
+                            asset_ids TEXT NOT NULL,
+                            tags TEXT NOT NULL,
+                            embedding BLOB NOT NULL
                         )
                         """
-                    )
-                    connection.execute(
-                        """
-                        CREATE TABLE IF NOT EXISTS knowledge_index_assets (
-                            entry_id TEXT NOT NULL,
-                            asset_id INTEGER,
-                            asset_label TEXT NOT NULL DEFAULT ''
-                        )
-                        """
-                    )
-                    connection.execute(
-                        """
-                        CREATE TABLE IF NOT EXISTS knowledge_index_tags (
-                            entry_id TEXT NOT NULL,
-                            tag TEXT NOT NULL
-                        )
-                        """
-                    )
-                    connection.execute(
-                        "CREATE INDEX IF NOT EXISTS idx_knowledge_index_meta_updated_at "
-                        "ON knowledge_index_meta(updated_at)"
-                    )
-                    connection.execute(
-                        "CREATE INDEX IF NOT EXISTS idx_knowledge_index_meta_source_conversation_id "
-                        "ON knowledge_index_meta(source_conversation_id)"
-                    )
-                    connection.execute(
-                        "CREATE INDEX IF NOT EXISTS idx_knowledge_index_assets_asset_id "
-                        "ON knowledge_index_assets(asset_id)"
-                    )
-                    connection.execute(
-                        "CREATE INDEX IF NOT EXISTS idx_knowledge_index_tags_tag "
-                        "ON knowledge_index_tags(tag)"
                     )
         except sqlite3.OperationalError as exc:
-            if "fts5" in str(exc).lower() or "no such module" in str(exc).lower():
-                raise RuntimeError("SQLite FTS5 is required for knowledge search.") from exc
-            raise
+            raise RuntimeError("Failed to initialize SQLite knowledge index database.") from exc
 
     def _connect(self) -> sqlite3.Connection:
         return sqlite3.connect(self._index_path)
-
-    def _search_with_query(
-        self,
-        connection: sqlite3.Connection,
-        filters: KnowledgeSearchFilters,
-        match_query: str,
-        limit: int,
-        offset: int,
-    ) -> list[sqlite3.Row]:
-        where_clauses = ["knowledge_fts MATCH ?"]
-        params: list[object] = [match_query]
-        self._append_filters(where_clauses, params, filters, "meta")
-
-        sql = f"""
-            SELECT
-                knowledge_fts.entry_id AS entry_id,
-                (
-                    (-bm25(knowledge_fts) * 1000.0)
-                    + {self._boost_expression(filters, 'meta')}
-                ) AS score
-            FROM knowledge_fts
-            JOIN knowledge_index_meta AS meta ON meta.entry_id = knowledge_fts.entry_id
-            WHERE {' AND '.join(where_clauses)}
-            ORDER BY score DESC, meta.updated_at DESC, knowledge_fts.entry_id ASC
-            LIMIT ? OFFSET ?
-        """
-        params.extend([limit, offset])
-        return list(connection.execute(sql, params))
-
-    def _search_without_query(
-        self,
-        connection: sqlite3.Connection,
-        filters: KnowledgeSearchFilters,
-        limit: int,
-        offset: int,
-    ) -> list[sqlite3.Row]:
-        where_clauses = ["1 = 1"]
-        params: list[object] = []
-        self._append_filters(where_clauses, params, filters, "meta")
-
-        sql = f"""
-            SELECT
-                meta.entry_id AS entry_id,
-                {self._boost_expression(filters, 'meta')} AS score
-            FROM knowledge_index_meta AS meta
-            WHERE {' AND '.join(where_clauses)}
-            ORDER BY score DESC, meta.updated_at DESC, meta.entry_id ASC
-            LIMIT ? OFFSET ?
-        """
-        params.extend([limit, offset])
-        return list(connection.execute(sql, params))
-
-    def _count_with_query(
-        self,
-        connection: sqlite3.Connection,
-        filters: KnowledgeSearchFilters,
-        match_query: str,
-    ) -> int:
-        where_clauses = ["knowledge_fts MATCH ?"]
-        params: list[object] = [match_query]
-        self._append_filters(where_clauses, params, filters, "meta")
-        row = connection.execute(
-            f"""
-            SELECT COUNT(*)
-            FROM knowledge_fts
-            JOIN knowledge_index_meta AS meta ON meta.entry_id = knowledge_fts.entry_id
-            WHERE {' AND '.join(where_clauses)}
-            """,
-            params,
-        ).fetchone()
-        return int(row[0]) if row else 0
-
-    def _count_without_query(
-        self,
-        connection: sqlite3.Connection,
-        filters: KnowledgeSearchFilters,
-    ) -> int:
-        where_clauses = ["1 = 1"]
-        params: list[object] = []
-        self._append_filters(where_clauses, params, filters, "meta")
-        row = connection.execute(
-            f"""
-            SELECT COUNT(*)
-            FROM knowledge_index_meta AS meta
-            WHERE {' AND '.join(where_clauses)}
-            """,
-            params,
-        ).fetchone()
-        return int(row[0]) if row else 0
-
-    def _append_filters(
-        self,
-        where_clauses: list[str],
-        params: list[object],
-        filters: KnowledgeSearchFilters,
-        meta_alias: str,
-    ) -> None:
-        if filters.asset_id is not None:
-            where_clauses.append(
-                "EXISTS ("
-                "SELECT 1 FROM knowledge_index_assets AS filter_assets "
-                f"WHERE filter_assets.entry_id = {meta_alias}.entry_id "
-                "AND filter_assets.asset_id = ?"
-                ")"
-            )
-            params.append(filters.asset_id)
-        if filters.tag:
-            where_clauses.append(
-                "EXISTS ("
-                "SELECT 1 FROM knowledge_index_tags AS filter_tags "
-                f"WHERE filter_tags.entry_id = {meta_alias}.entry_id "
-                "AND filter_tags.tag = ?"
-                ")"
-            )
-            params.append(filters.tag)
-        if filters.source_conversation_id is not None:
-            where_clauses.append(f"{meta_alias}.source_conversation_id = ?")
-            params.append(filters.source_conversation_id)
-
-    def _boost_expression(self, filters: KnowledgeSearchFilters, meta_alias: str) -> str:
-        asset_boost = "0.0"
-        tag_boost = "0.0"
-        source_boost = "0.0"
-        if filters.asset_id is not None:
-            asset_boost = (
-                "CASE WHEN EXISTS ("
-                "SELECT 1 FROM knowledge_index_assets AS boost_assets "
-                f"WHERE boost_assets.entry_id = {meta_alias}.entry_id "
-                f"AND boost_assets.asset_id = {int(filters.asset_id)}"
-                ") THEN 3.0 ELSE 0.0 END"
-            )
-        if filters.tag:
-            escaped_tag = filters.tag.replace("'", "''")
-            tag_boost = (
-                "CASE WHEN EXISTS ("
-                "SELECT 1 FROM knowledge_index_tags AS boost_tags "
-                f"WHERE boost_tags.entry_id = {meta_alias}.entry_id "
-                f"AND boost_tags.tag = '{escaped_tag}'"
-                ") THEN 2.0 ELSE 0.0 END"
-            )
-        if filters.source_conversation_id is not None:
-            escaped_source = filters.source_conversation_id.replace("'", "''")
-            source_boost = (
-                "CASE WHEN "
-                f"{meta_alias}.source_conversation_id = '{escaped_source}' "
-                "THEN 1.5 ELSE 0.0 END"
-            )
-        recency_boost = (
-            "(1.0 / (1.0 + "
-            "(max(0.0, julianday('now') - julianday("
-            f"{meta_alias}.updated_at)) / 30.0)))"
-        )
-        return f"({asset_boost} + {tag_boost} + {source_boost} + {recency_boost})"
-
-    def _delete_entry_rows(self, connection: sqlite3.Connection, entry_id: str) -> None:
-        connection.execute("DELETE FROM knowledge_fts WHERE entry_id = ?", (entry_id,))
-        connection.execute("DELETE FROM knowledge_index_meta WHERE entry_id = ?", (entry_id,))
-        connection.execute("DELETE FROM knowledge_index_assets WHERE entry_id = ?", (entry_id,))
-        connection.execute("DELETE FROM knowledge_index_tags WHERE entry_id = ?", (entry_id,))
-
-    def _insert_entry_rows(self, connection: sqlite3.Connection, entry: KnowledgeEntry) -> None:
-        connection.execute(
-            """
-            INSERT INTO knowledge_fts (
-                entry_id,
-                title,
-                summary,
-                problem,
-                diagnosis,
-                resolution,
-                commands_text,
-                assets_text,
-                tags_text,
-                source_text
-            ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-            """,
-            (
-                entry.id,
-                entry.title,
-                entry.summary,
-                entry.problem,
-                entry.diagnosis,
-                entry.resolution,
-                _commands_text(entry),
-                _assets_text(entry),
-                " ".join(entry.tags),
-                _source_text(entry),
-            ),
-        )
-        connection.execute(
-            """
-            INSERT INTO knowledge_index_meta (
-                entry_id,
-                updated_at,
-                source_conversation_id,
-                source_conversation_title
-            ) VALUES (?, ?, ?, ?)
-            """,
-            (
-                entry.id,
-                entry.updated_at,
-                entry.source_conversation.id,
-                entry.source_conversation.title,
-            ),
-        )
-        connection.executemany(
-            """
-            INSERT INTO knowledge_index_assets (entry_id, asset_id, asset_label)
-            VALUES (?, ?, ?)
-            """,
-            [
-                (entry.id, asset.asset_id, asset.label)
-                for asset in entry.assets
-            ],
-        )
-        connection.executemany(
-            """
-            INSERT INTO knowledge_index_tags (entry_id, tag)
-            VALUES (?, ?)
-            """,
-            [(entry.id, tag) for tag in entry.tags],
-        )
-
-
-def _build_match_query(query: str) -> str:
-    tokens = _MATCH_TOKEN_PATTERN.findall(query)
-    if not tokens:
-        return ""
-    return " OR ".join(f'"{token}"' for token in dict.fromkeys(tokens))
 
 
 def _clamp_limit(limit: int) -> int:
     if limit <= 0:
         return _DEFAULT_LIMIT
     return min(limit, _MAX_LIMIT)
-
-
-def _commands_text(entry: KnowledgeEntry) -> str:
-    parts: list[str] = []
-    for command in entry.commands:
-        parts.extend([command.command, command.purpose, command.outcome])
-    return " ".join(part for part in parts if part)
-
-
-def _assets_text(entry: KnowledgeEntry) -> str:
-    parts: list[str] = []
-    for asset in entry.assets:
-        if asset.asset_id is not None:
-            parts.append(str(asset.asset_id))
-        if asset.label:
-            parts.append(asset.label)
-    return " ".join(parts)
-
-
-def _source_text(entry: KnowledgeEntry) -> str:
-    parts = [
-        entry.source_conversation.id or "",
-        entry.source_conversation.title,
-        entry.source_conversation.updated_at or "",
-    ]
-    for source in entry.sources:
-        parts.extend(
-            [
-                source.conversation_id or "",
-                source.event_id or "",
-                str(source.event_index) if source.event_index is not None else "",
-                source.event_type,
-                source.quote,
-                source.relevance,
-            ]
-        )
-    return " ".join(part for part in parts if part)

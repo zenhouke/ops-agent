@@ -30,8 +30,10 @@ class NetworkConnector:
         self.connection: Any | None = None
         self.ssh_client: Any | None = None
         self.channel: Any | None = None
-        self.proxy_client: Any | None = None
-        self.proxy_channel: Any | None = None
+        self.netmiko_proxy_client: Any | None = None
+        self.netmiko_proxy_channel: Any | None = None
+        self.ssh_proxy_client: Any | None = None
+        self.ssh_proxy_channel: Any | None = None
         self._execution_events: dict[str, list[ExecutionEvent]] = {}
         self._execution_results: dict[str, ExecutionResult] = {}
 
@@ -39,11 +41,23 @@ class NetworkConnector:
         proxy_config = self.ssh_params.get("proxy_config")
         if proxy_config is None:
             self.connection = ConnectHandler(**self.device_params)
+            if self.connection is not None and hasattr(self.connection, "remote_conn"):
+                remote_conn = self.connection.remote_conn
+                if remote_conn is not None and hasattr(remote_conn, "get_transport"):
+                    transport = remote_conn.get_transport()
+                    if transport is not None:
+                        transport.set_keepalive(30)
             return
 
-        channel = self._open_proxy_channel(cast(SSHProxyConfig, proxy_config))
+        channel = self._open_proxy_channel(cast(SSHProxyConfig, proxy_config), kind="netmiko")
         try:
             self.connection = ConnectHandler(**{**self.device_params, "sock": channel})
+            if self.connection is not None and hasattr(self.connection, "remote_conn"):
+                remote_conn = self.connection.remote_conn
+                if remote_conn is not None and hasattr(remote_conn, "get_transport"):
+                    transport = remote_conn.get_transport()
+                    if transport is not None:
+                        transport.set_keepalive(30)
         except TypeError as exc:
             self.close()
             raise SSHTargetConnectionThroughProxyError(
@@ -166,14 +180,6 @@ class NetworkConnector:
         except Exception:
             pass
 
-    def _close_proxy(self) -> None:
-        if self.proxy_channel is not None:
-            self.proxy_channel.close()
-            self.proxy_channel = None
-        if self.proxy_client is not None:
-            self.proxy_client.close()
-            self.proxy_client = None
-
     def close(self) -> None:
         if self.channel is not None:
             self.channel.close()
@@ -184,7 +190,18 @@ class NetworkConnector:
         if self.connection is not None:
             self.connection.disconnect()
             self.connection = None
-        self._close_proxy()
+        if self.netmiko_proxy_channel is not None:
+            self.netmiko_proxy_channel.close()
+            self.netmiko_proxy_channel = None
+        if self.netmiko_proxy_client is not None:
+            self.netmiko_proxy_client.close()
+            self.netmiko_proxy_client = None
+        if self.ssh_proxy_channel is not None:
+            self.ssh_proxy_channel.close()
+            self.ssh_proxy_channel = None
+        if self.ssh_proxy_client is not None:
+            self.ssh_proxy_client.close()
+            self.ssh_proxy_client = None
         self._execution_events.clear()
         self._execution_results.clear()
 
@@ -196,14 +213,19 @@ class NetworkConnector:
             if not isinstance(proxy_config, SSHProxyConfig):
                 raise ValueError("SSH proxy configuration is invalid")
             narrowed_proxy_config = proxy_config
-            sock = self._open_proxy_channel(narrowed_proxy_config)
+            sock = self._open_proxy_channel(narrowed_proxy_config, kind="ssh")
 
-        client = self._create_ssh_client()
+        client = None
         try:
+            client = self._create_ssh_client()
             client.connect(**self._build_paramiko_connect_kwargs(sock=sock))
+            transport = client.get_transport()
+            if transport is not None:
+                transport.set_keepalive(30)
             self.channel = client.invoke_shell(term="xterm-256color")
         except Exception as exc:
-            client.close()
+            if client is not None:
+                client.close()
             if narrowed_proxy_config is not None:
                 self.close()
                 raise SSHTargetConnectionThroughProxyError(
@@ -253,13 +275,15 @@ class NetworkConnector:
             raise ValueError("Network device authentication material is required")
         return connect_kwargs
 
-    def _open_proxy_channel(self, proxy_config: SSHProxyConfig) -> Any:
-        proxy_client = self._create_ssh_client()
+    def _open_proxy_channel(self, proxy_config: SSHProxyConfig, kind: str) -> Any:
+        proxy_client = None
         proxy_channel = None
         try:
+            proxy_client = self._create_ssh_client()
             proxy_client.connect(**self._build_proxy_connect_kwargs(proxy_config))
         except Exception as exc:
-            proxy_client.close()
+            if proxy_client is not None:
+                proxy_client.close()
             raise SSHProxyConnectionError(
                 f"Failed to connect to SSH proxy asset {proxy_config.name} ({proxy_config.host}:{proxy_config.port})."
             ) from exc
@@ -270,6 +294,7 @@ class NetworkConnector:
             raise SSHProxyChannelOpenError(
                 f"SSH proxy asset {proxy_config.name} did not provide an SSH transport."
             )
+        transport.set_keepalive(30)
 
         host = self.ssh_params.get("host")
         port = self.ssh_params.get("port", 22)
@@ -278,6 +303,7 @@ class NetworkConnector:
                 "direct-tcpip",
                 (host, port),
                 ("127.0.0.1", 0),
+                timeout=15.0,
             )
         except Exception as exc:
             proxy_client.close()
@@ -291,9 +317,21 @@ class NetworkConnector:
                 f"SSH proxy asset {proxy_config.name} could not open a channel to {host}:{port}."
             )
 
-        self._close_proxy()
-        self.proxy_client = proxy_client
-        self.proxy_channel = proxy_channel
+        if kind == "netmiko":
+            if self.netmiko_proxy_channel is not None:
+                self.netmiko_proxy_channel.close()
+            if self.netmiko_proxy_client is not None:
+                self.netmiko_proxy_client.close()
+            self.netmiko_proxy_client = proxy_client
+            self.netmiko_proxy_channel = proxy_channel
+        else:
+            if self.ssh_proxy_channel is not None:
+                self.ssh_proxy_channel.close()
+            if self.ssh_proxy_client is not None:
+                self.ssh_proxy_client.close()
+            self.ssh_proxy_client = proxy_client
+            self.ssh_proxy_channel = proxy_channel
+
         return proxy_channel
 
     def _build_proxy_connect_kwargs(self, proxy_config: SSHProxyConfig) -> dict[str, object]:

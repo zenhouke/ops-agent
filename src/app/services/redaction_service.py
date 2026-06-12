@@ -55,7 +55,14 @@ class RedactionService:
         if isinstance(value, str):
             return self.redact_text(value)
         if isinstance(value, Mapping):
-            return {key: self.redact_value(item) for key, item in value.items()}
+            return {
+                key: (
+                    _REDACTED
+                    if self._is_sensitive_key(str(key)) and isinstance(item, (str, int, float, bool))
+                    else self.redact_value(item)
+                )
+                for key, item in value.items()
+            }
         if isinstance(value, list):
             return [self.redact_value(item) for item in value]
         if isinstance(value, tuple):

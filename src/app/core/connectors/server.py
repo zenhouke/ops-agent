@@ -120,6 +120,9 @@ class ServerConnector:
             self.passphrase,
         )
         self._connect_client(client, connect_kwargs)
+        transport = client.get_transport()
+        if transport is not None:
+            transport.set_keepalive(30)
         self.client = client
 
     def _connect_through_proxy(self, proxy_config: SSHProxyConfig) -> None:
@@ -148,12 +151,14 @@ class ServerConnector:
             raise SSHProxyChannelOpenError(
                 f"SSH proxy asset {proxy_config.name} did not provide an SSH transport."
             )
+        transport.set_keepalive(30)
 
         try:
             proxy_channel = transport.open_channel(
                 "direct-tcpip",
                 (self.host, self.port),
                 ("127.0.0.1", 0),
+                timeout=15.0,
             )
         except Exception as exc:
             proxy_client.close()
@@ -167,8 +172,9 @@ class ServerConnector:
                 f"SSH proxy asset {proxy_config.name} could not open a channel to {self.host}:{self.port}."
             )
 
-        target_client = self._create_ssh_client()
+        target_client = None
         try:
+            target_client = self._create_ssh_client()
             self._connect_client(
                 target_client,
                 self._build_connect_kwargs(
@@ -182,12 +188,17 @@ class ServerConnector:
                 ),
             )
         except Exception as exc:
-            target_client.close()
+            if target_client is not None:
+                target_client.close()
             proxy_channel.close()
             proxy_client.close()
             raise SSHTargetConnectionThroughProxyError(
                 f"Target SSH connection to {self.host}:{self.port} failed through proxy asset {proxy_config.name}."
             ) from exc
+
+        target_transport = target_client.get_transport()
+        if target_transport is not None:
+            target_transport.set_keepalive(30)
 
         self.proxy_client = proxy_client
         self.proxy_channel = proxy_channel
@@ -331,6 +342,8 @@ def connector_factory(asset):
         password, private_key, passphrase = resolve_auth_material(asset)
         proxy_asset_id = getattr(asset, "proxy_asset_id", None)
         if proxy_asset_id is not None:
+            if proxy_asset_id == asset_id:
+                raise SSHProxyConfigurationError("Asset cannot use itself as a proxy")
             proxy_target_types = {"linux", "network", "cisco", "huawei", "juniper", "h3c"}
             if asset_type not in proxy_target_types:
                 raise SSHProxyUnsupportedTargetError(

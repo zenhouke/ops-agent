@@ -6,6 +6,8 @@ import uuid
 from datetime import UTC, datetime
 from pathlib import Path
 
+from typing import List
+
 from pydantic import ValidationError
 
 from app.services.knowledge_models import (
@@ -28,6 +30,7 @@ class KnowledgeDocumentStore:
         self,
         draft: KnowledgeDraft,
         source_conversation: KnowledgeSourceConversation,
+        embedding: List[float] | None = None,
     ) -> KnowledgeEntry:
         timestamp = self._now_iso()
         entry = KnowledgeEntry(
@@ -42,6 +45,7 @@ class KnowledgeDocumentStore:
             tags=list(draft.tags),
             sources=list(draft.sources),
             sourceConversation=source_conversation,
+            embedding=embedding,
             createdAt=timestamp,
             updatedAt=timestamp,
         )
@@ -82,6 +86,7 @@ class KnowledgeDocumentStore:
         entry_id: str,
         draft: KnowledgeDraft,
         source_conversation: KnowledgeSourceConversation,
+        embedding: List[float] | None = None,
     ) -> KnowledgeEntry:
         existing = self.get(entry_id)
         updated = KnowledgeEntry(
@@ -96,6 +101,7 @@ class KnowledgeDocumentStore:
             tags=list(draft.tags),
             sources=list(draft.sources),
             sourceConversation=source_conversation,
+            embedding=embedding if embedding is not None else existing.embedding,
             createdAt=existing.created_at,
             updatedAt=self._now_iso(),
         )
