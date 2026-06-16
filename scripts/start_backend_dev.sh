@@ -15,6 +15,6 @@ if [ -f ".env" ]; then
 fi
 
 export PYTHONPATH="$ROOT_DIR/src:${PYTHONPATH:-}"
-export OPS_AGENT_BACKEND_PORT="${OPS_AGENT_BACKEND_PORT:-8000}"
+export OPS_AGENT_PORT="${OPS_AGENT_PORT:-${OPS_AGENT_BACKEND_PORT:-8000}}"
 
 exec python3 src/app/main.py

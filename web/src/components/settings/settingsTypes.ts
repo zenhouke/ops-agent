@@ -1,9 +1,9 @@
 import type { FormEvent } from 'react'
 import type { Language } from '../../i18n/translations'
 import type { ResolvedTheme, ThemeMode } from '../../hooks/useAppearance'
-import type { AssetGroup, MCPApprovalPolicy, MCPServer, MCPTool, MCPTransport, ModelConfig, SSHKey, SkillPackage } from '../../types/ops'
+import type { Asset, AssetGroup, MCPApprovalPolicy, MCPServer, MCPTool, MCPTransport, ModelConfig, SSHKey, SkillPackage } from '../../types/ops'
 
-export type SettingsSection = 'appearance' | 'groups' | 'models' | 'sshKeys' | 'permissions' | 'skills' | 'mcp'
+export type SettingsSection = 'appearance' | 'groups' | 'models' | 'sshKeys' | 'permissions' | 'skills' | 'mcp' | 'scheduler'
 
 export type GroupForm = {
   name: string
@@ -53,6 +53,7 @@ export type SettingsDialogProps = {
   initialGroups: AssetGroup[]
   selectedModel: string
   sshKeys: SSHKey[]
+  assets: Asset[]
   onSelectedModelChange: (model: string) => void
   onGroupsChange: (groups: AssetGroup[]) => void
   onModelOptionsChange: (modelOptions: string[]) => void

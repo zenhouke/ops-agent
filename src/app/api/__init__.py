@@ -17,8 +17,11 @@ from app.api.skills import router as skills_router
 from app.api.ssh_keys import router as ssh_keys_router
 from app.api.system import router as system_router
 from app.api.terminal import get_terminal_service, router as terminal_router
+from app.api.scheduler import router as scheduler_router
+from app.api.alerts import router as alerts_router
 from app.db.session import Session, engine, init_db
 from app.services.asset_service import ensure_default_asset_group
+from app.services.scheduler_service import get_scheduler_service
 
 
 @asynccontextmanager
@@ -26,7 +29,11 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     init_db()
     with Session(engine) as session:
         ensure_default_asset_group(session)
-    yield
+    get_scheduler_service().start_loop()
+    try:
+        yield
+    finally:
+        get_scheduler_service().stop_loop()
 
 
 app = FastAPI(title="Ops Agent API", lifespan=lifespan)
@@ -54,6 +61,8 @@ app.include_router(knowledge_router)
 app.include_router(skills_router)
 app.include_router(ssh_keys_router)
 app.include_router(system_router)
+app.include_router(scheduler_router)
+app.include_router(alerts_router)
 
 
 __all__ = [
@@ -73,4 +82,6 @@ __all__ = [
     "ssh_keys_router",
     "system_router",
     "terminal_router",
+    "scheduler_router",
+    "alerts_router",
 ]

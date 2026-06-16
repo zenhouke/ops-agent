@@ -77,3 +77,13 @@ export type {
   KnowledgeSourceConversation,
   KnowledgeSourceRef,
 } from '../types/ops'
+export {
+  getAlerts,
+  updateAlertStatus,
+  getScheduledJobs,
+  createScheduledJob,
+  updateScheduledJob,
+  deleteScheduledJob,
+  triggerScheduledJob,
+} from './alerts'
+export type { Alert, ScheduledJob } from '../types/alerts'

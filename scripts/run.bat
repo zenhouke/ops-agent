@@ -25,8 +25,13 @@ if exist .env (
     )
 )
 
-echo Stopping processes on ports 8000 and 5173...
-for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":8000" ^| findstr "LISTENING"') do (
+if "%OPS_AGENT_PORT%"=="" (
+    set "OPS_AGENT_PORT=8000"
+)
+set "VITE_API_PROXY_TARGET=http://127.0.0.1:%OPS_AGENT_PORT%"
+
+echo Stopping processes on ports %OPS_AGENT_PORT% and 5173...
+for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":%OPS_AGENT_PORT%" ^| findstr "LISTENING"') do (
     taskkill /T /F /PID %%a 2>nul
 )
 for /f "tokens=5" %%a in ('netstat -aon ^| findstr ":5173" ^| findstr "LISTENING"') do (
@@ -37,6 +42,7 @@ echo Starting Ops Agent Backend...
 start /b python src\app\main.py >logs\backend.log 2>&1
 
 echo Starting Ops Agent Frontend...
+echo Frontend API proxy target: %VITE_API_PROXY_TARGET%
 cd web
 npm run dev
 

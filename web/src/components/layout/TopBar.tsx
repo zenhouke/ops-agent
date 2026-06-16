@@ -1,12 +1,22 @@
 import logoUrl from '../../public/logo.png'
 import { useAppearance } from '../../hooks/useAppearance'
+import { NotificationCenter } from './NotificationCenter'
 
 type TopBarProps = {
   onOpenSettings?: () => void
   onOpenKnowledge?: () => void
+  assets?: Array<{ id: number; name: string }>
+  onSelectConversation?: (conversationId: string) => void
+  onSelectAsset?: (assetId: number) => void
 }
 
-export function TopBar({ onOpenSettings, onOpenKnowledge }: TopBarProps) {
+export function TopBar({
+  onOpenSettings,
+  onOpenKnowledge,
+  assets = [],
+  onSelectConversation = () => {},
+  onSelectAsset = () => {},
+}: TopBarProps) {
   const { t } = useAppearance()
 
   return (
@@ -22,7 +32,7 @@ export function TopBar({ onOpenSettings, onOpenKnowledge }: TopBarProps) {
           <p className="text-[9px]  tracking-[0.2em] text-ops-muted/50 font-bold">{t('topBar.subtitle')}</p>
         </div>
       </div>
-      <div className="flex items-center gap-6" aria-label="System status">
+      <div className="flex items-center gap-3 sm:gap-6" aria-label="System status">
         <button
           type="button"
           onClick={onOpenKnowledge}
@@ -35,6 +45,11 @@ export function TopBar({ onOpenSettings, onOpenKnowledge }: TopBarProps) {
           </svg>
           <span className="hidden sm:inline">知识库</span>
         </button>
+        <NotificationCenter
+          assets={assets}
+          onSelectConversation={onSelectConversation}
+          onSelectAsset={onSelectAsset}
+        />
         <button type="button" onClick={onOpenSettings} className="button flex h-8 w-8 items-center justify-center p-0 active:scale-95" aria-label={t('topBar.openSettings')}>
           <svg viewBox="0 0 24 24" className="h-4 w-4" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
             <path d="M12 15.5a3.5 3.5 0 1 0 0-7 3.5 3.5 0 0 0 0 7Z" />

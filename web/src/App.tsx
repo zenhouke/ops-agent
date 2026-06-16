@@ -238,6 +238,11 @@ export function App() {
       <TopBar
         onOpenSettings={() => setActiveModal('settings')}
         onOpenKnowledge={() => setKnowledgeDrawerOpen(true)}
+        assets={bootstrap.assets}
+        onSelectConversation={(conversationId) => {
+          void loadConversation(conversationId)
+        }}
+        onSelectAsset={selectAsset}
       />
 
       <main className="flex flex-1 overflow-hidden">
@@ -414,6 +419,7 @@ export function App() {
         <SettingsDialog
           initialGroups={bootstrap.groups}
           sshKeys={bootstrap.sshKeys}
+          assets={bootstrap.assets}
           selectedModel={selectedModel}
           onSelectedModelChange={setSelectedModel}
           onGroupsChange={replaceGroups}

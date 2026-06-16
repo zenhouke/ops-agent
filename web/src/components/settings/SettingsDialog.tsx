@@ -38,6 +38,7 @@ import { ModelsSection } from './ModelsSection'
 import { PermissionsSection } from './PermissionsSection'
 import { SkillsSection } from './SkillsSection'
 import { SSHKeysSection } from './SSHKeysSection'
+import { SchedulerSection } from './SchedulerSection'
 import { modelProviderPresets } from '../../types/modelProviderPresets'
 import type { GroupForm, MCPServerForm, ModelForm, PermissionsForm, SettingsDialogProps, SettingsSection, SSHKeyForm } from './settingsTypes'
 
@@ -163,7 +164,7 @@ const emptyErrorByDomain: Record<OperationDomain, string | null> = {
   mcp: null,
 }
 
-export function SettingsDialog({ initialGroups, selectedModel, sshKeys: initialSSHKeys, onSelectedModelChange, onGroupsChange, onModelOptionsChange, onSSHKeysChange, onClose }: SettingsDialogProps) {
+export function SettingsDialog({ initialGroups, selectedModel, sshKeys: initialSSHKeys, assets, onSelectedModelChange, onGroupsChange, onModelOptionsChange, onSSHKeysChange, onClose }: SettingsDialogProps) {
   const { language, themeMode, resolvedTheme, setLanguage, setThemeMode, t } = useAppearance()
   const [activeSection, setActiveSection] = useState<SettingsSection>('appearance')
   const [groups, setGroups] = useState<AssetGroup[]>(initialGroups)
@@ -653,8 +654,8 @@ export function SettingsDialog({ initialGroups, selectedModel, sshKeys: initialS
           </div>
           <button type="button" className="h-8 px-4 text-[11px] font-bold  tracking-widest rounded-lg transition-all duration-200 text-ops-muted hover:text-ops-text hover:bg-ops-border/30 active:scale-95" onClick={onClose}>{t('common.close')}</button>
         </div>
-        <div className="flex flex-1 overflow-hidden">
-          <nav className="w-[220px] border-r border-ops-border/20 bg-ops-deep/40 p-4 flex flex-col gap-2 shrink-0 overflow-y-auto" aria-label={t('settings.navigation')}>
+        <div className="flex flex-1 flex-col overflow-hidden md:flex-row">
+          <nav className="flex max-h-28 shrink-0 gap-2 overflow-x-auto overflow-y-hidden border-b border-ops-border/20 bg-ops-deep/40 p-3 md:max-h-none md:w-[220px] md:flex-col md:overflow-x-hidden md:overflow-y-auto md:border-b-0 md:border-r md:p-4" aria-label={t('settings.navigation')}>
             <button type="button" className={`w-full text-left px-4 py-3 rounded-xl transition-all duration-200 text-[11px] font-bold  active:scale-[0.98] ${activeSection === 'appearance' ? 'bg-ops-cyan/15 text-ops-cyan shadow-glow border border-ops-cyan/30' : 'text-ops-muted hover:text-ops-text hover:bg-ops-panel/60 border border-transparent'}`} onClick={() => setActiveSection('appearance')}>{t('settings.appearance')}</button>
             <button type="button" className={`w-full text-left px-4 py-3 rounded-xl transition-all duration-200 text-[11px] font-bold  active:scale-[0.98] ${activeSection === 'groups' ? 'bg-ops-cyan/15 text-ops-cyan shadow-glow border border-ops-cyan/30' : 'text-ops-muted hover:text-ops-text hover:bg-ops-panel/60 border border-transparent'}`} onClick={() => setActiveSection('groups')}>{t('settings.groups')}</button>
             <button type="button" className={`w-full text-left px-4 py-3 rounded-xl transition-all duration-200 text-[11px] font-bold  active:scale-[0.98] ${activeSection === 'models' ? 'bg-ops-cyan/15 text-ops-cyan shadow-glow border border-ops-cyan/30' : 'text-ops-muted hover:text-ops-text hover:bg-ops-panel/60 border border-transparent'}`} onClick={() => setActiveSection('models')}>{t('settings.models')}</button>
@@ -662,6 +663,7 @@ export function SettingsDialog({ initialGroups, selectedModel, sshKeys: initialS
             <button type="button" className={`w-full text-left px-4 py-3 rounded-xl transition-all duration-200 text-[11px] font-bold  active:scale-[0.98] ${activeSection === 'permissions' ? 'bg-ops-cyan/15 text-ops-cyan shadow-glow border border-ops-cyan/30' : 'text-ops-muted hover:text-ops-text hover:bg-ops-panel/60 border border-transparent'}`} onClick={() => setActiveSection('permissions')}>{t('settings.permissions')}</button>
             <button type="button" className={`w-full text-left px-4 py-3 rounded-xl transition-all duration-200 text-[11px] font-bold  active:scale-[0.98] ${activeSection === 'skills' ? 'bg-ops-cyan/15 text-ops-cyan shadow-glow border border-ops-cyan/30' : 'text-ops-muted hover:text-ops-text hover:bg-ops-panel/60 border border-transparent'}`} onClick={() => setActiveSection('skills')}>{t('settings.skills')}</button>
             <button type="button" className={`w-full text-left px-4 py-3 rounded-xl transition-all duration-200 text-[11px] font-bold  active:scale-[0.98] ${activeSection === 'mcp' ? 'bg-ops-cyan/15 text-ops-cyan shadow-glow border border-ops-cyan/30' : 'text-ops-muted hover:text-ops-text hover:bg-ops-panel/60 border border-transparent'}`} onClick={() => setActiveSection('mcp')}>{t('settings.mcp')}</button>
+            <button type="button" className={`w-full text-left px-4 py-3 rounded-xl transition-all duration-200 text-[11px] font-bold  active:scale-[0.98] ${activeSection === 'scheduler' ? 'bg-ops-cyan/15 text-ops-cyan shadow-glow border border-ops-cyan/30' : 'text-ops-muted hover:text-ops-text hover:bg-ops-panel/60 border border-transparent'}`} onClick={() => setActiveSection('scheduler')}>{t('settings.scheduler')}</button>
           </nav>
           <div className="flex-1 p-6 overflow-y-auto bg-ops-panel/50 relative">
             {loadError ? <div className="p-4 mb-6 rounded-md bg-red-500/10 border border-red-500/20 text-red-500 text-sm flex items-center justify-between">{loadError}<button type="button" className="px-3 py-1.5 rounded-md bg-ops-border/20 hover:bg-ops-border/30 transition-colors text-ops-text text-sm" onClick={() => void loadSettings()}>{t('common.retry')}</button></div> : null}
@@ -741,6 +743,8 @@ export function SettingsDialog({ initialGroups, selectedModel, sshKeys: initialS
                 error={skillsError}
                 onRetry={() => void loadSkills()}
               />
+            ) : activeSection === 'scheduler' ? (
+              <SchedulerSection assets={assets} />
             ) : (
               <McpSection
                 servers={mcpServers}

@@ -136,9 +136,9 @@ class ModelService:
             )
             
             if hasattr(response, "embeddings") and response.embeddings:
-                return [float(x) for x in response.embeddings[0].values]
+                return list(response.embeddings[0].values)
             elif hasattr(response, "embedding") and response.embedding:
-                return [float(x) for x in response.embedding.values]
+                return list(response.embedding.values)
             raise ValueError("Failed to retrieve embedding values from Gemini response")
 
         elif config.provider is ModelProvider.ANTHROPIC:
@@ -163,7 +163,7 @@ class ModelService:
                 input=[text.strip()],
                 model=model,
             )
-            return [float(x) for x in response.data[0].embedding]
+            return response.data[0].embedding
 
     def _fallback_conversation_title(self, prompt: str) -> str:
         text = prompt.strip()

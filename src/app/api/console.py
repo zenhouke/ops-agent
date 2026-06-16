@@ -42,6 +42,10 @@ def get_task_orchestrator(terminal_service: TerminalService = Depends(get_termin
     return _console_app_service.build_orchestrator(terminal_service)
 
 
+def get_console_app_service() -> ConsoleAppService:
+    return _console_app_service
+
+
 @router.get("/api/console/bootstrap")
 def get_console_bootstrap(
     session: Session = Depends(get_session),

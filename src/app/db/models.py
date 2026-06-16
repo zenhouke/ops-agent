@@ -107,3 +107,31 @@ class AuditLog(SQLModel, table=True):
     task_id: int | None = None
     details: str = ""
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class ScheduledJob(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "scheduled_jobs"  # pyright: ignore[reportIncompatibleVariableOverride]
+    id: int | None = Field(default=None, primary_key=True)
+    name: str
+    asset_id: int
+    prompt: str
+    interval_seconds: int = 3600
+    enabled: bool = True
+    last_run_at: datetime | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class Alert(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "alerts"  # pyright: ignore[reportIncompatibleVariableOverride]
+    id: int | None = Field(default=None, primary_key=True)
+    job_id: int | None = None
+    asset_id: int
+    runtime_id: str | None = None
+    conversation_id: str | None = None
+    severity: str = "warning"  # 'info', 'warning', 'critical'
+    title: str
+    message: str
+    status: str = "unread"  # 'unread', 'resolved', 'ignored'
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

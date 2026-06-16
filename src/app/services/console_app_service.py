@@ -193,7 +193,7 @@ class ConsoleAppService:
     def _context_percent_for_status_event(self, *, context_percent: int, token_usage: dict[str, int], model_config) -> int:
         if context_percent > 0:
             return context_percent
-        return self._context_manager().context_percent_for_tokens(int(token_usage.get("totalTokens") or 0), model_config)
+        return self._context_manager().context_percent_for_tokens(token_usage.get("totalTokens") or 0, model_config)
 
     def _context_status_for_percent(self, context_percent: int):
         return self._context_manager().status_for_percent(context_percent)
