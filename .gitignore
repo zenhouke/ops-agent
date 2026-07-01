@@ -30,3 +30,4 @@ web/bin/
 logs/
 .playwright-mcp/
 .codegraph/
+.agents/

@@ -4,7 +4,6 @@ import type {
   ConversationContextStatus,
   ConversationSummary,
   EventItem,
-  PlanStep,
   RuntimeSnapshot,
   RuntimeSummary,
 } from '../../types/ops'
@@ -51,8 +50,6 @@ type AssistantPanelProps = {
   onReject: () => void
   onTerminalRequestDecision?: (input: { runtimeId: string; requestId: string; approvalToken: string; approved: boolean }) => Promise<void>
   onLoadOlderEvents: () => Promise<void>
-  onSavePlan: (runtimeId: string, steps: PlanStep[]) => Promise<void>
-  onApprovePlan: (runtimeId: string) => Promise<void>
 }
 
 function backgroundRunCopy(run: BackgroundRunState) {
@@ -96,8 +93,6 @@ export function AssistantPanel({
   onReject,
   onTerminalRequestDecision,
   onLoadOlderEvents,
-  onSavePlan,
-  onApprovePlan,
 }: AssistantPanelProps) {
   const { t } = useAppearance()
   const backgroundRunInfo = backgroundRun ? backgroundRunCopy(backgroundRun) : null
@@ -154,8 +149,6 @@ export function AssistantPanel({
             onApprove={onApprove}
             onReject={onReject}
             onTerminalRequestDecision={onTerminalRequestDecision}
-            onSavePlan={onSavePlan}
-            onApprovePlan={onApprovePlan}
           />
 
           <PromptInput

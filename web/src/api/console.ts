@@ -10,7 +10,7 @@ import type {
   RuntimeSnapshotDto,
   RuntimeSummaryDto,
 } from '../types/api'
-import type { EventItem, PlanStep, RuntimeEventEnvelope, RuntimeSnapshot, RuntimeSummary } from '../types/ops'
+import type { EventItem, RuntimeEventEnvelope, RuntimeSnapshot, RuntimeSummary } from '../types/ops'
 
 type ConsoleBootstrapDto = Omit<ConsoleBootstrap, 'assets' | 'groups'> & {
   assets: Parameters<typeof mapAsset>[0][]
@@ -213,13 +213,6 @@ export async function streamApproveAgent(runtimeId: string, approved: boolean, a
   return readEventStream(response)
 }
 
-export async function updateRuntimePlan(runtimeId: string, steps: PlanStep[]): Promise<EventItem> {
-  return requestJson<EventItem>(`/api/console/runtimes/${runtimeId}/plan`, {
-    method: 'PUT',
-    body: JSON.stringify({ steps }),
-  })
-}
-
 export type TerminalRequestDecisionInput = {
   runtimeId: string
   approvalToken: string
@@ -241,12 +234,5 @@ export async function streamDecideTerminalRequest(
       }),
     },
   )
-  return readEventStream(response)
-}
-
-export async function streamApproveRuntimePlan(runtimeId: string): Promise<AsyncGenerator<EventItem, void, void>> {
-  const response = await requestEventStream(`/api/console/runtimes/${runtimeId}/plan/approve`, {
-    method: 'POST',
-  })
   return readEventStream(response)
 }

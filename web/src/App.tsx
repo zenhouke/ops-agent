@@ -114,8 +114,6 @@ export function App() {
     approveRun,
     rejectRun,
     decideTerminalAccess,
-    savePlan,
-    approvePlan,
   } = useAgentRun({
     activeConversationId,
     activeConversationTitle,
@@ -320,8 +318,6 @@ export function App() {
                 }}
                 onTerminalRequestDecision={decideTerminalAccess}
                 onLoadOlderEvents={loadOlderConversationEvents}
-                onSavePlan={savePlan}
-                onApprovePlan={approvePlan}
               />
             ) : loadError ? (
               <section className={centerFallbackClassName}>

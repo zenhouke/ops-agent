@@ -7,9 +7,7 @@ export {
   getRuntimeSnapshot,
   listConversationRuntimes,
   streamApproveAgent,
-  streamApproveRuntimePlan,
   streamRunAgent,
-  updateRuntimePlan,
 } from './console'
 export { getApprovalPolicy, updateApprovalPolicy } from './approval'
 export type { ApprovalPolicy } from './approval'

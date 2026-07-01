@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { EmptyState } from '../layout/EmptyState'
-import type { EventItem, PlanStep } from '../../types/ops'
+import type { EventItem } from '../../types/ops'
 import { CommandExecutionCard } from './conversation/CommandExecutionCard'
 import { PlanSummaryCard } from './conversation/PlanSummaryCard'
 import { AssistantMessageContent } from './conversation/AssistantMessageContent'
@@ -17,8 +17,6 @@ type ConversationViewProps = {
   onApprove?: (allowPrefix?: string) => void
   onReject?: () => void
   onTerminalRequestDecision?: (input: { runtimeId: string; requestId: string; approvalToken: string; approved: boolean }) => Promise<void>
-  onSavePlan?: (runtimeId: string, steps: PlanStep[]) => Promise<void>
-  onApprovePlan?: (runtimeId: string) => Promise<void>
 }
 
 const MAX_RENDERED_TURNS = 80
@@ -32,8 +30,6 @@ export function ConversationView({
   onApprove,
   onReject,
   onTerminalRequestDecision,
-  onSavePlan,
-  onApprovePlan,
 }: ConversationViewProps) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const shouldAutoScrollRef = useRef(true)
@@ -91,7 +87,7 @@ export function ConversationView({
     <div className="relative flex flex-1 flex-col overflow-hidden" aria-label="Assistant Conversation">
       {latestPlanEvent?.mode === 'plan' ? (
         <div className="absolute right-4 top-3 z-30 w-[min(380px,calc(100%-2rem))]">
-          <PlanSummaryCard event={latestPlanEvent} onSave={onSavePlan} onApprove={onApprovePlan} />
+          <PlanSummaryCard event={latestPlanEvent} />
         </div>
       ) : null}
       <div ref={scrollContainerRef} className={`flex flex-1 flex-col gap-5 overflow-y-auto px-4 py-4 ${latestPlanEvent?.mode === 'plan' ? 'pt-20' : ''}`}>
@@ -172,7 +168,7 @@ export function ConversationView({
                           return null
                         }
 
-                        return <div key={entry.event.id} className="max-w-[560px]"><PlanSummaryCard event={entry.event} onSave={onSavePlan} onApprove={onApprovePlan} /></div>
+                        return <div key={entry.event.id} className="max-w-[560px]"><PlanSummaryCard event={entry.event} /></div>
                       }
 
                       return (
