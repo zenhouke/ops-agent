@@ -4,6 +4,8 @@ setlocal enabledelayedexpansion
 cd /d "%~dp0.."
 
 set PYTHONPATH=%PYTHONPATH%;%~dp0..\src
+rem SSLKEYLOGFILE can crash Python/OpenSSL on Windows with "no OPENSSL_Applink".
+set "SSLKEYLOGFILE="
 
 if not exist logs (
     mkdir logs

@@ -128,7 +128,7 @@ export function CommandExecutionCard({
   const targetTerminalId = typeof args.terminal_id === 'string' ? args.terminal_id : ((startEvent as any)?.terminalId ?? (startEvent as any)?.terminal_id)
   const targetLabel = [targetAssetName, targetTerminalId ? `terminal ${String(targetTerminalId).slice(0, 8)}` : undefined]
     .filter(Boolean)
-    .join(' · ')
+    .join(' - ')
 
   // Parse command: if it's JSON like {"command":"lshw -short"}, extract the actual command
   const displayCommand = (() => {
@@ -149,26 +149,34 @@ export function CommandExecutionCard({
   })()
   const toolSummary = isCommandTool
     ? displayCommand
-    : (toolDisplayText || toolDescription || toolName ? [toolDisplayText || toolName, toolDescription].filter(Boolean).join(' — ') : '')
+    : (toolDisplayText || toolDescription || toolName ? [toolDisplayText || toolName, toolDescription].filter(Boolean).join(' - ') : '')
 
-  const outputText = message?.toolOutput ?? chunkEvents.map((event) => event.text).join('')
+  const chunkOutputText = chunkEvents.map((event) => event.text).join('')
+  const endExitCode = (endEvent as any)?.exitCode ?? (endEvent as any)?.exit_code
+  const hasExecutionResult = Boolean(endEvent) || (message ? message.type === 'say' && message.say === 'tool_use' && !message.partial : false)
+  const messageOutputText = hasExecutionResult ? (message?.toolOutput ?? '') : ''
+  const outputText = chunkOutputText || messageOutputText
   const structuredOutput = parseTerminalToolOutput(outputText)
-  const exitCode = message ? message.exitCode : ((endEvent as any)?.exitCode ?? (endEvent as any)?.exit_code)
-  const hasExecutionResult = message ? message.type === 'say' && message.say === 'tool_use' && !message.partial : !!endEvent
+  const exitCode = endExitCode ?? message?.exitCode
+  const hasLiveOutput = chunkOutputText.length > 0
   const commandTokens = displayCommand.trim().split(/\s+/).filter(Boolean)
   const allowPrefixOptions = Array.from(new Set([displayCommand.trim(), commandTokens[0]].filter(Boolean)))
   
   const isMessageAsk = message?.type === 'ask'
-  const approvalStatus = isMessageAsk ? 'pending' : (message?.type === 'say' && message?.say === 'tool_use' && !message.partial ? 'approved' : (approvalEvent?.status ?? (approvalEvent ? 'pending' : undefined)))
+  const approvalStatus = hasExecutionResult
+    ? 'approved'
+    : isMessageAsk
+      ? 'pending'
+      : (message?.type === 'say' && message?.say === 'tool_use' && !message.partial ? 'approved' : (approvalEvent?.status ?? (approvalEvent ? 'pending' : undefined)))
   
   // For ask-type messages: show buttons when pendingApprovalRuntimeId is set (stream guarantees correctness)
   // For legacy approval events: match on runtimeId
-  const showApprovalActions = pendingApprovalRuntimeId !== null && (
+  const showApprovalActions = !hasExecutionResult && pendingApprovalRuntimeId !== null && (
     isMessageAsk || 
     (approvalStatus === 'pending' && approvalEvent?.runtimeId === pendingApprovalRuntimeId)
   )
 
-  const isRunning = message ? message.partial : (!endEvent && !approvalStatus)
+  const isRunning = message ? Boolean(message.partial) : (!endEvent && !approvalStatus)
 
   useEffect(() => {
     if (showApprovalActions && approvalStatus === 'pending') {
@@ -194,7 +202,7 @@ export function CommandExecutionCard({
         </div>
 
         <div className="flex items-center gap-3">
-          {(message ? !message.partial : !!endEvent) ? (
+          {hasExecutionResult ? (
             <div className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[9px] font-black uppercase tracking-[0.12em] ${exitCode === null || exitCode === 0 ? 'border-ops-green/25 bg-ops-green/8 text-ops-green' : 'border-ops-danger/30 bg-ops-danger/8 text-ops-danger'}`}>
               <div className={`h-1.5 w-1.5 rounded-full ${exitCode === null || exitCode === 0 ? 'bg-ops-green' : 'bg-ops-danger'}`} />
               {exitCode === null || exitCode === 0 ? t('conversation.success') : t('conversation.errorCode', { code: String(exitCode) })}
@@ -307,7 +315,7 @@ export function CommandExecutionCard({
             </section>
           )}
 
-          {hasExecutionResult && (
+          {(hasExecutionResult || hasLiveOutput) && (
             <div className="flex flex-col gap-1.5">
               <span className="text-[9px] font-bold tracking-widest text-ops-muted/60 uppercase">{t('conversation.executionOutput')}</span>
               {structuredOutput ? <StructuredTerminalToolOutput output={structuredOutput} /> : <OutputBlock text={outputText || t('conversation.noOutput')} />}
@@ -316,7 +324,7 @@ export function CommandExecutionCard({
         </div>
       )}
 
-      {!isExpanded && hasExecutionResult && (
+      {!isExpanded && (hasExecutionResult || hasLiveOutput) && (
         <div className="mt-1.5 ml-9 flex items-center gap-2 overflow-hidden border-t border-ops-border/10 pt-1.5">
           <span className="shrink-0 text-[9px] font-bold tracking-[0.05em] text-ops-muted/40 uppercase">{t('conversation.output')}</span>
           <span className="truncate font-mono text-[11px] text-ops-muted/60">

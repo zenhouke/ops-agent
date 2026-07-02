@@ -55,6 +55,8 @@ class ModelsView(BaseModel):
     provider: str
     selected_model: str
     available_models: list[str]
+    model_configured: bool = True
+    configuration_message: str = ""
 
 
 class ModelConfigView(BaseModel):
@@ -386,6 +388,8 @@ class ConsoleBootstrapView(BaseModel):
     groups: list[AssetGroupView]
     historyByAsset: dict[int, list[ConsoleSessionRecordView]]
     modelOptions: list[str]
+    modelConfigured: bool = True
+    modelConfigurationMessage: str = ""
     sshKeys: list[SSHKeyView] = Field(default_factory=list)
     terminalSessionId: str | None = None
     terminalSessionChannel: str | None = None
@@ -419,6 +423,36 @@ class ConsoleRunRequest(BaseModel):
     model_name: str | None = None
     selected_skill_name: str | None = None
     terminal_context: dict | None = None
+
+
+class ConsoleOrchestrationResolveTargetsRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    prompt: str
+    current_asset_id: int | None = Field(default=None, alias="currentAssetId")
+    conversation_id: str = Field(default="console", alias="conversationId")
+    model_name: str | None = Field(default=None, alias="modelName")
+
+
+class ConsoleOrchestrationResolveTargetsResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    target_asset_ids: list[int] = Field(alias="targetAssetIds")
+    target_selection_source: str = Field(alias="targetSelectionSource")
+    target_selection_reason: str = Field(alias="targetSelectionReason")
+    confidence: str = "medium"
+
+
+class ConsoleOrchestrationRunRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    prompt: str
+    current_asset_id: int | None = Field(default=None, alias="currentAssetId")
+    target_asset_ids: list[int] | None = Field(default=None, alias="targetAssetIds")
+    conversation_id: str = Field(default="console", alias="conversationId")
+    model_name: str | None = Field(default=None, alias="modelName")
+    selected_skill_name: str | None = Field(default=None, alias="selectedSkillName")
+    max_concurrency: int = Field(default=3, alias="maxConcurrency", ge=1, le=10)
 
 
 class ConsoleApprovalRequest(BaseModel):
@@ -457,6 +491,19 @@ class RuntimeStepView(BaseModel):
     status: str
     output: str = ""
     exit_code: int | None = None
+
+
+class RuntimePendingApprovalView(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    runtime_id: str = Field(alias="runtimeId")
+    step_id: str | None = Field(default=None, alias="stepId")
+    message_id: str | None = Field(default=None, alias="messageId")
+    tool_call_id: str | None = Field(default=None, alias="toolCallId")
+    tool_name: str | None = Field(default=None, alias="toolName")
+    approval_token: str | None = Field(default=None, alias="approvalToken")
+    command: str = ""
+    args: dict[str, Any] = Field(default_factory=dict)
 
 
 class TerminalRequestView(BaseModel):
@@ -550,6 +597,7 @@ class RuntimeSnapshotView(BaseModel):
     last_output_excerpt: str = ""
     summary: str | None = None
     error_message: str | None = None
+    pending_approval: RuntimePendingApprovalView | None = Field(default=None, alias="pendingApproval")
     terminal_requests: list[TerminalRequestView] = Field(default_factory=list, alias="terminalRequests")
     terminal_authorizations: list[TerminalAuthorizationView] = Field(default_factory=list, alias="terminalAuthorizations")
     created_at: datetime
@@ -568,6 +616,45 @@ class RuntimeEventView(BaseModel):
 
 class RuntimeEventsResponse(BaseModel):
     latest_sequence: int
+    events: list[dict[str, Any]] = Field(default_factory=list)
+
+
+class OrchestrationChildView(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    asset_id: int = Field(alias="assetId")
+    asset_name: str = Field(alias="assetName")
+    runtime_id: str | None = Field(default=None, alias="runtimeId")
+    terminal_id: str | None = Field(default=None, alias="terminalId")
+    status: str
+    summary: str = ""
+    error_message: str = Field(default="", alias="errorMessage")
+    last_sequence: int = Field(default=0, alias="lastSequence")
+
+
+class OrchestrationSnapshotView(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    orchestration_id: str = Field(alias="orchestrationId")
+    conversation_id: str = Field(alias="conversationId")
+    prompt: str
+    target_asset_ids: list[int] = Field(alias="targetAssetIds")
+    target_selection_source: str = Field(alias="targetSelectionSource")
+    target_selection_reason: str = Field(alias="targetSelectionReason")
+    confidence: str = "medium"
+    status: str
+    max_concurrency: int = Field(alias="maxConcurrency")
+    children: list[OrchestrationChildView] = Field(default_factory=list)
+    final_summary: str | None = Field(default=None, alias="finalSummary")
+    created_at: datetime = Field(alias="createdAt")
+    updated_at: datetime = Field(alias="updatedAt")
+    last_sequence: int = Field(default=0, alias="lastSequence")
+
+
+class OrchestrationEventsResponse(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    latest_sequence: int = Field(alias="latestSequence")
     events: list[dict[str, Any]] = Field(default_factory=list)
 
 

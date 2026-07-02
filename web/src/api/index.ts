@@ -9,6 +9,14 @@ export {
   streamApproveAgent,
   streamRunAgent,
 } from './console'
+export {
+  cancelOrchestration,
+  getOrchestrationEvents,
+  getOrchestrationSnapshot,
+  resolveOrchestrationTargets,
+  streamRunOrchestration,
+} from './orchestrations'
+export type { ResolvedOrchestrationTargets } from './orchestrations'
 export { getApprovalPolicy, updateApprovalPolicy } from './approval'
 export type { ApprovalPolicy } from './approval'
 export { appendConversationEvents, createConversation, deleteConversation, getConversation, getConversationContext, getConversationEventsPage, getConversationEventsTail, getConversations } from './conversations'

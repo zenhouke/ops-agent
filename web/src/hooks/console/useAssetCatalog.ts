@@ -83,14 +83,15 @@ export function useAssetCatalog({
     (modelOptions: string[]) => {
       setBootstrap({
         ...bootstrap,
-        modelOptions:
-          modelOptions.length > 0 ? modelOptions : bootstrap.modelOptions,
+        modelOptions,
+        modelConfigured: modelOptions.length > 0,
+        modelConfigurationMessage: modelOptions.length > 0
+          ? ''
+          : 'LLM 模型未配置，请先在设置中添加并设为默认模型。',
       })
-      if (modelOptions.length > 0) {
-        setSelectedModel((currentModel: string) =>
-          modelOptions.includes(currentModel) ? currentModel : modelOptions[0]
-        )
-      }
+      setSelectedModel((currentModel: string) =>
+        modelOptions.includes(currentModel) ? currentModel : modelOptions[0] ?? ''
+      )
     },
     [bootstrap, setBootstrap, setSelectedModel]
   )

@@ -99,7 +99,7 @@ export function useTerminalSessions({
           .map((tab) => tab.assetId)
       )
       for (const tab of restoredState.tabs) {
-        firstOutputHandledRef.current[tab.assetId] = tab.output.length > 0
+        firstOutputHandledRef.current[tab.assetId] = false
       }
       setActiveTerminalAssetId(restoredState.activeAssetId)
       hasRestoredTerminalStateRef.current = true

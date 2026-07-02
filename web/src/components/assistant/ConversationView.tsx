@@ -134,7 +134,8 @@ export function ConversationView({
                     if (entry.type === 'command') {
                       return (
                         <CommandExecutionCard
-                          key={entry.key}
+                          key={`${turn.id}-${index}-${entry.key}`}
+                          message={entry.message}
                           approvalEvent={entry.approvalEvent}
                           startEvent={entry.startEvent}
                           chunkEvents={entry.chunkEvents}
@@ -149,7 +150,7 @@ export function ConversationView({
                     if (entry.type === 'thinking') {
                       const content = entry.deltas ? entry.deltas.map(d => d.text).join('') : undefined
                       return (
-                        <div key={entry.key} className="flex justify-start w-full">
+                        <div key={`${turn.id}-${index}-${entry.key}`} className="flex justify-start w-full">
                           <AssistantMessageContent
                             content={content}
                             message={entry.message}
@@ -168,12 +169,12 @@ export function ConversationView({
                           return null
                         }
 
-                        return <div key={entry.event.id} className="max-w-[560px]"><PlanSummaryCard event={entry.event} /></div>
+                        return <div key={`${turn.id}-${index}-${entry.event.id}`} className="max-w-[560px]"><PlanSummaryCard event={entry.event} /></div>
                       }
 
                       return (
                         <EventCard
-                          key={entry.event.id}
+                          key={`${turn.id}-${index}-${entry.event.id}`}
                           event={entry.event}
                           pendingApprovalRuntimeId={pendingApprovalRuntimeId}
                           onApprove={onApprove}

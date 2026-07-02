@@ -41,11 +41,21 @@ def list_models(session: Session = Depends(get_session)) -> ModelsView:
         record = get_default_model_config(session)
     except OperationalError:
         record = None
-    config = model_service.from_record(record) if record is not None else model_service.load_settings()
+    if record is None:
+        return ModelsView(
+            provider="",
+            selected_model="",
+            available_models=[],
+            model_configured=False,
+            configuration_message="LLM 模型未配置，请先在设置中添加并设为默认模型。",
+        )
+    config = model_service.from_record(record)
     return ModelsView(
         provider=config.provider.value,
         selected_model=config.model_name,
         available_models=model_service.list_available_models(config.provider, session),
+        model_configured=True,
+        configuration_message="",
     )
 
 

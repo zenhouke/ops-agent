@@ -12,6 +12,7 @@ export function ModelSelector({ models, selectedModel, onModelChange }: ModelSel
   const [open, setOpen] = useState(false)
   const rootRef = useRef<HTMLDivElement | null>(null)
   const selectedIndex = Math.max(0, models.indexOf(selectedModel))
+  const hasModels = models.length > 0
 
   useEffect(() => {
     if (!open) {
@@ -77,8 +78,8 @@ export function ModelSelector({ models, selectedModel, onModelChange }: ModelSel
           }
         }}
       >
-        <span className="h-2 w-2 shrink-0 rounded-full bg-cyan-500 shadow-[0_0_14px_rgba(6,182,212,0.55)] dark:bg-ops-cyan" />
-        <span className="min-w-0 flex-1 truncate">{selectedModel || t('settings.undefined')}</span>
+        <span className={`h-2 w-2 shrink-0 rounded-full ${hasModels ? 'bg-cyan-500 shadow-[0_0_14px_rgba(6,182,212,0.55)] dark:bg-ops-cyan' : 'bg-ops-warning/80'}`} />
+        <span className="min-w-0 flex-1 truncate">{hasModels ? selectedModel || t('settings.undefined') : '未配置模型'}</span>
         <svg
           aria-hidden="true"
           viewBox="0 0 20 20"
@@ -94,7 +95,7 @@ export function ModelSelector({ models, selectedModel, onModelChange }: ModelSel
             {t('assistant.modelSelector')}
           </div>
           <div className="max-h-64 overflow-y-auto py-1" role="listbox" aria-label={t('assistant.modelSelector')}>
-            {models.map((model) => {
+            {hasModels ? models.map((model) => {
               const active = model === selectedModel
               return (
                 <button
@@ -112,7 +113,11 @@ export function ModelSelector({ models, selectedModel, onModelChange }: ModelSel
                   <span className="min-w-0 flex-1 truncate">{model}</span>
                 </button>
               )
-            })}
+            }) : (
+              <div className="px-3 py-2 text-[11px] font-semibold text-ops-warning/85">
+                未配置 LLM 模型
+              </div>
+            )}
           </div>
         </div>
       ) : null}

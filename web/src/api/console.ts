@@ -71,6 +71,16 @@ function mapRuntimeSnapshot(dto: RuntimeSnapshotDto): RuntimeSnapshot {
     lastOutputExcerpt: dto.last_output_excerpt,
     summary: dto.summary,
     errorMessage: dto.error_message,
+    pendingApproval: dto.pendingApproval ? {
+      runtimeId: dto.pendingApproval.runtimeId,
+      stepId: dto.pendingApproval.stepId ?? null,
+      messageId: dto.pendingApproval.messageId ?? null,
+      toolCallId: dto.pendingApproval.toolCallId ?? null,
+      toolName: dto.pendingApproval.toolName ?? null,
+      approvalToken: dto.pendingApproval.approvalToken ?? null,
+      command: dto.pendingApproval.command,
+      args: dto.pendingApproval.args ?? {},
+    } : null,
     terminalRequests: (dto.terminalRequests ?? []).map((request) => ({
       requestId: request.requestId,
       runtimeId: request.runtimeId,

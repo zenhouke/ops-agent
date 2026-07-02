@@ -1,12 +1,14 @@
 from __future__ import annotations
 
 import logging
+import queue
+import threading
 from collections.abc import Iterator
 from typing import Any, Protocol
 
 logger = logging.getLogger(__name__)
 
-DEFAULT_COMMAND_TIMEOUT_SECONDS = 15.0
+DEFAULT_COMMAND_TIMEOUT_SECONDS = 60.0
 
 from app.core.loop.loop_events import (
     LoopEvent,
@@ -43,6 +45,16 @@ class TerminalSessionResolver(Protocol):
     def acquire_terminal_slot(self, runtime_id: str, terminal_id: str) -> bool: ...
 
     def release_terminal_slot(self, runtime_id: str, terminal_id: str) -> None: ...
+
+    def execute_interactive_command(
+        self,
+        terminal_id: str,
+        command: str,
+        *,
+        context: ExecutionContext | None = None,
+        on_output_chunk: Any | None = None,
+        on_command_event: Any | None = None,
+    ) -> Any: ...
 
 
 class ExecuteCommandHandler:
@@ -162,18 +174,73 @@ class ExecuteCommandHandler:
                 command=command,
                 approval_policy=str(args.get("approval_policy", "allow")),
             )
-            execution_id = session_manager.start_execution(
-                command,
-                ExecutionContext(working_directory=step.working_directory, timeout_seconds=DEFAULT_COMMAND_TIMEOUT_SECONDS),
+            execution_context = ExecutionContext(
+                working_directory=step.working_directory,
+                timeout_seconds=DEFAULT_COMMAND_TIMEOUT_SECONDS,
             )
-            execution = session_manager.get_execution_result(execution_id)
+            if authorization.shell_type in {"posix", "powershell", "cmd"}:
+                execution_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
+
+                def on_output_chunk(chunk: str) -> None:
+                    execution_queue.put(("chunk", chunk))
+
+                def on_command_event(event: dict[str, Any]) -> None:
+                    execution_queue.put(("command_event", event))
+
+                def run_interactive_execution() -> None:
+                    try:
+                        result = self._terminal.execute_interactive_command(
+                            terminal_id,
+                            command,
+                            context=execution_context,
+                            on_output_chunk=on_output_chunk,
+                            on_command_event=on_command_event,
+                        )
+                        execution_queue.put(("result", result))
+                    except Exception as exc:
+                        execution_queue.put(("error", exc))
+
+                worker = threading.Thread(target=run_interactive_execution, daemon=True)
+                worker.start()
+                execution = None
+                streamed_output = ""
+                while True:
+                    event_type, payload = execution_queue.get()
+                    if event_type == "chunk":
+                        chunk_text = str(payload)
+                        streamed_output += chunk_text
+                        if chunk_text and manager:
+                            yield from manager.update(tool_output=chunk_text)
+                        continue
+                    if event_type == "command_event":
+                        event_payload = dict(payload)
+                        event_kind = str(event_payload.get("kind") or "terminal_status")
+                        yield LoopEvent(
+                            event_type=event_kind,  # type: ignore[arg-type]
+                            runtime_id=ctx.runtime_id,
+                            phase=state.phase,
+                            payload={**event_payload, "runtimeId": ctx.runtime_id, "stepId": step.step_id},
+                            step_id=step.step_id,
+                        )
+                        continue
+                    if event_type == "error":
+                        raise payload
+                    execution = payload
+                    break
+                worker.join(timeout=1.0)
+            else:
+                execution_id = session_manager.start_execution(command, execution_context)
+                execution = session_manager.get_execution_result(execution_id)
+                streamed_output = ""
             
+
             step.output = execution.output
             step.exit_code = execution.exit_code
             state.last_output_excerpt = execution.output[-4000:] if execution.output else ""
 
-            if execution.output and manager:
-                yield from manager.update(tool_output=execution.output)
+            remaining_output = execution.output[len(streamed_output) :] if execution.output.startswith(streamed_output) else execution.output
+            if remaining_output and manager:
+                yield from manager.update(tool_output=remaining_output)
 
             success = execution.success and not execution.needs_attention
             return success, execution.output

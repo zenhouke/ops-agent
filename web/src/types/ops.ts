@@ -365,6 +365,17 @@ export type RuntimeTerminalAuthorization = {
   revokeReason: string | null
 }
 
+export type RuntimePendingApproval = {
+  runtimeId: string
+  stepId: string | null
+  messageId: string | null
+  toolCallId: string | null
+  toolName: string | null
+  approvalToken: string | null
+  command: string
+  args: Record<string, unknown>
+}
+
 export type RuntimeSnapshot = {
   runtimeId: string
   conversationId: string
@@ -381,6 +392,7 @@ export type RuntimeSnapshot = {
   lastOutputExcerpt: string
   summary: string | null
   errorMessage: string | null
+  pendingApproval: RuntimePendingApproval | null
   terminalRequests: RuntimeTerminalRequest[]
   terminalAuthorizations: RuntimeTerminalAuthorization[]
   createdAt: string
@@ -395,6 +407,72 @@ export type RuntimeEventEnvelope = {
   sequence: number
   timestamp: string
   [key: string]: unknown
+}
+
+export type OrchestrationStatus = 'running' | 'needs_approval' | 'completed' | 'partial_failed' | 'failed' | 'cancelled'
+
+export type OrchestrationChildStatus = 'pending' | 'running' | 'needs_approval' | 'completed' | 'failed' | 'cancelled'
+
+export type OrchestrationChild = {
+  assetId: number
+  assetName: string
+  runtimeId: string | null
+  terminalId: string | null
+  status: OrchestrationChildStatus
+  summary: string
+  errorMessage: string
+  lastSequence: number
+  events: EventItem[]
+}
+
+export type OrchestrationEvent = {
+  id: string
+  kind:
+    | 'orchestration_started'
+    | 'child_runtime_started'
+    | 'child_runtime_event'
+    | 'child_runtime_status'
+    | 'child_runtime_completed'
+    | 'child_runtime_failed'
+    | 'orchestration_summary'
+    | 'orchestration_completed'
+    | 'orchestration_failed'
+    | 'orchestration_cancelled'
+  orchestrationId: string
+  conversationId?: string
+  runtimeId?: string | null
+  assetId?: number
+  assetName?: string
+  sequence?: number
+  childSequence?: number
+  targetAssetIds?: number[]
+  targetSelectionSource?: string
+  targetSelectionReason?: string
+  confidence?: 'high' | 'medium' | 'low'
+  maxConcurrency?: number
+  status?: OrchestrationStatus | OrchestrationChildStatus
+  summary?: string
+  finalSummary?: string | null
+  errorMessage?: string
+  event?: EventItem
+  children?: Array<Omit<OrchestrationChild, 'events'>>
+}
+
+export type OrchestrationSnapshot = {
+  orchestrationId: string
+  conversationId: string
+  prompt: string
+  targetAssetIds: number[]
+  targetSelectionSource: string
+  targetSelectionReason: string
+  confidence: 'high' | 'medium' | 'low'
+  status: OrchestrationStatus
+  maxConcurrency: number
+  children: OrchestrationChild[]
+  finalSummary: string | null
+  createdAt: string
+  updatedAt: string
+  lastSequence: number
 }
 
 export type ConversationTokenUsage = {
@@ -490,10 +568,13 @@ export type EventItem =
   | ContextStatusEvent
   | TerminalStatusEvent
   | TerminalAutonomyEvent
+  | OrchestrationEvent
   | AgentMessage
   | { id: string; kind: 'message_update'; payload: AgentMessage } // For raw event wrapper if needed
   | { id: string; kind: 'final'; text: string }
   | { id: string; kind: 'error'; text: string }
+  | { id: string; kind: 'failed'; error?: string; text?: string }
+  | { id: string; kind: 'completed'; summary?: string; text?: string }
   | { id: string; kind: 'user'; text: string }
 
 export type ConversationSummary = {

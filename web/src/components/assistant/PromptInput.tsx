@@ -106,6 +106,10 @@ export function PromptInput({
 
   const slashSuggestionQuery = useMemo(() => getSlashSuggestionQuery(prompt), [prompt])
   const shouldShowSlashSuggestions = slashSuggestionQuery !== null
+  const modelBlockedRun = models.length === 0 || !selectedModel
+    ? { message: '未配置 LLM 模型，请先在设置中添加并设为默认模型。', actionLabel: '' }
+    : null
+  const effectiveBlockedRun = blockedRun ?? modelBlockedRun
 
   useEffect(() => {
     if (!shouldShowSlashSuggestions) {
@@ -144,7 +148,7 @@ export function PromptInput({
       return
     }
 
-    if (blockedRun) {
+    if (effectiveBlockedRun) {
       return
     }
 
@@ -225,7 +229,7 @@ export function PromptInput({
           />
 
           <button
-            className={`absolute bottom-3 right-3 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border transition-all duration-200 active:scale-95 ${prompt.trim() && !blockedRun
+            className={`absolute bottom-3 right-3 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border transition-all duration-200 active:scale-95 ${prompt.trim() && !effectiveBlockedRun
               ? 'border-ops-cyan/45 bg-ops-cyan text-ops-deep shadow-[0_0_28px_rgb(var(--ops-cyan)/0.38)] hover:-translate-y-0.5 hover:bg-cyan-300 hover:shadow-[0_0_36px_rgb(var(--ops-cyan)/0.55)]'
               : 'cursor-not-allowed border-ops-border/20 bg-ops-panel/70 text-ops-muted/25'
               }`}
@@ -233,17 +237,17 @@ export function PromptInput({
             onClick={() => {
               void submitPrompt()
             }}
-            disabled={!prompt.trim() || Boolean(blockedRun)}
+            disabled={!prompt.trim() || Boolean(effectiveBlockedRun)}
             aria-label={t('assistant.runMission')}
           >
             <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false" className="h-5 w-5 fill-current"><path d="M5 3.8 20.2 12 5 20.2v-6.1L13.4 12 5 9.9z" /></svg>
           </button>
         </div>
 
-        {blockedRun ? (
+        {effectiveBlockedRun ? (
           <div className="relative flex items-center gap-2 border-t border-ops-warning/15 bg-ops-warning/8 px-3 py-2 text-[11px] font-bold text-ops-warning">
-            <span className="min-w-0 flex-1 truncate">{blockedRun.message}</span>
-            {onViewBlockedRun ? (
+            <span className="min-w-0 flex-1 truncate">{effectiveBlockedRun.message}</span>
+            {blockedRun && onViewBlockedRun ? (
               <button
                 type="button"
                 className="shrink-0 rounded-lg border border-ops-warning/30 px-2.5 py-1 text-[10px] font-black transition hover:bg-ops-warning/10 active:scale-95"

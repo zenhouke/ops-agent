@@ -1,5 +1,6 @@
 import json
 import logging
+import uuid
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -54,10 +55,12 @@ def get_console_bootstrap(
     assets = list_asset_records(session)
     model_service = ModelService()
     default_record = get_default_model_config(session)
-    default_config = model_service.from_record(default_record) if default_record is not None else model_service.load_settings()
-    model_options = [record.model_name for record in list_model_configs(session)] or model_service.list_available_models(default_config.provider, session)
-    if default_config.model_name and default_config.model_name not in model_options:
+    default_config = model_service.from_record(default_record) if default_record is not None else None
+    model_configured = default_config is not None
+    model_options = [record.model_name for record in list_model_configs(session)] if model_configured else []
+    if default_config is not None and default_config.model_name and default_config.model_name not in model_options:
         model_options = [default_config.model_name, *model_options]
+    model_configuration_message = "" if model_configured else "LLM \u6a21\u578b\u672a\u914d\u7f6e\uff0c\u8bf7\u5148\u5728\u8bbe\u7f6e\u4e2d\u6dfb\u52a0\u5e76\u8bbe\u4e3a\u9ed8\u8ba4\u6a21\u578b\u3002"
     local_terminal_asset = next((asset for asset in assets if asset.asset_type == AssetType.LOCAL_TERMINAL.value), None)
     if local_terminal_asset is None:
         local_terminal_asset = build_local_terminal_asset()
@@ -72,6 +75,8 @@ def get_console_bootstrap(
         groups=[to_asset_group_view(group) for group in list_asset_group_records(session)],
         historyByAsset={},
         modelOptions=model_options,
+        modelConfigured=model_configured,
+        modelConfigurationMessage=model_configuration_message,
         terminalSessionId=terminal_session_id,
         terminalSessionChannel=terminal_session_result.get("channel"),
         terminalSessionError=terminal_session_result.get("error", ""),
@@ -95,7 +100,7 @@ async def run_console_agent(
     if payload.conversation_id and payload.conversation_id != "console":
         conversation_service = get_conversation_service()
         user_event = {
-            "id": f"user-{payload.conversation_id}-{abs(hash(payload.prompt))}",
+            "id": f"user-{payload.conversation_id}-{uuid.uuid4().hex}",
             "kind": "user",
             "text": payload.prompt,
         }

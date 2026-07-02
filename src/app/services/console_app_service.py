@@ -74,6 +74,15 @@ class _TerminalSessionAdapter:
     def release_terminal_slot(self, runtime_id: str, terminal_id: str) -> None:
         self._runtime_manager.release_terminal_slot(runtime_id, terminal_id)
 
+    def execute_interactive_command(self, terminal_id: str, command: str, *, context=None, on_output_chunk=None, on_command_event=None):
+        return self._terminal_service.execute_interactive_command(
+            terminal_id,
+            command,
+            context=context,
+            on_output_chunk=on_output_chunk,
+            on_command_event=on_command_event,
+        )
+
 
 class TaskOrchestrator:
     def __init__(self, app_service: "ConsoleAppService", terminal_service: TerminalService) -> None:

@@ -31,3 +31,4 @@ logs/
 .playwright-mcp/
 .codegraph/
 .agents/
+.pnpm-store/

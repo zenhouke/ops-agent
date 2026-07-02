@@ -13,9 +13,24 @@ import { useAssetCatalog } from './hooks/console/useAssetCatalog'
 import { useConsoleBootstrap } from './hooks/console/useConsoleBootstrap'
 import { useConversationState } from './hooks/console/useConversationState'
 import { useConsolePageState } from './hooks/console/useConsolePageState'
+import { useOrchestrationRun } from './hooks/console/useOrchestrationRun'
 import { useTerminalSessions } from './hooks/console/useTerminalSessions'
 import { useAppearance } from './hooks/useAppearance'
 import { useKnowledgeBase } from './hooks/useKnowledgeBase'
+
+function shouldUseOrchestration(prompt: string) {
+  const normalized = prompt.toLowerCase()
+  return (
+    normalized.includes('所有网络设备')
+    || normalized.includes('全部网络设备')
+    || normalized.includes('所有交换机')
+    || normalized.includes('全部交换机')
+    || normalized.includes('所有 linux')
+    || normalized.includes('全部 linux')
+    || normalized.includes('所有linux')
+    || normalized.includes('全部linux')
+  )
+}
 
 export function App() {
   const { t } = useAppearance()
@@ -131,6 +146,8 @@ export function App() {
     setLoadError,
     setContextStatus,
   })
+
+  const orchestration = useOrchestrationRun()
 
   const {
     entries: knowledgeEntries,
@@ -279,6 +296,9 @@ export function App() {
                 eventWindow={eventWindow}
                 isLoadingOlderEvents={isLoadingOlderEvents}
                 pendingApprovalRuntimeId={pendingApprovalRuntimeId}
+                orchestrationSnapshot={orchestration.snapshot}
+                orchestrationTargetPreview={orchestration.targetPreview}
+                orchestrationResolvingTargets={orchestration.resolvingTargets}
                 runtimeSummaries={runtimeSummaries}
                 activeRuntimeSnapshot={activeRuntimeSnapshot}
                 models={bootstrap.modelOptions}
@@ -308,7 +328,31 @@ export function App() {
                   void deleteConversation(conversationId)
                 }}
                 onRun={(nextPrompt, selectedSkillName) => {
+                  if (activeConversationId && shouldUseOrchestration(nextPrompt)) {
+                    return orchestration.resolveTargets({
+                      prompt: nextPrompt,
+                      currentAsset: selectedAsset,
+                      assets: bootstrap.assets,
+                      conversationId: activeConversationId,
+                      modelName: selectedModel,
+                      selectedSkillName,
+                      maxConcurrency: 3,
+                    })
+                  }
                   return runAgent(nextPrompt, selectedSkillName)
+                }}
+                onConfirmOrchestration={() => {
+                  void orchestration.confirmAndRun()
+                }}
+                onCancelOrchestrationPreview={orchestration.clearTargetPreview}
+                onCancelOrchestration={() => {
+                  void orchestration.cancel()
+                }}
+                onApproveOrchestrationChild={(runtimeId, approvalToken, allowPrefix) => {
+                  void orchestration.approveChildRun(runtimeId, approvalToken, allowPrefix)
+                }}
+                onRejectOrchestrationChild={(runtimeId, approvalToken) => {
+                  void orchestration.rejectChildRun(runtimeId, approvalToken)
                 }}
                 onApprove={(allowPrefix) => {
                   void approveRun(allowPrefix)

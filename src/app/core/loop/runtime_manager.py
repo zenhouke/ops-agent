@@ -659,6 +659,7 @@ class LoopRuntimeManager:
             "last_output_excerpt": state.last_output_excerpt,
             "summary": state.summary,
             "error_message": state.error_message,
+            "pending_approval": self._pending_approval_view(state),
             "terminal_requests": [
                 self._request_view(request, request.approval_token if request.user_decision_status == "pending" else None)
                 for request in rt.terminal_requests.values()
@@ -852,6 +853,21 @@ class LoopRuntimeManager:
             return None
         latest_authorization = max(active_authorizations, key=lambda authorization: authorization.created_at)
         return latest_authorization.authorization_id
+
+    def _pending_approval_view(self, state: LoopState) -> dict[str, Any] | None:
+        if state.phase != "approving" or state.pending_approval_token is None:
+            return None
+        args = dict(state.pending_tool_args or {})
+        return {
+            "runtimeId": state.context.runtime_id,
+            "stepId": state.pending_approval_step_id,
+            "messageId": state.pending_message_id,
+            "toolCallId": state.pending_tool_call_id,
+            "toolName": state.pending_tool_name,
+            "approvalToken": state.pending_approval_token,
+            "command": str(args.get("command", "") or ""),
+            "args": args,
+        }
 
     def _context_percent_for_tokens(self, token_count: int, model_config) -> int:
         model_name = model_config.model_name.lower()

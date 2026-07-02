@@ -22,6 +22,28 @@ type ConversationEventWindow = {
   hasMoreAfter: boolean
 }
 
+function pendingApprovalSnapshotEvent(snapshot: RuntimeSnapshot | null): EventItem | null {
+  const pending = snapshot?.pendingApproval
+  if (!snapshot || !pending?.approvalToken) return null
+  const messageId = pending.messageId || `snapshot:approval:${snapshot.runtimeId}:${pending.stepId || pending.toolCallId || 'pending'}`
+  return {
+    id: messageId,
+    kind: 'message',
+    ts: Date.parse(snapshot.updatedAt) || Date.now(),
+    type: 'ask',
+    ask: 'command',
+    text: 'Command requires operator approval before execution.',
+    partial: false,
+    runtimeId: snapshot.runtimeId,
+    toolCall: {
+      id: pending.toolCallId || '',
+      name: pending.toolName || 'execute_command',
+      command: pending.command,
+      approvalToken: pending.approvalToken,
+      args: pending.args,
+    },
+  } as EventItem
+}
 function terminalSnapshotEvents(snapshot: RuntimeSnapshot | null): EventItem[] {
   if (!snapshot) return []
   return [
@@ -57,8 +79,10 @@ function terminalSnapshotEvents(snapshot: RuntimeSnapshot | null): EventItem[] {
   ]
 }
 
-function mergeSnapshotTerminalEvents(events: EventItem[], snapshot: RuntimeSnapshot | null): EventItem[] {
-  return terminalSnapshotEvents(snapshot).reduce((currentEvents, event) => upsertStreamEvent(currentEvents, event), normalizePlanEvents(events))
+function mergeSnapshotRuntimeEvents(events: EventItem[], snapshot: RuntimeSnapshot | null): EventItem[] {
+  const pendingApprovalEvent = pendingApprovalSnapshotEvent(snapshot)
+  const baseEvents = pendingApprovalEvent ? upsertStreamEvent(events, pendingApprovalEvent) : events
+  return terminalSnapshotEvents(snapshot).reduce((currentEvents, event) => upsertStreamEvent(currentEvents, event), normalizePlanEvents(baseEvents))
 }
 
 function mergePrependedEvents(olderEvents: EventItem[], currentEvents: EventItem[]): EventItem[] {
@@ -124,7 +148,7 @@ export function useConversationState(selectedModel: string) {
       return page.conversation
     }
     setActiveRuntimeSnapshot(nextRuntimeSnapshot)
-    setEvents((currentEvents) => mergeSnapshotTerminalEvents(currentEvents, nextRuntimeSnapshot))
+    setEvents((currentEvents) => mergeSnapshotRuntimeEvents(currentEvents, nextRuntimeSnapshot))
     return page.conversation
   }, [])
 
@@ -181,7 +205,7 @@ export function useConversationState(selectedModel: string) {
     setActiveRuntimeId(nextRuntimeId)
     const nextSnapshot = nextRuntimeId ? await getRuntimeSnapshot(nextRuntimeId) : null
     setActiveRuntimeSnapshot(nextSnapshot)
-    setEvents((currentEvents) => mergeSnapshotTerminalEvents(currentEvents, nextSnapshot))
+    setEvents((currentEvents) => mergeSnapshotRuntimeEvents(currentEvents, nextSnapshot))
     return runtimes
   }, [activeRuntimeId])
 

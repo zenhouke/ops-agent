@@ -13,6 +13,7 @@ from app.api.mcp import router as mcp_router
 from app.api.models import router as models_router
 from app.api.console import router as console_router
 from app.api.conversations import router as conversations_router
+from app.api.orchestrations import router as orchestrations_router
 from app.api.skills import router as skills_router
 from app.api.ssh_keys import router as ssh_keys_router
 from app.api.system import router as system_router
@@ -56,6 +57,7 @@ app.include_router(approval_router)
 app.include_router(terminal_router)
 app.include_router(groups_router)
 app.include_router(console_router)
+app.include_router(orchestrations_router)
 app.include_router(conversations_router)
 app.include_router(knowledge_router)
 app.include_router(skills_router)
@@ -78,6 +80,7 @@ __all__ = [
     "lifespan",
     "mcp_router",
     "models_router",
+    "orchestrations_router",
     "skills_router",
     "ssh_keys_router",
     "system_router",

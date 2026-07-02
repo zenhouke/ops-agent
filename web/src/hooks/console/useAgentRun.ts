@@ -48,6 +48,19 @@ type DeltaBatchItem = {
   stage?: string
 }
 
+function backgroundStatusFromRuntime(status: string | undefined, fallback: BackgroundRunStatus): BackgroundRunStatus {
+  if (status === 'approving' || status === 'waiting_terminal_approval' || status === 'waiting_plan_approval') {
+    return 'needs_approval'
+  }
+  if (status === 'failed') {
+    return 'failed'
+  }
+  if (status === 'completed') {
+    return 'completed'
+  }
+  return fallback
+}
+
 const DELTA_FLUSH_INTERVAL_MS = 60
 
 function createDeltaBatcher({
@@ -204,7 +217,7 @@ export function useAgentRun({
 
     try {
       if (backgroundRun && backgroundRun.status !== 'completed' && backgroundRun.status !== 'failed' && backgroundRun.conversationId !== activeConversationId) {
-        throw new Error(`会话「${backgroundRun.title}」正在${backgroundRun.status === 'needs_approval' ? '等待审批' : '运行'}，当前暂不支持并行执行。`)
+        throw new Error('Conversation \"' + backgroundRun.title + '\" is ' + (backgroundRun.status === 'needs_approval' ? 'waiting for approval' : 'running') + '; concurrent runs are not supported yet.')
       }
 
       if (!conversationId) {
@@ -258,6 +271,7 @@ export function useAgentRun({
       })
       const pendingPersistEvents: EventItem[] = []
       const latestMessageSnapshots = new Map<string, AgentMessage>()
+      let streamTerminalStatus: BackgroundRunStatus | null = null
 
       for await (const event of stream) {
         if (event.kind === 'message_update') {
@@ -271,6 +285,7 @@ export function useAgentRun({
           }
 
           if (message.type === 'ask') {
+            streamTerminalStatus = 'needs_approval'
             const runtimeId = (event as any).runtimeId
             if (runtimeId) {
               setBackgroundRun((currentRun) => currentRun?.conversationId === conversationId ? { ...currentRun, status: 'needs_approval', hasUnread: !isViewingRunConversation } : currentRun)
@@ -328,12 +343,19 @@ export function useAgentRun({
         pendingPersistEvents.push(event)
 
         if (event.kind === 'approval_required') {
+          streamTerminalStatus = 'needs_approval'
           const isViewingRunConversation = activeConversationIdRef.current === conversationId
           setBackgroundRun((currentRun) => currentRun?.conversationId === conversationId ? { ...currentRun, status: 'needs_approval', hasUnread: !isViewingRunConversation } : currentRun)
           if (isViewingRunConversation) {
             setPendingApprovalRuntimeId(event.runtimeId ?? null)
             setPendingApprovalToken(event.approvalToken ?? null)
           }
+        }
+        if (event.kind === 'failed' || event.kind === 'error') {
+          streamTerminalStatus = 'failed'
+        }
+        if (event.kind === 'completed' || event.kind === 'final') {
+          streamTerminalStatus = 'completed'
         }
         if (event.kind === 'approval_decision' && activeConversationIdRef.current === conversationId) {
           setPendingApprovalRuntimeId(null)
@@ -351,8 +373,10 @@ export function useAgentRun({
         const response = await appendConversationEvents(conversationId, allPersistEvents)
         upsertConversationSummary(response.conversation)
       }
-      await syncConversationRuntimes(conversationId)
-      setBackgroundRun((currentRun) => currentRun?.conversationId === conversationId ? { ...currentRun, status: 'completed', hasUnread: activeConversationIdRef.current !== conversationId } : currentRun)
+      const runtimes = await syncConversationRuntimes(conversationId)
+      const runtimeStatus = runtimes[0]?.status
+      const finalStatus = backgroundStatusFromRuntime(runtimeStatus, streamTerminalStatus ?? 'completed')
+      setBackgroundRun((currentRun) => currentRun?.conversationId === conversationId ? { ...currentRun, status: finalStatus, hasUnread: activeConversationIdRef.current !== conversationId } : currentRun)
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : 'Failed to run agent.'
       if (!conversationId || activeConversationIdRef.current === conversationId) {

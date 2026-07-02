@@ -48,12 +48,7 @@ export function useTerminalSockets({
 
   const resizeTerminal = useCallback((cols: number, rows: number) => {
     lastTerminalSizeRef.current = { cols, rows }
-    const socket = activeSocketRef.current
-    if (socket?.readyState !== WebSocket.OPEN) {
-      return
-    }
-    socket.send(JSON.stringify({ type: 'resize', cols, rows }))
-  }, [activeSocketRef])
+  }, [])
 
   useEffect(() => {
     const currentSockets = terminalSocketsRef.current

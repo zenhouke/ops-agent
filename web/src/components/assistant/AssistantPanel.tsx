@@ -4,12 +4,16 @@ import type {
   ConversationContextStatus,
   ConversationSummary,
   EventItem,
+  OrchestrationSnapshot,
   RuntimeSnapshot,
   RuntimeSummary,
 } from '../../types/ops'
 import { ConversationView } from './ConversationView'
+import { OrchestrationCard } from './conversation/OrchestrationCard'
+import { OrchestrationTargetConfirmCard } from './conversation/OrchestrationTargetConfirmCard'
 import { PromptInput } from './PromptInput'
 import { useAppearance } from '../../hooks/useAppearance'
+import type { OrchestrationTargetPreview } from '../../hooks/console/useOrchestrationRun'
 
 type BackgroundRunStatus = 'running' | 'needs_approval' | 'completed' | 'failed'
 
@@ -29,6 +33,9 @@ type AssistantPanelProps = {
   eventWindow: { hasMoreBefore: boolean } | null
   isLoadingOlderEvents: boolean
   pendingApprovalRuntimeId: string | null
+  orchestrationSnapshot: OrchestrationSnapshot | null
+  orchestrationTargetPreview: OrchestrationTargetPreview | null
+  orchestrationResolvingTargets: boolean
   runtimeSummaries: RuntimeSummary[]
   activeRuntimeSnapshot: RuntimeSnapshot | null
   models: string[]
@@ -46,6 +53,11 @@ type AssistantPanelProps = {
   onSelectConversation: (conversationId: string) => void
   onDeleteConversation: (conversationId: string) => void
   onRun: (prompt: string, selectedSkillName?: string | null) => Promise<void>
+  onConfirmOrchestration: () => void
+  onCancelOrchestrationPreview: () => void
+  onCancelOrchestration: () => void
+  onApproveOrchestrationChild: (runtimeId: string, approvalToken: string | null, allowPrefix?: string) => void
+  onRejectOrchestrationChild: (runtimeId: string, approvalToken: string | null) => void
   onApprove: (allowPrefix?: string) => void
   onReject: () => void
   onTerminalRequestDecision?: (input: { runtimeId: string; requestId: string; approvalToken: string; approved: boolean }) => Promise<void>
@@ -72,6 +84,9 @@ export function AssistantPanel({
   eventWindow,
   isLoadingOlderEvents,
   pendingApprovalRuntimeId,
+  orchestrationSnapshot,
+  orchestrationTargetPreview,
+  orchestrationResolvingTargets,
   runtimeSummaries,
   activeRuntimeSnapshot,
   models,
@@ -89,6 +104,11 @@ export function AssistantPanel({
   onSelectConversation,
   onDeleteConversation,
   onRun,
+  onConfirmOrchestration,
+  onCancelOrchestrationPreview,
+  onCancelOrchestration,
+  onApproveOrchestrationChild,
+  onRejectOrchestrationChild,
   onApprove,
   onReject,
   onTerminalRequestDecision,
@@ -96,7 +116,6 @@ export function AssistantPanel({
 }: AssistantPanelProps) {
   const { t } = useAppearance()
   const backgroundRunInfo = backgroundRun ? backgroundRunCopy(backgroundRun) : null
-
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-ops-bg">
       <header className="relative z-10 flex shrink-0 items-center justify-between border-b border-ops-border/15 bg-ops-deep px-6 py-4 dark:border-ops-border/20 dark:bg-ops-panel/80 dark:shadow-2xl">
@@ -138,6 +157,28 @@ export function AssistantPanel({
                 {backgroundRunInfo.action}
               </button>
             </div>
+          ) : null}
+
+          {orchestrationTargetPreview ? (
+            <OrchestrationTargetConfirmCard
+              prompt={orchestrationTargetPreview.prompt}
+              assets={orchestrationTargetPreview.assets}
+              reason={orchestrationTargetPreview.targetSelectionReason}
+              confidence={orchestrationTargetPreview.confidence}
+              maxConcurrency={orchestrationTargetPreview.maxConcurrency}
+              resolving={orchestrationResolvingTargets}
+              onStart={onConfirmOrchestration}
+              onCancel={onCancelOrchestrationPreview}
+            />
+          ) : null}
+
+          {orchestrationSnapshot ? (
+            <OrchestrationCard
+              snapshot={orchestrationSnapshot}
+              onCancel={onCancelOrchestration}
+              onApprove={onApproveOrchestrationChild}
+              onReject={onRejectOrchestrationChild}
+            />
           ) : null}
 
           <ConversationView

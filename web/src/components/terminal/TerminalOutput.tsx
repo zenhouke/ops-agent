@@ -80,7 +80,6 @@ export function TerminalOutput({ sessionKey, output, onInput, onResize }: Termin
   const outputRef = useRef(output)
   const sessionKeyRef = useRef(sessionKey)
   const resolvedThemeRef = useRef(resolvedTheme)
-  const lastSentInputRef = useRef<{ value: string; timestamp: number } | null>(null)
 
   useEffect(() => {
     onInputRef.current = onInput
@@ -229,7 +228,7 @@ export function TerminalOutput({ sessionKey, output, onInput, onResize }: Termin
       terminal.reset()
       writtenLengthRef.current = 0
       currentSessionKeyRef.current = sessionKey
-      
+
       if (output.length > 0) {
         replayingRef.current = true
         terminal.write(stripReplayControlSequences(output))
@@ -238,7 +237,7 @@ export function TerminalOutput({ sessionKey, output, onInput, onResize }: Termin
           replayingRef.current = false
         })
       }
-      
+
       requestAnimationFrame(() => {
         fitAddon.fit()
         onResizeRef.current(terminal.cols, terminal.rows)

@@ -7,6 +7,8 @@ const emptyBootstrap: ConsoleBootstrap = {
   groups: [],
   historyByAsset: {},
   modelOptions: [],
+  modelConfigured: false,
+  modelConfigurationMessage: 'LLM 模型未配置，请先在设置中添加并设为默认模型。',
   terminalSessionId: null,
   terminalSessionChannel: null,
   terminalSessionError: '',

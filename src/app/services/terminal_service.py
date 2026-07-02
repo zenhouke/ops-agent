@@ -1,16 +1,18 @@
 from collections import deque
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from functools import partial
 import json
 import re
 import logging
+import threading
+import time
 from typing import Any, Awaitable, Callable, TypeVar, cast
 
 import anyio
 from starlette.websockets import WebSocketDisconnect
 
 from app.core.connectors.context_bridge import build_terminal_context
+from app.core.connectors.execution import ExecutionContext, ExecutionResult
 from app.core.connectors.session_manager import TerminalSessionManager
 from app.core.connectors.ssh_proxy import describe_ssh_proxy_error
 
@@ -28,26 +30,24 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class OutputFilterState:
-    command_id: str
-    start_marker: str
-    end_marker: str
-    done_marker_prefix: str
-    suppressing_input_echo: bool = True
-    pending: str = ""
-    exit_code: int | None = None
-
-
-@dataclass
 class TerminalSessionRuntime:
     session_manager: TerminalSessionManager
     state: str = "created"
     connection_ids: set[str] = field(default_factory=set)
     last_detached_at: datetime | None = None
+    reader_stop: threading.Event = field(default_factory=threading.Event)
+    reader_thread: threading.Thread | None = None
+    writer_connection_id: str | None = None
+    buffer_lock: threading.RLock = field(default_factory=threading.RLock)
+
 
 class TerminalService:
     SESSION_TTL = timedelta(minutes=15)
     MAX_OUTPUT_BUFFER_CHARS = 256 * 1024
+    TERMINAL_READER_IDLE_SECONDS = 0.01
+    WEBSOCKET_TAIL_IDLE_SECONDS = 0.016
+    COMMAND_POLL_SECONDS = 0.02
+    COMMAND_STARTUP_IDLE_SECONDS = 0.2
 
     def __init__(self, connector_factory, persistence=None):
         self._connector_factory = connector_factory
@@ -56,9 +56,6 @@ class TerminalService:
         self._output_buffers: dict[str, deque[tuple[int, str]]] = {}
         self._output_buffer_sizes: dict[str, int] = {}
         self._output_sequences: dict[str, int] = {}
-        self._output_filters: dict[str, dict[str, OutputFilterState]] = {}
-        self._active_filter_ids: dict[str, str | None] = {}
-        self._filter_queues: dict[str, deque[str]] = {}
         self._command_event_buffers: dict[str, deque[tuple[int, dict[str, Any]]]] = {}
         self._command_event_sequences: dict[str, int] = {}
 
@@ -98,12 +95,38 @@ class TerminalService:
         self._output_buffers[terminal_id] = deque(maxlen=4000)
         self._output_buffer_sizes[terminal_id] = 0
         self._output_sequences[terminal_id] = 0
-        self._output_filters[terminal_id] = {}
-        self._active_filter_ids[terminal_id] = None
-        self._filter_queues[terminal_id] = deque()
         self._command_event_buffers[terminal_id] = deque(maxlen=8000)
         self._command_event_sequences[terminal_id] = 0
+        self._start_session_reader(terminal_id)
         return {"terminal_id": terminal_id, "channel": "terminal connected", "error": ""}
+
+    def _start_session_reader(self, terminal_id: str) -> None:
+        runtime = self._sessions.get(terminal_id)
+        if runtime is None or runtime.reader_thread is not None:
+            return
+
+        thread = threading.Thread(
+            target=self._session_reader_loop,
+            args=(terminal_id, runtime),
+            name=f"ops-terminal-reader-{terminal_id[:8]}",
+            daemon=True,
+        )
+        runtime.reader_thread = thread
+        thread.start()
+
+    def _session_reader_loop(self, terminal_id: str, runtime: TerminalSessionRuntime) -> None:
+        while not runtime.reader_stop.is_set():
+            if terminal_id not in self._sessions:
+                return
+            try:
+                output = runtime.session_manager.read()
+            except Exception as exc:
+                logger.warning("Terminal reader failed terminal_id=%s: %s", terminal_id, exc)
+                return
+            if output:
+                self._append_output(terminal_id, output)
+            else:
+                time.sleep(self.TERMINAL_READER_IDLE_SECONDS)
 
     async def stream_session(self, terminal_id: str, websocket) -> None:
         self._expire_detached_sessions()
@@ -116,17 +139,20 @@ class TerminalService:
         runtime.connection_ids.add(connection_id)
         runtime.state = "attached"
         runtime.last_detached_at = None
+        runtime.writer_connection_id = connection_id
+        await websocket.send_json({"type": "connection_state", "writable": True})
 
         buffered_output = self.read_buffered_output(terminal_id)
         if buffered_output:
             await websocket.send_json({"type": "output", "data": buffered_output})
+        output_cursor = self.get_output_cursor(terminal_id)
 
         closed = anyio.Event()
         send_lock = anyio.Lock()
         try:
             async with anyio.create_task_group() as task_group:
-                task_group.start_soon(self._receive_websocket_input, terminal_id, runtime, websocket, closed, send_lock)
-                task_group.start_soon(self._send_terminal_output, terminal_id, runtime, websocket, closed, send_lock)
+                task_group.start_soon(self._receive_websocket_input, terminal_id, runtime, connection_id, websocket, closed, send_lock)
+                task_group.start_soon(self._tail_terminal_output, terminal_id, output_cursor, websocket, closed, send_lock)
         except (WebSocketDisconnect, RuntimeError):
             pass
         except Exception as exc:
@@ -137,18 +163,33 @@ class TerminalService:
                 pass
         finally:
             runtime.connection_ids.discard(connection_id)
+            if runtime.writer_connection_id == connection_id:
+                runtime.writer_connection_id = None
             if not runtime.connection_ids and terminal_id in self._sessions:
                 runtime.state = "detached"
                 runtime.last_detached_at = datetime.now(UTC)
 
-    async def _receive_websocket_input(self, terminal_id: str, runtime: TerminalSessionRuntime, websocket, closed, send_lock) -> None:
+    async def _send_readonly_connection_error(self, websocket, send_lock) -> None:
+        try:
+            async with send_lock:
+                await websocket.send_json({"type": "error", "message": "terminal connection is read-only"})
+        except (WebSocketDisconnect, RuntimeError):
+            pass
+
+    async def _receive_websocket_input(self, terminal_id: str, runtime: TerminalSessionRuntime, connection_id: str, websocket, closed, send_lock) -> None:
         try:
             while True:
                 message = await websocket.receive_json()
                 message_type = message.get("type")
                 if message_type == "input":
+                    if runtime.writer_connection_id != connection_id:
+                        await self._send_readonly_connection_error(websocket, send_lock)
+                        continue
                     await run_sync(runtime.session_manager.write, message.get("data", ""))
                 elif message_type == "resize":
+                    if runtime.writer_connection_id != connection_id:
+                        await self._send_readonly_connection_error(websocket, send_lock)
+                        continue
                     try:
                         cols = int(message.get("cols", 80))
                         rows = int(message.get("rows", 24))
@@ -159,7 +200,17 @@ class TerminalService:
                         except (WebSocketDisconnect, RuntimeError):
                             pass
                         continue
-                    await run_sync(runtime.session_manager.resize, cols, rows)
+                    if cols < 1 or cols > 500 or rows < 1 or rows > 200:
+                        try:
+                            async with send_lock:
+                                await websocket.send_json({"type": "error", "message": "invalid terminal size"})
+                        except (WebSocketDisconnect, RuntimeError):
+                            pass
+                        continue
+                    try:
+                        await run_sync(runtime.session_manager.resize, cols, rows)
+                    except Exception as exc:
+                        logger.warning("Terminal resize failed terminal_id=%s cols=%s rows=%s: %s", terminal_id, cols, rows, exc)
                 elif message_type == "ping":
                     try:
                         async with send_lock:
@@ -171,24 +222,19 @@ class TerminalService:
         finally:
             closed.set()
 
-    async def _send_terminal_output(self, terminal_id: str, runtime: TerminalSessionRuntime, websocket, closed, send_lock) -> None:
+    async def _tail_terminal_output(self, terminal_id: str, cursor: int, websocket, closed, send_lock) -> None:
         while True:
-            output = await run_sync(runtime.session_manager.read)
+            cursor, output = self.read_output_since(terminal_id, cursor)
             if output:
-                filtered_output = await run_sync(self._append_output, terminal_id, output)
                 try:
-                    if filtered_output:
-                        async with send_lock:
-                            await websocket.send_json({"type": "output", "data": filtered_output})
+                    async with send_lock:
+                        await websocket.send_json({"type": "output", "data": output})
                 except (WebSocketDisconnect, RuntimeError):
                     closed.set()
                     return
             if closed.is_set():
-                final_output = await run_sync(runtime.session_manager.read)
-                if final_output:
-                    await run_sync(self._append_output, terminal_id, final_output)
                 return
-            await anyio.sleep(0.02)
+            await anyio.sleep(self.WEBSOCKET_TAIL_IDLE_SECONDS)
 
     def close_session(self, terminal_id: str) -> bool:
         runtime = self._sessions.pop(terminal_id, None)
@@ -198,12 +244,14 @@ class TerminalService:
         self._output_buffers.pop(terminal_id, None)
         self._output_buffer_sizes.pop(terminal_id, None)
         self._output_sequences.pop(terminal_id, None)
-        self._output_filters.pop(terminal_id, None)
-        self._active_filter_ids.pop(terminal_id, None)
-        self._filter_queues.pop(terminal_id, None)
         self._command_event_buffers.pop(terminal_id, None)
         self._command_event_sequences.pop(terminal_id, None)
+        runtime.writer_connection_id = None
+        runtime.reader_stop.set()
+        reader_thread = runtime.reader_thread
         runtime.session_manager.close()
+        if reader_thread is not None and reader_thread is not threading.current_thread():
+            reader_thread.join(timeout=1.0)
         return True
 
     def get_session(self, terminal_id: str):
@@ -219,38 +267,305 @@ class TerminalService:
     def session_belongs_to_asset(self, terminal_id: str, asset_id: int) -> bool:
         return self._session_keys.get(terminal_id) == f"asset:{asset_id}" and terminal_id in self._sessions
 
-    def send_input(self, terminal_id: str, data: str, *, output_markers: dict[str, str] | None = None) -> str | None:
+    def send_input(self, terminal_id: str, data: str) -> str | None:
         runtime = self._sessions.get(terminal_id)
         if runtime is None:
             raise ValueError("terminal session not found")
-        command_id: str | None = None
-        if output_markers is not None:
-            command_id = str(uuid.uuid4())
-            state = OutputFilterState(
-                command_id=command_id,
-                start_marker=output_markers["start_marker"],
-                end_marker=output_markers["end_marker"],
-                done_marker_prefix=output_markers["done_marker_prefix"],
-            )
-            filters = self._output_filters.setdefault(terminal_id, {})
-            filters[command_id] = state
-            queue = self._filter_queues.setdefault(terminal_id, deque())
-            queue.append(command_id)
-            if self._active_filter_ids.get(terminal_id) is None:
-                self._active_filter_ids[terminal_id] = queue[0]
-            self._append_command_event(
-                terminal_id,
-                {
-                    "id": f"command-start-{command_id}",
-                    "kind": "command_start",
-                    "commandId": command_id,
-                    "terminalId": terminal_id,
-                    "command": data.strip(),
-                },
-            )
-        normalized = data if data.endswith("\n") else f"{data}\n"
+        normalized = data if data.endswith(("\n", "\r")) else f"{data}\r"
         runtime.session_manager.write(normalized)
-        return command_id
+        return None
+
+    def execute_interactive_command(
+        self,
+        terminal_id: str,
+        command: str,
+        *,
+        context: ExecutionContext | None = None,
+        on_output_chunk: Callable[[str], None] | None = None,
+        on_command_event: Callable[[dict[str, Any]], None] | None = None,
+    ) -> ExecutionResult:
+        runtime = self._sessions.get(terminal_id)
+        if runtime is None:
+            raise ValueError("terminal session not found")
+
+        timeout_seconds = (
+            context.timeout_seconds
+            if context is not None and context.timeout_seconds is not None and context.timeout_seconds > 0
+            else 15.0
+        )
+        command_id = str(uuid.uuid4())
+        shell_kind = runtime.session_manager.shell_kind()
+        self._wait_for_output_idle(terminal_id)
+        prompt_before = self._last_prompt_text(self.read_buffered_output(terminal_id), shell_kind)
+
+        start_event = {
+            "id": f"command-start-{command_id}",
+            "kind": "command_start",
+            "commandId": command_id,
+            "terminalId": terminal_id,
+            "command": command,
+        }
+        self._append_command_event(terminal_id, start_event)
+        if on_command_event is not None:
+            on_command_event(start_event)
+
+        output_cursor = self.get_output_cursor(terminal_id)
+        self.send_input(terminal_id, command)
+
+        deadline = time.monotonic() + timeout_seconds
+        captured_parts: list[str] = []
+        streamed_output = ""
+
+        def emit_command_chunk(chunk: str) -> None:
+            if not chunk:
+                return
+            chunk_event = {
+                "id": f"command-chunk-{command_id}-{uuid.uuid4()}",
+                "kind": "command_chunk",
+                "commandId": command_id,
+                "terminalId": terminal_id,
+                "stream": "stdout",
+                "text": chunk,
+            }
+            self._append_command_event(terminal_id, chunk_event)
+            if on_command_event is not None:
+                on_command_event(chunk_event)
+            if on_output_chunk is not None:
+                try:
+                    on_output_chunk(chunk)
+                except Exception:
+                    logger.exception("Command output callback failed terminal_id=%s command_id=%s", terminal_id, command_id)
+
+        completed = False
+        while time.monotonic() < deadline:
+            output_cursor, output = self.read_output_since(terminal_id, output_cursor)
+            if output:
+                captured_parts.append(output)
+                raw_so_far = "".join(captured_parts)
+                extracted_so_far = self._extract_natural_command_output(raw_so_far, command, shell_kind)
+                if len(extracted_so_far) > len(streamed_output):
+                    chunk = extracted_so_far[len(streamed_output) :]
+                    streamed_output = extracted_so_far
+                    emit_command_chunk(chunk)
+                if self._looks_like_prompt(raw_so_far, shell_kind, prompt_before):
+                    completed = True
+                    break
+            time.sleep(self.COMMAND_POLL_SECONDS)
+
+        raw_output = "".join(captured_parts)
+        output = self._extract_natural_command_output(raw_output, command, shell_kind)
+        if len(output) > len(streamed_output):
+            emit_command_chunk(output[len(streamed_output) :])
+            streamed_output = output
+        end_event = {
+            "id": f"command-end-{command_id}",
+            "kind": "command_end",
+            "commandId": command_id,
+            "terminalId": terminal_id,
+            "exitCode": 0 if completed else None,
+        }
+        self._append_command_event(terminal_id, end_event)
+        if on_command_event is not None:
+            on_command_event(end_event)
+
+        return ExecutionResult(
+            execution_id=command_id,
+            output=output,
+            completed=completed,
+            success=completed,
+            needs_attention=not completed,
+            exit_code=0 if completed else None,
+            completion_reason="prompt_detected" if completed else "timeout",
+            prompt_before=prompt_before,
+            prompt_after=self._last_prompt_text(raw_output, shell_kind),
+        )
+
+    def _wait_for_output_idle(self, terminal_id: str) -> None:
+        deadline = time.monotonic() + 2.0
+        cursor = self.get_output_cursor(terminal_id)
+        idle_since = time.monotonic()
+        while time.monotonic() < deadline:
+            cursor, output = self.read_output_since(terminal_id, cursor)
+            if output:
+                idle_since = time.monotonic()
+            elif time.monotonic() - idle_since >= self.COMMAND_STARTUP_IDLE_SECONDS:
+                return
+            time.sleep(0.02)
+
+    def _last_prompt_text(self, output: str, shell_kind: str) -> str | None:
+        plain = ANSI_PATTERN.sub("", output).replace("\r", "")
+        lines = [line.strip() for line in plain.split("\n") if line.strip()]
+        for line in reversed(lines):
+            if self._line_looks_like_prompt(line, shell_kind):
+                return line
+            prompt_match = self._prompt_fragment_match(line, shell_kind)
+            if prompt_match is not None:
+                return prompt_match
+        return None
+
+    def _prompt_fragment_match(self, line: str, shell_kind: str) -> str | None:
+        stripped = line.strip()
+        if shell_kind == "powershell":
+            match = re.search(r"PS\s+[^\n]+>\s*$", stripped)
+            return match.group(0) if match else None
+        if shell_kind == "cmd":
+            match = re.search(r"[A-Za-z]:\\[^\n]*>\s*$", stripped)
+            return match.group(0) if match else None
+        match = re.search(r"[^\n]+[$#>]\s*$", stripped)
+        return match.group(0) if match else None
+
+    def _strip_trailing_prompt_fragment(self, output: str, shell_kind: str) -> str:
+        if not output:
+            return output
+        if shell_kind == "powershell":
+            return re.sub(r"PS\s+[^\n]+>\s*$", "", output)
+        if shell_kind == "cmd":
+            return re.sub(r"[A-Za-z]:\\[^\n]*>\s*$", "", output)
+        return re.sub(r"[^\s\n]+[$#>]\s*$", "", output)
+
+    def _looks_like_prompt(self, output: str, shell_kind: str, prompt_before: str | None) -> bool:
+        prompt = self._last_prompt_text(output, shell_kind)
+        if prompt is None:
+            return False
+        if prompt_before is None:
+            return True
+        return prompt == prompt_before or self._line_looks_like_prompt(prompt, shell_kind)
+
+    def _line_looks_like_prompt(self, line: str, shell_kind: str) -> bool:
+        stripped = line.strip()
+        if not stripped:
+            return False
+        if shell_kind == "powershell":
+            return bool(re.search(r"(^|\s)PS\s+.+>\s*$", stripped))
+        if shell_kind == "cmd":
+            return bool(re.search(r"^[A-Za-z]:\\.*>\s*$", stripped))
+        return stripped.endswith(("$", "#", ">"))
+
+    def _extract_natural_command_output(self, raw_output: str, command: str, shell_kind: str) -> str:
+        plain = ANSI_PATTERN.sub("", raw_output).replace("\r", "")
+        plain = self._strip_trailing_prompt_fragment(plain, shell_kind)
+        lines = plain.split("\n")
+        end_index = len(lines)
+        for index in range(len(lines) - 1, -1, -1):
+            if self._line_looks_like_prompt(lines[index], shell_kind):
+                end_index = index
+                break
+        candidate_lines = lines[:end_index]
+        start_index = self._find_command_output_start(candidate_lines, command, shell_kind)
+        if start_index == 0:
+            start_index = self._find_prompt_output_start(candidate_lines, shell_kind)
+        output_lines = candidate_lines[start_index:]
+        output_lines = self._drop_leading_command_echo(output_lines, command, shell_kind)
+        if output_lines:
+            output_lines[0] = self._strip_shell_input_prefix(output_lines[0].strip(), shell_kind)[0]
+        while output_lines and not output_lines[0].strip():
+            output_lines.pop(0)
+        while output_lines and not output_lines[-1].strip():
+            output_lines.pop()
+        return "\n".join(line.rstrip() for line in output_lines)
+
+    def _drop_leading_command_echo(self, lines: list[str], command: str, shell_kind: str) -> list[str]:
+        normalized_command = self._normalize_command_echo(command)
+        if not normalized_command:
+            return lines
+
+        remaining = list(lines)
+        consumed_echo = ""
+        while remaining:
+            raw_line = remaining[0].strip()
+            if not raw_line:
+                remaining.pop(0)
+                continue
+
+            fragment, had_input_prefix = self._strip_shell_input_prefix(raw_line, shell_kind)
+            normalized_fragment = self._normalize_command_echo(fragment)
+            if consumed_echo == normalized_command:
+                break
+            if not normalized_fragment:
+                remaining.pop(0)
+                continue
+
+            next_consumed = self._normalize_command_echo(consumed_echo + fragment)
+            is_initial_echo = not consumed_echo and (
+                had_input_prefix
+                or normalized_command.startswith(normalized_fragment)
+                or normalized_fragment in normalized_command
+                or normalized_command in normalized_fragment
+            )
+            is_echo_continuation = bool(consumed_echo) and (
+                next_consumed in normalized_command
+                or normalized_command.startswith(next_consumed)
+                or normalized_fragment in normalized_command
+            )
+            if is_initial_echo or is_echo_continuation:
+                if next_consumed in normalized_command or normalized_command.startswith(next_consumed):
+                    consumed_echo = next_consumed
+                elif normalized_command in normalized_fragment:
+                    consumed_echo = normalized_command
+                elif normalized_fragment in normalized_command:
+                    consumed_echo = normalized_fragment
+                remaining.pop(0)
+                continue
+            break
+        return remaining
+
+    def _find_command_output_start(self, lines: list[str], command: str, shell_kind: str) -> int:
+        command_text = command.strip()
+        if not command_text:
+            return 0
+        normalized_command = self._normalize_command_echo(command_text)
+        joined = ""
+        for index, line in enumerate(lines):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            fragment, _ = self._strip_shell_input_prefix(stripped, shell_kind)
+            if not fragment:
+                continue
+            joined = self._normalize_command_echo(joined + fragment)
+            if normalized_command.startswith(joined):
+                if joined == normalized_command:
+                    return index + 1
+                continue
+            if joined and not normalized_command.startswith(joined):
+                joined = ""
+        plain = "\n".join(lines)
+        command_index = plain.find(command_text)
+        if command_index >= 0:
+            consumed = plain[: command_index + len(command_text)]
+            return consumed.count("\n")
+        return 0
+
+    def _find_prompt_output_start(self, lines: list[str], shell_kind: str) -> int:
+        for index, line in enumerate(lines):
+            stripped = line.strip()
+            if not stripped:
+                continue
+            fragment, had_input_prefix = self._strip_shell_input_prefix(stripped, shell_kind)
+            if self._line_looks_like_prompt(stripped, shell_kind) or self._prompt_fragment_match(stripped, shell_kind) or had_input_prefix:
+                return index if fragment else index + 1
+        return 0
+
+    def _strip_shell_input_prefix(self, line: str, shell_kind: str) -> tuple[str, bool]:
+        stripped = line.strip()
+        fragment = self._strip_prompt_prefix(stripped, shell_kind)
+        if fragment != stripped:
+            return fragment, True
+        if shell_kind == "powershell":
+            continuation = re.sub(r"^(?:\d+\s*)?>+\s*", "", stripped).strip()
+            if continuation != stripped:
+                return continuation, True
+        return stripped, False
+
+    def _strip_prompt_prefix(self, line: str, shell_kind: str) -> str:
+        if shell_kind == "powershell":
+            return re.sub(r"^PS\s+.+?>\s*", "", line).strip()
+        if shell_kind == "cmd":
+            return re.sub(r"^[A-Za-z]:\\.*?>\s*", "", line).strip()
+        return re.sub(r"^.*?[$#>]\s*", "", line).strip()
+
+    def _normalize_command_echo(self, value: str) -> str:
+        return re.sub(r"\s+", "", value)
 
     def get_shell_kind(self, terminal_id: str) -> str:
         session_manager = self.get_session(terminal_id)
@@ -262,46 +577,60 @@ class TerminalService:
         return self.read_buffered_output(terminal_id)
 
     def read_buffered_output(self, terminal_id: str) -> str:
-        if terminal_id not in self._sessions:
+        runtime = self._sessions.get(terminal_id)
+        if runtime is None:
             return ""
-        chunks = self._output_buffers.get(terminal_id)
-        if not chunks:
-            return ""
-        return "".join(chunk for _, chunk in chunks)
+        with runtime.buffer_lock:
+            chunks = self._output_buffers.get(terminal_id)
+            if not chunks:
+                return ""
+            return "".join(chunk for _, chunk in chunks)
 
     def get_output_cursor(self, terminal_id: str) -> int:
-        return self._output_sequences.get(terminal_id, 0)
+        runtime = self._sessions.get(terminal_id)
+        if runtime is None:
+            return self._output_sequences.get(terminal_id, 0)
+        with runtime.buffer_lock:
+            return self._output_sequences.get(terminal_id, 0)
 
     def read_output_since(self, terminal_id: str, cursor: int) -> tuple[int, str]:
-        if terminal_id not in self._sessions:
+        runtime = self._sessions.get(terminal_id)
+        if runtime is None:
             return cursor, ""
-        chunks = self._output_buffers.get(terminal_id)
-        if not chunks:
-            return self._output_sequences.get(terminal_id, cursor), ""
-        latest_cursor = cursor
-        output_parts: list[str] = []
-        for sequence, chunk in chunks:
-            if sequence > cursor:
-                output_parts.append(chunk)
-                latest_cursor = sequence
-        return latest_cursor, "".join(output_parts)
+        with runtime.buffer_lock:
+            chunks = self._output_buffers.get(terminal_id)
+            if not chunks:
+                return self._output_sequences.get(terminal_id, cursor), ""
+            latest_cursor = cursor
+            output_parts: list[str] = []
+            for sequence, chunk in chunks:
+                if sequence > cursor:
+                    output_parts.append(chunk)
+                    latest_cursor = sequence
+            return latest_cursor, "".join(output_parts)
 
     def get_command_event_cursor(self, terminal_id: str) -> int:
-        return self._command_event_sequences.get(terminal_id, 0)
+        runtime = self._sessions.get(terminal_id)
+        if runtime is None:
+            return self._command_event_sequences.get(terminal_id, 0)
+        with runtime.buffer_lock:
+            return self._command_event_sequences.get(terminal_id, 0)
 
     def read_command_events_since(self, terminal_id: str, cursor: int) -> tuple[int, list[dict[str, Any]]]:
-        if terminal_id not in self._sessions:
+        runtime = self._sessions.get(terminal_id)
+        if runtime is None:
             return cursor, []
-        events = self._command_event_buffers.get(terminal_id)
-        if not events:
-            return self._command_event_sequences.get(terminal_id, cursor), []
-        latest_cursor = cursor
-        payloads: list[dict[str, Any]] = []
-        for sequence, event in events:
-            if sequence > cursor:
-                payloads.append(event)
-                latest_cursor = sequence
-        return latest_cursor, payloads
+        with runtime.buffer_lock:
+            events = self._command_event_buffers.get(terminal_id)
+            if not events:
+                return self._command_event_sequences.get(terminal_id, cursor), []
+            latest_cursor = cursor
+            payloads: list[dict[str, Any]] = []
+            for sequence, event in events:
+                if sequence > cursor:
+                    payloads.append(event)
+                    latest_cursor = sequence
+            return latest_cursor, payloads
 
     def list_recent_events_for_asset(self, asset_id: int) -> list[dict[str, Any]]:
         # Terminal context is sourced from live in-memory sessions, not persisted history.
@@ -322,20 +651,24 @@ class TerminalService:
     def _append_output(self, terminal_id: str, output: str) -> str:
         if not output:
             return ""
+        runtime = self._sessions.get(terminal_id)
+        if runtime is None:
+            return ""
 
-        self._derive_command_events(terminal_id, output)
-        sequence = self._output_sequences.get(terminal_id, 0) + 1
-        self._output_sequences[terminal_id] = sequence
-        chunks = self._output_buffers.setdefault(terminal_id, deque(maxlen=4000))
-        if chunks.maxlen is not None and len(chunks) == chunks.maxlen:
-            self._output_buffer_sizes[terminal_id] = max(
-                0,
-                self._output_buffer_sizes.get(terminal_id, 0) - len(chunks[0][1]),
-            )
-        chunks.append((sequence, output))
-        self._output_buffer_sizes[terminal_id] = self._output_buffer_sizes.get(terminal_id, 0) + len(output)
-        self._trim_output_buffer(terminal_id)
-        return output
+        with runtime.buffer_lock:
+            visible_output = output
+            sequence = self._output_sequences.get(terminal_id, 0) + 1
+            self._output_sequences[terminal_id] = sequence
+            chunks = self._output_buffers.setdefault(terminal_id, deque(maxlen=4000))
+            if chunks.maxlen is not None and len(chunks) == chunks.maxlen:
+                self._output_buffer_sizes[terminal_id] = max(
+                    0,
+                    self._output_buffer_sizes.get(terminal_id, 0) - len(chunks[0][1]),
+                )
+            chunks.append((sequence, visible_output))
+            self._output_buffer_sizes[terminal_id] = self._output_buffer_sizes.get(terminal_id, 0) + len(visible_output)
+            self._trim_output_buffer(terminal_id)
+            return visible_output
 
     def _trim_output_buffer(self, terminal_id: str) -> None:
         chunks = self._output_buffers.get(terminal_id)
@@ -349,116 +682,15 @@ class TerminalService:
             current_size -= len(removed)
         self._output_buffer_sizes[terminal_id] = max(0, current_size)
 
-    def _derive_command_events(self, terminal_id: str, output: str) -> None:
-        # Raw output stays authoritative for terminal replay; filtered output only drives command cards.
-        self._filter_output(terminal_id, output)
-
     def _append_command_event(self, terminal_id: str, event: dict[str, Any]) -> None:
-        sequence = self._command_event_sequences.get(terminal_id, 0) + 1
-        self._command_event_sequences[terminal_id] = sequence
-        payload = {**event, "sequence": sequence}
-        self._command_event_buffers.setdefault(terminal_id, deque(maxlen=8000)).append((sequence, payload))
-
-    def _normalize_output_text(self, output: str) -> str:
-        # We return the raw output to preserve ANSI escape codes and carriage returns.
-        # This ensures that the terminal emulator on the frontend (xterm.js) can
-        # correctly render colors, cursor movements, and other formatting.
-        return output
-
-    def _advance_filter_queue(self, terminal_id: str, completed_command_id: str) -> None:
-        filters = self._output_filters.get(terminal_id, {})
-        filters.pop(completed_command_id, None)
-        queue = self._filter_queues.get(terminal_id)
-        if queue is None:
-            self._active_filter_ids[terminal_id] = None
+        runtime = self._sessions.get(terminal_id)
+        if runtime is None:
             return
-        while queue and queue[0] == completed_command_id:
-            queue.popleft()
-        if queue:
-            self._active_filter_ids[terminal_id] = queue[0]
-        else:
-            self._active_filter_ids[terminal_id] = None
-
-    def _filter_output(self, terminal_id: str, output: str) -> str:
-        normalized_output = self._normalize_output_text(output)
-        active_command_id = self._active_filter_ids.get(terminal_id)
-        if active_command_id is None:
-            return normalized_output
-        state = self._output_filters.get(terminal_id, {}).get(active_command_id)
-        if state is None:
-            self._active_filter_ids[terminal_id] = None
-            return normalized_output
-
-        state.pending += normalized_output
-        filtered_parts: list[str] = []
-
-        while True:
-            newline_index = state.pending.find("\n")
-            if newline_index < 0:
-                break
-
-            line = state.pending[: newline_index + 1]
-            state.pending = state.pending[newline_index + 1 :]
-            normalized_line = line
-
-            if state.suppressing_input_echo:
-                if state.start_marker in normalized_line:
-                    state.suppressing_input_echo = False
-                continue
-
-            if state.start_marker in normalized_line:
-                continue
-
-            if state.end_marker in normalized_line:
-                trailing = state.pending
-                if trailing.strip():
-                    self._append_command_event(
-                        terminal_id,
-                        {
-                            "id": f"command-chunk-{state.command_id}-{uuid.uuid4()}",
-                            "kind": "command_chunk",
-                            "commandId": state.command_id,
-                            "terminalId": terminal_id,
-                            "stream": "stdout",
-                            "text": trailing,
-                        },
-                    )
-                    filtered_parts.append(trailing)
-                state.pending = ""
-                self._append_command_event(
-                    terminal_id,
-                    {
-                        "id": f"command-end-{state.command_id}",
-                        "kind": "command_end",
-                        "commandId": state.command_id,
-                        "terminalId": terminal_id,
-                        "exitCode": state.exit_code,
-                    },
-                )
-                self._advance_filter_queue(terminal_id, state.command_id)
-                continue
-
-            if state.done_marker_prefix in normalized_line:
-                try:
-                    state.exit_code = int(normalized_line.split(state.done_marker_prefix, 1)[1].strip())
-                except ValueError:
-                    state.exit_code = None
-                continue
-
-            self._append_command_event(
-                terminal_id,
-                {
-                    "id": f"command-chunk-{state.command_id}-{uuid.uuid4()}",
-                    "kind": "command_chunk",
-                    "commandId": state.command_id,
-                    "terminalId": terminal_id,
-                    "stream": "stdout",
-                    "text": line,
-                },
-            )
-            filtered_parts.append(line)
-
-        return "".join(filtered_parts)
+        with runtime.buffer_lock:
+            sequence = self._command_event_sequences.get(terminal_id, 0) + 1
+            self._command_event_sequences[terminal_id] = sequence
+            payload = {**event, "sequence": sequence}
+            self._command_event_buffers.setdefault(terminal_id, deque(maxlen=8000)).append((sequence, payload))
 
     def attach_context(self, terminal_id: str, selection_label: str, selected_text: str):
         attachment = build_terminal_context(terminal_id, selection_label, selected_text)

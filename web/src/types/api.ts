@@ -89,6 +89,63 @@ export type ConsoleRunRequestDto = {
   selected_skill_name?: string
 }
 
+export type ConsoleOrchestrationResolveTargetsRequest = {
+  prompt: string
+  currentAssetId?: number | null
+  conversationId: string
+  modelName?: string | null
+}
+
+export type ConsoleOrchestrationResolveTargetsResponseDto = {
+  targetAssetIds: number[]
+  targetSelectionSource: string
+  targetSelectionReason: string
+  confidence: 'high' | 'medium' | 'low'
+}
+
+export type ConsoleOrchestrationRunRequest = {
+  prompt: string
+  currentAssetId?: number | null
+  targetAssetIds?: number[] | null
+  conversationId: string
+  modelName?: string | null
+  selectedSkillName?: string | null
+  maxConcurrency?: number
+}
+
+export type OrchestrationChildDto = {
+  assetId: number
+  assetName: string
+  runtimeId: string | null
+  terminalId: string | null
+  status: string
+  summary: string
+  errorMessage: string
+  lastSequence: number
+}
+
+export type OrchestrationSnapshotDto = {
+  orchestrationId: string
+  conversationId: string
+  prompt: string
+  targetAssetIds: number[]
+  targetSelectionSource: string
+  targetSelectionReason: string
+  confidence: 'high' | 'medium' | 'low'
+  status: string
+  maxConcurrency: number
+  children: OrchestrationChildDto[]
+  finalSummary: string | null
+  createdAt: string
+  updatedAt: string
+  lastSequence: number
+}
+
+export type OrchestrationEventsResponseDto = {
+  latestSequence: number
+  events: Array<Record<string, unknown>>
+}
+
 export type SkillsApiModels = {
   skills: SkillPackage[]
 }
@@ -98,6 +155,8 @@ export type ConsoleBootstrap = {
   groups: AssetGroup[]
   historyByAsset: Record<number, SessionRecord[]>
   modelOptions: string[]
+  modelConfigured: boolean
+  modelConfigurationMessage: string
   terminalSessionId: string | null
   terminalSessionChannel: string | null
   terminalSessionError: string
@@ -149,6 +208,16 @@ export type RuntimeSnapshotDto = {
   last_output_excerpt: string
   summary: string | null
   error_message: string | null
+  pendingApproval?: {
+    runtimeId: string
+    stepId?: string | null
+    messageId?: string | null
+    toolCallId?: string | null
+    toolName?: string | null
+    approvalToken?: string | null
+    command: string
+    args: Record<string, unknown>
+  } | null
   terminalRequests?: Array<{
     requestId: string
     runtimeId: string
