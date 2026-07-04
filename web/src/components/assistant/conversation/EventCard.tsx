@@ -3,13 +3,7 @@ import { motion } from 'framer-motion'
 import { useAppearance } from '../../../hooks/useAppearance'
 import type { EventItem } from '../../../types/ops'
 import { AssistantMessageContent } from './AssistantMessageContent'
-
-// 统一的卡片入场动画：淡入 + 上移
-const cardMotion = {
-  initial: { opacity: 0, y: 8 },
-  animate: { opacity: 1, y: 0 },
-  transition: { duration: 0.3, ease: 'easeOut' as const },
-}
+import { cardMotionProps } from '../../motion-primitives'
 
 type EventCardProps = {
   event: EventItem
@@ -31,7 +25,7 @@ export function EventCard({ event, onTerminalRequestDecision, settledTerminalReq
 
   if (event.kind === 'error') {
     return (
-      <motion.div {...cardMotion} className="my-1 rounded-xl border border-ops-danger/25 bg-ops-danger/8 p-3.5" role="alert">
+      <motion.div {...cardMotionProps} className="my-1 rounded-xl border border-ops-danger/25 bg-ops-danger/8 p-3.5" role="alert">
         <div className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.12em] text-ops-danger">
           <span className="h-1.5 w-1.5 rounded-full bg-ops-danger" />
           {t('conversation.systemError')}
@@ -43,7 +37,7 @@ export function EventCard({ event, onTerminalRequestDecision, settledTerminalReq
 
   if (event.kind === 'user') {
     return (
-      <motion.div {...cardMotion} className="flex justify-end">
+      <motion.div {...cardMotionProps} className="flex justify-end">
         <article className="max-w-[78%] rounded-2xl rounded-br-sm border border-ops-green/20 bg-ops-green/8 px-4 py-3 shadow-sm">
           <p className="m-0 whitespace-pre-wrap text-[13.5px] font-medium leading-7 text-ops-text/95">{event.text}</p>
         </article>
@@ -61,7 +55,7 @@ export function EventCard({ event, onTerminalRequestDecision, settledTerminalReq
     if (settled) return null
     const canDecide = Boolean(runtimeId && requestId && approvalToken && onTerminalRequestDecision && !submittingTerminalDecision)
     return (
-      <motion.div {...cardMotion} className="my-2 rounded-xl border border-ops-warning/25 bg-ops-warning/8 p-4">
+      <motion.div {...cardMotionProps} className="my-2 rounded-xl border border-ops-warning/25 bg-ops-warning/8 p-4">
         <div className="mb-3 flex items-center gap-2 text-ops-warning">
           <span className="h-1.5 w-1.5 rounded-full bg-ops-warning" />
           <span className="text-[10px] font-bold uppercase tracking-[0.12em]">{t('conversation.terminalRequest')}</span>
@@ -119,7 +113,7 @@ export function EventCard({ event, onTerminalRequestDecision, settledTerminalReq
 
   if ((event.kind === 'approval_required' || event.kind === 'approval_decision') && event.status === 'rejected') {
     return (
-      <motion.div {...cardMotion} className="my-2 rounded-xl border border-ops-danger/25 bg-ops-danger/8 p-4">
+      <motion.div {...cardMotionProps} className="my-2 rounded-xl border border-ops-danger/25 bg-ops-danger/8 p-4">
         <div className="mb-3 flex items-center gap-2 text-ops-danger">
           <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" /></svg>
           <span className="text-[10px] font-bold uppercase tracking-[0.12em]">{t('conversation.accessDenied')}</span>
@@ -132,7 +126,7 @@ export function EventCard({ event, onTerminalRequestDecision, settledTerminalReq
   if (event.kind === 'final') {
     if (!event.text) return null
     return (
-      <motion.section {...cardMotion} className="relative my-2 overflow-hidden rounded-2xl border border-ops-green/20 bg-ops-panel/50 p-4" role="status" aria-live="polite">
+      <motion.section {...cardMotionProps} className="relative my-2 overflow-hidden rounded-2xl border border-ops-green/20 bg-ops-panel/50 p-4" role="status" aria-live="polite">
         <div className="mb-3 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.12em] text-ops-green">
           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M20 6 9 17l-5-5" /></svg>
           {t('conversation.runComplete')}

@@ -141,7 +141,7 @@ export function TerminalSidePanel({
                     onClick={() => onSelectTab(tabAsset.id)}
                     title={`${label}${isLocal ? ` (${t('terminal.local')})` : ''}`}
                   >
-                    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${isActive ? 'bg-ops-green animate-pulse' : 'bg-ops-border/40'}`} aria-hidden="true" />
+                    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${isActive ? 'bg-ops-green' : 'bg-ops-border/40'}`} aria-hidden="true" />
                     <span className="truncate">{label}</span>
                   </button>
                   {isLocal ? null : (
@@ -162,7 +162,7 @@ export function TerminalSidePanel({
           {/* Busy command indicator */}
           {busyCommand ? (
             <div className="flex shrink-0 items-center gap-2 border-b border-ops-warning/20 bg-ops-warning/5 px-3 py-1.5 text-[10px] text-ops-warning">
-              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-ops-warning animate-pulse" />
+              <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-ops-warning" />
               <code className="min-w-0 flex-1 truncate font-mono text-[10px]">{busyCommand}</code>
             </div>
           ) : null}

@@ -55,7 +55,7 @@ export function OrchestrationTargetConfirmCard({
       <div className="flex items-start justify-between gap-4">
         <div className="min-w-0">
           <div className="flex items-center gap-2">
-            <span className="h-2 w-2 shrink-0 rounded-full bg-ops-green animate-pulse" />
+            <span className="h-2 w-2 shrink-0 rounded-full bg-ops-green" />
             <h3 className="text-[12px] font-bold tracking-[0.06em] text-ops-green">Confirm Multi-Asset Run</h3>
           </div>
           <p className="mt-2 line-clamp-2 text-[13px] leading-5 text-ops-text">{prompt}</p>

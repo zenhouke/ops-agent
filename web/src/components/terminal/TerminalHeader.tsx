@@ -53,7 +53,7 @@ export function TerminalHeader({
                   title={`${label}${isLocal ? ` (${t('terminal.local')})` : ''}`}
                 >
                   <span
-                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${isActive ? 'bg-ops-green shadow-glow animate-pulse' : 'bg-ops-border/40'}`}
+                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${isActive ? 'bg-ops-green shadow-glow' : 'bg-ops-border/40'}`}
                     aria-hidden="true"
                   />
                   <span className="truncate">{label}</span>
@@ -94,7 +94,7 @@ export function TerminalHeader({
       {busyCommand ? (
         <div className="flex items-center gap-4 border-t border-ops-warning/30 bg-ops-warning/5 px-5 py-2 text-[10px] text-ops-warning animate-in slide-in-from-top duration-300">
           <div className="flex items-center gap-2 shrink-0">
-            <span className="h-2 w-2 rounded-full bg-ops-warning shadow-glow animate-pulse" />
+            <span className="h-2 w-2 rounded-full bg-ops-warning shadow-glow" />
             <span className="font-bold tracking-[0.1em]">{t('terminal.transmissionInProgress')}</span>
           </div>
           <code className="min-w-0 flex-1 truncate font-mono text-[11px] text-ops-text/80 bg-ops-warning/10 px-2 py-0.5 rounded border border-ops-warning/20" title={busyCommand}>

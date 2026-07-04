@@ -40,6 +40,7 @@ import { SkillsSection } from './SkillsSection'
 import { SSHKeysSection } from './SSHKeysSection'
 import { SchedulerSection } from './SchedulerSection'
 import { modelProviderPresets } from '../../types/modelProviderPresets'
+import { motion } from 'framer-motion'
 import type { GroupForm, MCPServerForm, ModelForm, PermissionsForm, SettingsDialogProps, SettingsSection, SSHKeyForm } from './settingsTypes'
 
 const emptyGroupForm: GroupForm = {
@@ -645,8 +646,22 @@ export function SettingsDialog({ initialGroups, selectedModel, sshKeys: initialS
           : null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-ops-bg/60 backdrop-blur-md animate-in fade-in duration-300" role="presentation">
-      <section className="w-[880px] max-w-[95vw] h-[640px] max-h-[90vh] bg-ops-panel/90 border border-ops-border/40 rounded-2xl shadow-2xl flex flex-col overflow-hidden backdrop-blur-xl animate-in zoom-in-95 duration-300" role="dialog" aria-modal="true" aria-labelledby="settings-title">
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.18 }}
+      className="fixed inset-0 z-50 flex items-center justify-center bg-ops-bg/60 backdrop-blur-md"
+      role="presentation"
+    >
+      <motion.section
+        initial={{ opacity: 0, scale: 0.96 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: 0.22, ease: [0.0, 0.0, 0.2, 1.0] }}
+        className="w-[880px] max-w-[95vw] h-[640px] max-h-[90vh] bg-ops-panel/90 border border-ops-border/40 rounded-2xl shadow-2xl flex flex-col overflow-hidden backdrop-blur-xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-title"
+      >
         <div className="flex items-center justify-between p-6 border-b border-ops-border/20 bg-ops-panel shrink-0">
           <div>
             <h3 id="settings-title" className="text-[16px] font-bold  text-ops-green">{t('settings.title')}</h3>
@@ -813,7 +828,7 @@ export function SettingsDialog({ initialGroups, selectedModel, sshKeys: initialS
             onConfirm={() => void confirmDeleteMCPServer()}
           />
         ) : null}
-      </section>
-    </div>
+      </motion.section>
+    </motion.div>
   )
 }

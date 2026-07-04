@@ -32,7 +32,7 @@ export function PlanSummaryCard({ event, onApprovePlan }: PlanSummaryCardProps) 
       <div className={showSteps ? 'p-3' : 'px-3 py-2'}>
         <div className={`flex items-center justify-between gap-2 ${showSteps ? 'flex-wrap' : ''}`}>
           <div className="min-w-0 flex flex-1 items-center gap-2">
-            <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${event.loading ? 'animate-pulse bg-ops-green shadow-[0_0_16px_rgb(var(--ops-green)/0.55)]' : isPlanMode ? 'bg-ops-green' : 'bg-ops-green'}`} />
+            <span className={`h-2.5 w-2.5 shrink-0 rounded-full ${event.loading ? 'bg-ops-green shadow-[0_0_16px_rgb(var(--ops-green)/0.55)]' : 'bg-ops-green'}`} />
             <div className="min-w-0">
               <div className="flex min-w-0 items-center gap-2">
                 <h3 className="truncate text-[11px] font-black uppercase tracking-[0.2em] text-ops-text/95">
@@ -107,7 +107,7 @@ export function PlanSummaryCard({ event, onApprovePlan }: PlanSummaryCardProps) 
               <div key={item} className="flex items-center gap-2 rounded-xl border border-ops-green/10 bg-ops-panel/35 px-2.5 py-2">
                 <span className="h-4 w-4 rounded-full bg-ops-green/15" />
                 <span className="h-2.5 flex-1 overflow-hidden rounded-full bg-ops-border/20">
-                  <span className="block h-full w-1/2 animate-pulse rounded-full bg-gradient-to-r from-transparent via-ops-green/35 to-transparent" />
+                  <span className="block h-full w-1/2 rounded-full bg-gradient-to-r from-transparent via-ops-green/35 to-transparent" />
                 </span>
               </div>
             ))}
@@ -141,7 +141,7 @@ export function PlanSummaryCard({ event, onApprovePlan }: PlanSummaryCardProps) 
                     </span>
                     <span className="min-w-0 flex-1 truncate font-semibold">{step.title}</span>
                     {isRunning ? (
-                      <span className="shrink-0 rounded-full border border-ops-green/25 bg-ops-green/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.16em] text-ops-green animate-pulse">
+                      <span className="shrink-0 rounded-full border border-ops-green/25 bg-ops-green/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-[0.16em] text-ops-green">
                         {t('conversation.running')}
                       </span>
                     ) : null}

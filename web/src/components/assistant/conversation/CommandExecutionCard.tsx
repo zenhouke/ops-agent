@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { useAppearance } from '../../../hooks/useAppearance'
+import { cardMotionProps } from '../../motion-primitives'
 import type { AgentMessage } from '../../../types/ops'
 import type { Approval, CommandStart, CommandChunk, CommandEnd } from './types'
 import { OutputBlock } from './OutputBlock'
@@ -201,14 +202,14 @@ export function CommandExecutionCard({
 
   return (
     <motion.div
-      initial={{ opacity: 0, y: 8 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ duration: 0.3, ease: 'easeOut' as const }}
-      className={`group/card my-1.5 overflow-hidden rounded-xl border border-ops-border/20 bg-ops-panel/40 transition-all duration-300 ${isExpanded ? 'p-3.5' : 'px-3 py-2.5'}`}
+      {...cardMotionProps}
+      layout
+      transition={{ duration: 0.25, ease: [0.0, 0.0, 0.2, 1.0] }}
+      className={`group/card my-1.5 overflow-hidden rounded-xl border border-ops-border/20 bg-ops-panel/40 ${isExpanded ? 'p-3.5' : 'px-3 py-2.5'}`}
     >
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 flex-1 items-center gap-3">
-          <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border transition-colors ${isRunning ? 'animate-pulse border-ops-green/35 bg-ops-green/10 text-ops-green' : approvalStatus === 'pending' ? 'border-ops-warning/35 bg-ops-warning/10 text-ops-warning' : 'border-ops-border/35 bg-ops-deep/45 text-ops-muted'}`}>
+          <div className={`flex h-7 w-7 shrink-0 items-center justify-center rounded-xl border transition-colors ${isRunning ? 'border-ops-green/35 bg-ops-green/10 text-ops-green' : approvalStatus === 'pending' ? 'border-ops-warning/35 bg-ops-warning/10 text-ops-warning' : 'border-ops-border/35 bg-ops-deep/45 text-ops-muted'}`}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
           </div>
 
@@ -229,12 +230,12 @@ export function CommandExecutionCard({
             </div>
           ) : approvalStatus ? (
             <div className={`flex items-center gap-1.5 rounded-full border px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] ${approvalStatus === 'approved' ? 'border-ops-green/25 bg-ops-green/8 text-ops-green' : approvalStatus === 'rejected' ? 'border-ops-danger/30 bg-ops-danger/8 text-ops-danger' : 'border-ops-warning/35 bg-ops-warning/10 text-ops-warning'}`}>
-              <span className={`h-1.5 w-1.5 rounded-full ${approvalStatus === 'approved' ? 'bg-ops-green' : approvalStatus === 'rejected' ? 'bg-ops-danger' : 'animate-pulse bg-ops-warning'}`} />
+              <span className={`h-1.5 w-1.5 rounded-full ${approvalStatus === 'approved' ? 'bg-ops-green' : approvalStatus === 'rejected' ? 'bg-ops-danger' : 'bg-ops-warning'}`} />
               {approvalStatus === 'approved' ? t('conversation.authorized') : approvalStatus === 'rejected' ? t('conversation.denied') : t('conversation.needsApproval')}
             </div>
           ) : (
             <div className="flex items-center gap-1.5 rounded-full border border-ops-green/30 bg-ops-green/8 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-ops-green">
-              <span className="h-1.5 w-1.5 animate-ping rounded-full bg-ops-green" />
+              <span className="h-1.5 w-1.5 rounded-full bg-ops-green" />
               {t('conversation.running')}
             </div>
           )}
@@ -262,7 +263,7 @@ export function CommandExecutionCard({
       </div>
 
       {isExpanded && (
-        <div className="mt-4 flex flex-col gap-4 animate-in fade-in slide-in-from-top-2 duration-200">
+        <div className="mt-4 flex flex-col gap-4">
           <div className="flex flex-col gap-1.5">
             <span className="text-[10px] font-black uppercase tracking-[0.16em] text-ops-muted/48">{isCommandTool ? t('conversation.commandPayload') : t('conversation.toolArgs')}</span>
             <code className="block whitespace-pre-wrap break-all rounded-lg border border-ops-border/15 bg-ops-deep/70 px-3.5 py-2.5 font-mono text-[12px] leading-relaxed text-ops-text/88">

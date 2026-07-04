@@ -96,14 +96,14 @@ export function ConversationList({ items, activeConversationId, backgroundRun, o
                     ) : null}
 
                     {/* Status dot */}
-                    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${isActive ? status : 'bg-ops-border/20'} ${runBadge?.dot ? 'animate-pulse' : ''}`} />
+                    <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${isActive ? status : 'bg-ops-border/20'}`} />
 
                     {/* Title + meta */}
                     <div className="min-w-0 flex-1">
                       <div className={`flex items-center gap-2 text-[12px] font-bold leading-tight ${isActive ? 'text-ops-text' : 'text-ops-text/75'}`}>
                         <span className={`truncate ${isUntitled ? 'italic text-ops-muted/50' : ''}`}>{displayTitle}</span>
                         {runBadge ? (
-                          <span className={`shrink-0 h-1.5 w-1.5 rounded-full ${runBadge.dot} animate-pulse`} />
+                          <span className={`shrink-0 h-1.5 w-1.5 rounded-full ${runBadge.dot}`} />
                         ) : null}
                       </div>
                       <div className="mt-0.5 text-[10px] font-medium text-ops-muted/40">

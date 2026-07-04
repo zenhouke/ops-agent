@@ -347,7 +347,7 @@ export function SchedulerSection({ assets }: SchedulerSectionProps) {
                           ? 'border-ops-emerald/30 bg-ops-emerald/10 text-ops-emerald'
                           : 'border-ops-border/30 bg-ops-border/10 text-ops-muted'
                       }`}>
-                        <span className={`h-1.5 w-1.5 rounded-full ${job.enabled ? 'bg-ops-emerald animate-pulse' : 'bg-ops-muted'}`} />
+                        <span className={`h-1.5 w-1.5 rounded-full ${job.enabled ? 'bg-ops-emerald' : 'bg-ops-muted'}`} />
                         {job.enabled ? t('settings.enabled') : t('settings.disabled')}
                       </span>
                       <h5 className="text-[12px] font-black text-ops-text">{job.name}</h5>

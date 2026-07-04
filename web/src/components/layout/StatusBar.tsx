@@ -87,7 +87,7 @@ export function StatusBar({
         {statusDots.length > 0 ? (
           statusDots.map((item, index) => (
             <div key={index} className="flex items-center gap-1.5 shrink-0">
-              <span className={`h-1.5 w-1.5 rounded-full ${item.dotColor} ${busyCommand || backgroundRun?.status === 'running' ? 'animate-pulse' : ''}`} />
+              <span className={`h-1.5 w-1.5 rounded-full ${item.dotColor}`} />
               <span className="text-[10px] font-semibold text-ops-muted/70 truncate max-w-[160px]">{item.label}</span>
             </div>
           ))

@@ -1,7 +1,9 @@
 import { useEffect, useRef, useState } from 'react'
+import { motion } from 'framer-motion'
 import { useAlerts } from '../../hooks/useAlerts'
 import { useAppearance } from '../../hooks/useAppearance'
 import type { Alert } from '../../types/alerts'
+import { cardEntrance, OpsAnimatedGroup, OpsAnimatedItem } from '../motion-primitives'
 
 type NotificationCenterProps = {
   assets: Array<{ id: number; name: string }>
@@ -103,14 +105,19 @@ export function NotificationCenter({
           <path d="M13.73 21a2 2 0 0 1-3.46 0" />
         </svg>
         {unreadCount > 0 ? (
-          <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-ops-danger px-1 text-[10px] font-black text-ops-text shadow-glow animate-pulse">
+          <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-ops-danger px-1 text-[10px] font-black text-ops-text shadow-glow">
             {unreadCount}
           </span>
         ) : null}
       </button>
 
       {isOpen ? (
-        <div className="absolute right-0 mt-2.5 flex max-h-[min(460px,calc(100vh-72px))] w-[calc(100vw-1rem)] max-w-80 flex-col rounded-xl border border-ops-border/25 bg-ops-panel/95 backdrop-blur-xl shadow-2xl z-[100] animate-in fade-in slide-in-from-top-3 duration-200">
+        <motion.div
+          variants={cardEntrance}
+          initial="hidden"
+          animate="visible"
+          className="absolute right-0 mt-2.5 flex max-h-[min(460px,calc(100vh-72px))] w-[calc(100vw-1rem)] max-w-80 flex-col rounded-xl border border-ops-border/25 bg-ops-panel/95 backdrop-blur-xl shadow-2xl z-[100]"
+        >
           <div className="flex items-center justify-between gap-3 p-4 border-b border-ops-border/15 shrink-0 bg-ops-panel">
             <h4 className="text-xs font-bold text-ops-green tracking-wider">{t('alerts.title', { count: String(alerts.length) })}</h4>
             {unreadCount > 0 ? (
@@ -146,11 +153,12 @@ export function NotificationCenter({
                 <p className="text-[10px] font-bold tracking-wider">{t('alerts.empty')}</p>
               </div>
             ) : (
-              alerts.map((alert) => {
+              <OpsAnimatedGroup as="div" className="space-y-2">
+                {alerts.map((alert) => {
                 const styles = getSeverityStyles(alert.severity)
                 const isUnread = alert.status === 'unread'
                 return (
-                  <div
+                  <OpsAnimatedItem
                     key={alert.id}
                     onClick={() => handleAlertClick(alert)}
                     className={`flex flex-col p-3 rounded-lg border cursor-pointer transition-all duration-150 ${
@@ -202,12 +210,13 @@ export function NotificationCenter({
                         ) : null}
                       </div>
                     </div>
-                  </div>
+                  </OpsAnimatedItem>
                 )
-              })
+              })}
+              </OpsAnimatedGroup>
             )}
           </div>
-        </div>
+        </motion.div>
       ) : null}
     </div>
   )
