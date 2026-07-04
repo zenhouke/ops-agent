@@ -222,6 +222,7 @@ export type PlanEvent = {
   runtimeId?: string
   mode?: RunMode
   lockedPlan?: boolean
+  status?: string
 }
 
 export type TerminalStreamKind = 'echo' | 'stdout' | 'stderr' | 'status'
@@ -267,6 +268,7 @@ export type ApprovalEvent = {
   command: string
   runtimeId?: string
   stepId?: string
+  terminalId?: string | null
   approvalToken?: string
   approved?: boolean
   status?: 'pending' | 'approved' | 'rejected'
@@ -425,6 +427,16 @@ export type OrchestrationChild = {
   events: EventItem[]
 }
 
+export type OrchestrationTargetPreparationStatus = 'ready' | 'needs_terminal' | 'unavailable'
+
+export type OrchestrationTargetPreparation = {
+  assetId: number
+  assetName: string
+  status: OrchestrationTargetPreparationStatus
+  terminalId: string | null
+  reason: string
+}
+
 export type OrchestrationEvent = {
   id: string
   kind:
@@ -435,12 +447,14 @@ export type OrchestrationEvent = {
     | 'child_runtime_completed'
     | 'child_runtime_failed'
     | 'orchestration_summary'
+    | 'orchestration_needs_approval'
     | 'orchestration_completed'
     | 'orchestration_failed'
     | 'orchestration_cancelled'
   orchestrationId: string
   conversationId?: string
   runtimeId?: string | null
+  terminalId?: string | null
   assetId?: number
   assetName?: string
   sequence?: number
@@ -574,6 +588,7 @@ export type EventItem =
   | { id: string; kind: 'final'; text: string }
   | { id: string; kind: 'error'; text: string }
   | { id: string; kind: 'failed'; error?: string; text?: string }
+  | { id: string; kind: 'loop_failed' | 'task_failed'; error?: string; text?: string }
   | { id: string; kind: 'completed'; summary?: string; text?: string }
   | { id: string; kind: 'user'; text: string }
 

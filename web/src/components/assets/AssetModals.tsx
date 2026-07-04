@@ -113,7 +113,7 @@ function AssetFormModal({ mode, form, assets, targetAsset, groups, sshKeys, seri
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-ops-bg/60 backdrop-blur-md animate-in fade-in duration-300" role="presentation">
       <form className="w-[520px] max-w-[90vw] max-h-[90vh] overflow-y-auto bg-ops-panel/90 border border-ops-border/40 rounded-2xl p-8 shadow-2xl flex flex-col gap-6 backdrop-blur-xl animate-in zoom-in-95 duration-300" role="dialog" aria-modal="true" aria-labelledby="add-asset-title" onSubmit={onSubmit}>
         <div className="flex items-center justify-between pb-4 border-b border-ops-border/20">
-          <h3 id="add-asset-title" className="text-[16px] font-bold  tracking-[0.15em] text-ops-cyan">
+          <h3 id="add-asset-title" className="text-[16px] font-bold  tracking-[0.15em] text-ops-green">
             {mode === 'edit-asset' ? t('assets.updateInfrastructure') : t('assets.newInfrastructure')}
           </h3>
           <button type="button" onClick={onClose} className="text-ops-muted hover:text-ops-text transition-colors">

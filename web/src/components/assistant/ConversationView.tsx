@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { EmptyState } from '../layout/EmptyState'
+import { useAppearance } from '../../hooks/useAppearance'
 import type { EventItem } from '../../types/ops'
 import { CommandExecutionCard } from './conversation/CommandExecutionCard'
 import { PlanSummaryCard } from './conversation/PlanSummaryCard'
@@ -16,6 +17,9 @@ type ConversationViewProps = {
   onLoadOlder?: () => Promise<void>
   onApprove?: (allowPrefix?: string) => void
   onReject?: () => void
+  onApproveCommand?: (input: { runtimeId: string | null; approvalToken: string | null; terminalId: string | null; allowPrefix?: string }) => void
+  onRejectCommand?: (input: { runtimeId: string | null; approvalToken: string | null; terminalId: string | null }) => void
+  onApprovePlan?: (runtimeId: string) => void
   onTerminalRequestDecision?: (input: { runtimeId: string; requestId: string; approvalToken: string; approved: boolean }) => Promise<void>
 }
 
@@ -29,8 +33,12 @@ export function ConversationView({
   onLoadOlder,
   onApprove,
   onReject,
+  onApproveCommand,
+  onRejectCommand,
+  onApprovePlan,
   onTerminalRequestDecision,
 }: ConversationViewProps) {
+  const { t } = useAppearance()
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const shouldAutoScrollRef = useRef(true)
   const [showAllLoadedTurns, setShowAllLoadedTurns] = useState(false)
@@ -77,25 +85,27 @@ export function ConversationView({
 
   if (events.length === 0) {
     return (
-      <div className="flex-1 overflow-y-auto p-4" aria-label="Assistant Conversation">
-        <EmptyState title="Ready to Start" description="Enter a task and execution logs, approval requests, and results will appear here." />
+      <div className="flex-1 overflow-y-auto p-4" aria-label={t('conversation.list')}>
+        <EmptyState title={t('conversation.readyToStart')} description={t('conversation.readyToStartDescription')} />
       </div>
     )
   }
 
   return (
-    <div className="relative flex flex-1 flex-col overflow-hidden" aria-label="Assistant Conversation">
-      {latestPlanEvent?.mode === 'plan' ? (
-        <div className="absolute right-4 top-3 z-30 w-[min(380px,calc(100%-2rem))]">
-          <PlanSummaryCard event={latestPlanEvent} />
-        </div>
-      ) : null}
-      <div ref={scrollContainerRef} className={`flex flex-1 flex-col gap-5 overflow-y-auto px-4 py-4 ${latestPlanEvent?.mode === 'plan' ? 'pt-20' : ''}`}>
+    <div className="relative flex flex-1 flex-col overflow-hidden" aria-label={t('conversation.list')}>
+      <div ref={scrollContainerRef} className="flex flex-1 flex-col gap-3 overflow-y-auto px-5 py-4">
+        {latestPlanEvent?.mode === 'plan' ? (
+          <div className="sticky top-0 z-10 flex justify-end pb-2 pt-1">
+            <div className="w-[min(380px,100%)]">
+              <PlanSummaryCard event={latestPlanEvent} onApprovePlan={onApprovePlan} />
+            </div>
+          </div>
+        ) : null}
         {hasMoreBefore || hiddenTurnCount > 0 ? (
           <div className="flex justify-center">
             <button
               type="button"
-              className="rounded-xl border border-ops-border/30 bg-ops-panel/80 px-4 py-2 text-[11px] font-bold text-ops-muted transition hover:border-ops-cyan/40 hover:text-ops-cyan disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-xl border border-ops-border/30 bg-ops-panel/80 px-4 py-2 text-[11px] font-bold text-ops-muted transition hover:border-ops-green/40 hover:text-ops-green disabled:cursor-not-allowed disabled:opacity-50"
               disabled={isLoadingOlder || (!hasMoreBefore && hiddenTurnCount === 0)}
               onClick={() => {
                 if (hiddenTurnCount > 0) {
@@ -105,7 +115,7 @@ export function ConversationView({
                 void onLoadOlder?.()
               }}
             >
-              {isLoadingOlder ? 'Loading older content...' : hiddenTurnCount > 0 ? `Show older content (${hiddenTurnCount} turns hidden)` : 'Load older content'}
+              {isLoadingOlder ? t('conversation.loadingOlder') : hiddenTurnCount > 0 ? t('conversation.showOlder', { count: String(hiddenTurnCount) }) : t('conversation.loadOlder')}
             </button>
           </div>
         ) : null}
@@ -114,7 +124,7 @@ export function ConversationView({
           const orderedAssistantGroups = sortAssistantGroups(turn.assistantGroups)
 
           return (
-            <div key={turn.id} className="flex flex-col gap-4">
+            <div key={turn.id} className="flex flex-col gap-3">
               {turn.userEvent ? (
                 <EventCard
                   event={turn.userEvent}
@@ -127,7 +137,7 @@ export function ConversationView({
               ) : null}
 
               {orderedAssistantGroups.length > 0 ? (
-                <div className="flex flex-col gap-4 w-full">
+                <div className="flex flex-col gap-2.5 w-full">
                   {orderedAssistantGroups.map((entry, index) => {
                     const isLastGroupInTurn = index === orderedAssistantGroups.length - 1
 
@@ -143,6 +153,8 @@ export function ConversationView({
                           pendingApprovalRuntimeId={pendingApprovalRuntimeId}
                           onApprove={onApprove}
                           onReject={onReject}
+                          onApproveCommand={onApproveCommand}
+                          onRejectCommand={onRejectCommand}
                         />
                       )
                     }
@@ -169,7 +181,7 @@ export function ConversationView({
                           return null
                         }
 
-                        return <div key={`${turn.id}-${index}-${entry.event.id}`} className="max-w-[560px]"><PlanSummaryCard event={entry.event} /></div>
+                        return <div key={`${turn.id}-${index}-${entry.event.id}`} className="max-w-[560px]"><PlanSummaryCard event={entry.event} onApprovePlan={onApprovePlan} /></div>
                       }
 
                       return (

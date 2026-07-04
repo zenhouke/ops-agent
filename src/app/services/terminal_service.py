@@ -26,6 +26,7 @@ import uuid
 
 
 ANSI_PATTERN = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+EXIT_STATUS_PATTERN = re.compile(r"__OPS_AGENT_EXIT_STATUS_([A-Za-z0-9_]+)__:(-?\d+)")
 logger = logging.getLogger(__name__)
 
 
@@ -58,15 +59,17 @@ class TerminalService:
         self._output_sequences: dict[str, int] = {}
         self._command_event_buffers: dict[str, deque[tuple[int, dict[str, Any]]]] = {}
         self._command_event_sequences: dict[str, int] = {}
+        self._registry_lock = threading.RLock()
 
     def _expire_detached_sessions(self) -> None:
         now = datetime.now(UTC)
         expired_ids: list[str] = []
-        for terminal_id, runtime in self._sessions.items():
-            if runtime.state != "detached" or runtime.last_detached_at is None:
-                continue
-            if now - runtime.last_detached_at >= self.SESSION_TTL:
-                expired_ids.append(terminal_id)
+        with self._registry_lock:
+            for terminal_id, runtime in list(self._sessions.items()):
+                if runtime.state != "detached" or runtime.last_detached_at is None:
+                    continue
+                if now - runtime.last_detached_at >= self.SESSION_TTL:
+                    expired_ids.append(terminal_id)
         for terminal_id in expired_ids:
             self.close_session(terminal_id)
 
@@ -90,13 +93,32 @@ class TerminalService:
             elif connector is not None:
                 connector.close()
             return {"terminal_id": None, "channel": None, "error": describe_ssh_proxy_error(exc)}
-        self._sessions[terminal_id] = TerminalSessionRuntime(session_manager=session_manager, state="created")
-        self._session_keys[terminal_id] = session_key
-        self._output_buffers[terminal_id] = deque(maxlen=4000)
-        self._output_buffer_sizes[terminal_id] = 0
-        self._output_sequences[terminal_id] = 0
-        self._command_event_buffers[terminal_id] = deque(maxlen=8000)
-        self._command_event_sequences[terminal_id] = 0
+        duplicate_session_manager = None
+        with self._registry_lock:
+            if reuse_existing:
+                existing_terminal_id = self.find_session_id(session_key)
+                if existing_terminal_id is not None:
+                    duplicate_session_manager = session_manager
+                    terminal_id = existing_terminal_id
+                else:
+                    self._sessions[terminal_id] = TerminalSessionRuntime(session_manager=session_manager, state="created")
+                    self._session_keys[terminal_id] = session_key
+                    self._output_buffers[terminal_id] = deque(maxlen=4000)
+                    self._output_buffer_sizes[terminal_id] = 0
+                    self._output_sequences[terminal_id] = 0
+                    self._command_event_buffers[terminal_id] = deque(maxlen=8000)
+                    self._command_event_sequences[terminal_id] = 0
+            else:
+                self._sessions[terminal_id] = TerminalSessionRuntime(session_manager=session_manager, state="created")
+                self._session_keys[terminal_id] = session_key
+                self._output_buffers[terminal_id] = deque(maxlen=4000)
+                self._output_buffer_sizes[terminal_id] = 0
+                self._output_sequences[terminal_id] = 0
+                self._command_event_buffers[terminal_id] = deque(maxlen=8000)
+                self._command_event_sequences[terminal_id] = 0
+        if duplicate_session_manager is not None:
+            duplicate_session_manager.close()
+            return {"terminal_id": terminal_id, "channel": "terminal connected", "error": ""}
         self._start_session_reader(terminal_id)
         return {"terminal_id": terminal_id, "channel": "terminal connected", "error": ""}
 
@@ -237,15 +259,16 @@ class TerminalService:
             await anyio.sleep(self.WEBSOCKET_TAIL_IDLE_SECONDS)
 
     def close_session(self, terminal_id: str) -> bool:
-        runtime = self._sessions.pop(terminal_id, None)
-        if runtime is None:
-            return False
-        self._session_keys.pop(terminal_id, None)
-        self._output_buffers.pop(terminal_id, None)
-        self._output_buffer_sizes.pop(terminal_id, None)
-        self._output_sequences.pop(terminal_id, None)
-        self._command_event_buffers.pop(terminal_id, None)
-        self._command_event_sequences.pop(terminal_id, None)
+        with self._registry_lock:
+            runtime = self._sessions.pop(terminal_id, None)
+            if runtime is None:
+                return False
+            self._session_keys.pop(terminal_id, None)
+            self._output_buffers.pop(terminal_id, None)
+            self._output_buffer_sizes.pop(terminal_id, None)
+            self._output_sequences.pop(terminal_id, None)
+            self._command_event_buffers.pop(terminal_id, None)
+            self._command_event_sequences.pop(terminal_id, None)
         runtime.writer_connection_id = None
         runtime.reader_stop.set()
         reader_thread = runtime.reader_thread
@@ -259,13 +282,15 @@ class TerminalService:
         return runtime.session_manager if runtime is not None else None
 
     def find_session_id(self, session_key: str) -> str | None:
-        for terminal_id, current_key in self._session_keys.items():
-            if current_key == session_key and terminal_id in self._sessions:
-                return terminal_id
+        with self._registry_lock:
+            for terminal_id, current_key in self._session_keys.items():
+                if current_key == session_key and terminal_id in self._sessions:
+                    return terminal_id
         return None
 
     def session_belongs_to_asset(self, terminal_id: str, asset_id: int) -> bool:
-        return self._session_keys.get(terminal_id) == f"asset:{asset_id}" and terminal_id in self._sessions
+        with self._registry_lock:
+            return self._session_keys.get(terminal_id) == f"asset:{asset_id}" and terminal_id in self._sessions
 
     def send_input(self, terminal_id: str, data: str) -> str | None:
         runtime = self._sessions.get(terminal_id)
@@ -294,6 +319,7 @@ class TerminalService:
             else 15.0
         )
         command_id = str(uuid.uuid4())
+        exit_marker_id = command_id.replace("-", "_")
         shell_kind = runtime.session_manager.shell_kind()
         self._wait_for_output_idle(terminal_id)
         prompt_before = self._last_prompt_text(self.read_buffered_output(terminal_id), shell_kind)
@@ -310,11 +336,13 @@ class TerminalService:
             on_command_event(start_event)
 
         output_cursor = self.get_output_cursor(terminal_id)
-        self.send_input(terminal_id, command)
+        wrapped_command = self._command_with_exit_status_marker(command, shell_kind, exit_marker_id)
+        self.send_input(terminal_id, wrapped_command)
 
         deadline = time.monotonic() + timeout_seconds
         captured_parts: list[str] = []
         streamed_output = ""
+        cancel_requested = context.cancel_check if context is not None else None
 
         def emit_command_chunk(chunk: str) -> None:
             if not chunk:
@@ -337,7 +365,15 @@ class TerminalService:
                     logger.exception("Command output callback failed terminal_id=%s command_id=%s", terminal_id, command_id)
 
         completed = False
+        stopped = False
         while time.monotonic() < deadline:
+            if cancel_requested is not None and cancel_requested():
+                stopped = True
+                try:
+                    self.send_input(terminal_id, "\x03")
+                except Exception:
+                    logger.warning("Failed to send interrupt to terminal_id=%s command_id=%s", terminal_id, command_id, exc_info=True)
+                break
             output_cursor, output = self.read_output_since(terminal_id, output_cursor)
             if output:
                 captured_parts.append(output)
@@ -353,16 +389,19 @@ class TerminalService:
             time.sleep(self.COMMAND_POLL_SECONDS)
 
         raw_output = "".join(captured_parts)
+        exit_code = self._extract_exit_status(raw_output, exit_marker_id)
         output = self._extract_natural_command_output(raw_output, command, shell_kind)
         if len(output) > len(streamed_output):
             emit_command_chunk(output[len(streamed_output) :])
             streamed_output = output
+        success = completed and exit_code == 0
         end_event = {
             "id": f"command-end-{command_id}",
             "kind": "command_end",
             "commandId": command_id,
             "terminalId": terminal_id,
-            "exitCode": 0 if completed else None,
+            "exitCode": exit_code if completed else None,
+            "completionReason": "manual_stop" if stopped else ("prompt_detected" if completed else "timeout"),
         }
         self._append_command_event(terminal_id, end_event)
         if on_command_event is not None:
@@ -372,13 +411,48 @@ class TerminalService:
             execution_id=command_id,
             output=output,
             completed=completed,
-            success=completed,
-            needs_attention=not completed,
-            exit_code=0 if completed else None,
-            completion_reason="prompt_detected" if completed else "timeout",
+            success=success,
+            needs_attention=not success,
+            exit_code=exit_code if completed else None,
+            completion_reason="manual_stop" if stopped else ("prompt_detected" if completed else "timeout"),
             prompt_before=prompt_before,
             prompt_after=self._last_prompt_text(raw_output, shell_kind),
         )
+
+    def _command_with_exit_status_marker(self, command: str, shell_kind: str, marker_id: str) -> str:
+        marker = f"__OPS_AGENT_EXIT_STATUS_{marker_id}__"
+        if shell_kind == "powershell":
+            if "\n" not in command and "\r" not in command:
+                return (
+                    "$global:LASTEXITCODE = $null; "
+                    f"{command}; "
+                    "$__opsAgentSuccess = $?; "
+                    "$__opsAgentNativeExit = $global:LASTEXITCODE; "
+                    "$__opsAgentExit = if ($null -ne $__opsAgentNativeExit) { [int]$__opsAgentNativeExit } elseif (-not $__opsAgentSuccess) { 1 } else { 0 }; "
+                    f"Write-Output \"{marker}:$__opsAgentExit\""
+                )
+            return (
+                "$global:LASTEXITCODE = $null\n"
+                f"{command}\n"
+                "$__opsAgentSuccess = $?\n"
+                "$__opsAgentNativeExit = $global:LASTEXITCODE\n"
+                "$__opsAgentExit = if ($null -ne $__opsAgentNativeExit) { [int]$__opsAgentNativeExit } elseif (-not $__opsAgentSuccess) { 1 } else { 0 }\n"
+                f"Write-Output \"{marker}:$__opsAgentExit\""
+            )
+        if shell_kind == "cmd":
+            return f"{command}\r\necho {marker}:%ERRORLEVEL%"
+        return f"{command}\nprintf '\\n{marker}:%s\\n' \"$?\""
+
+    def _extract_exit_status(self, raw_output: str, marker_id: str) -> int | None:
+        plain = ANSI_PATTERN.sub("", raw_output).replace("\r", "")
+        marker_prefix = f"__OPS_AGENT_EXIT_STATUS_{marker_id}__"
+        for match in EXIT_STATUS_PATTERN.finditer(plain):
+            if match.group(0).startswith(marker_prefix):
+                try:
+                    return int(match.group(2))
+                except ValueError:
+                    return None
+        return None
 
     def _wait_for_output_idle(self, terminal_id: str) -> None:
         deadline = time.monotonic() + 2.0
@@ -456,6 +530,7 @@ class TerminalService:
             start_index = self._find_prompt_output_start(candidate_lines, shell_kind)
         output_lines = candidate_lines[start_index:]
         output_lines = self._drop_leading_command_echo(output_lines, command, shell_kind)
+        output_lines = self._drop_exit_status_marker_lines(output_lines)
         if output_lines:
             output_lines[0] = self._strip_shell_input_prefix(output_lines[0].strip(), shell_kind)[0]
         while output_lines and not output_lines[0].strip():
@@ -463,6 +538,9 @@ class TerminalService:
         while output_lines and not output_lines[-1].strip():
             output_lines.pop()
         return "\n".join(line.rstrip() for line in output_lines)
+
+    def _drop_exit_status_marker_lines(self, lines: list[str]) -> list[str]:
+        return [line for line in lines if "__OPS_AGENT_EXIT_STATUS_" not in line]
 
     def _drop_leading_command_echo(self, lines: list[str], command: str, shell_kind: str) -> list[str]:
         normalized_command = self._normalize_command_echo(command)
@@ -635,9 +713,13 @@ class TerminalService:
     def list_recent_events_for_asset(self, asset_id: int) -> list[dict[str, Any]]:
         # Terminal context is sourced from live in-memory sessions, not persisted history.
         recent_events: list[dict[str, Any]] = []
-        for terminal_id, session_key in self._session_keys.items():
-            if session_key != f"asset:{asset_id}" or terminal_id not in self._sessions:
-                continue
+        with self._registry_lock:
+            terminal_ids = [
+                terminal_id
+                for terminal_id, session_key in self._session_keys.items()
+                if session_key == f"asset:{asset_id}" and terminal_id in self._sessions
+            ]
+        for terminal_id in terminal_ids:
             events = self._command_event_buffers.get(terminal_id, ())
             for sequence, event in events:
                 recent_events.append({
@@ -668,7 +750,7 @@ class TerminalService:
             chunks.append((sequence, visible_output))
             self._output_buffer_sizes[terminal_id] = self._output_buffer_sizes.get(terminal_id, 0) + len(visible_output)
             self._trim_output_buffer(terminal_id)
-            return visible_output
+        return visible_output
 
     def _trim_output_buffer(self, terminal_id: str) -> None:
         chunks = self._output_buffers.get(terminal_id)

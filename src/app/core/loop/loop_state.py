@@ -17,6 +17,7 @@ LoopPhase = Literal[
     "executing",
     "completed",
     "failed",
+    "cancelled",
 ]
 
 
@@ -128,9 +129,10 @@ class LoopState:
     summary: str | None = None
     error_message: str | None = None
     latest_usage: dict[str, int] | None = None
+    cancel_requested: bool = False
 
     def is_terminal(self) -> bool:
-        return self.phase in {"completed", "failed"}
+        return self.phase in {"completed", "failed", "cancelled"}
 
     def has_more_steps(self) -> bool:
         return self.cursor < len(self.steps)

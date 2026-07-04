@@ -11,7 +11,7 @@ type SelectFieldProps = {
 } & SelectHTMLAttributes<HTMLSelectElement>
 
 export function SelectField({ label, id, options, className = '', ...props }: SelectFieldProps) {
-  const mergedClassName = `bg-ops-panel text-ops-text text-sm rounded border border-ops-border/20 px-2 py-1 outline-none focus:border-ops-cyan transition-colors ${className}`.trim()
+  const mergedClassName = `bg-ops-panel text-ops-text text-sm rounded border border-ops-border/20 px-2 py-1 outline-none focus:border-ops-green transition-colors ${className}`.trim()
 
   return (
     <>

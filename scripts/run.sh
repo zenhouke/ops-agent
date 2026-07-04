@@ -54,6 +54,36 @@ trap cleanup SIGINT SIGTERM
 echo "Starting Ops Agent Backend..."
 "$PYTHON_BIN" "$REPO_ROOT/src/app/main.py" &
 
+echo "Waiting for backend health on http://127.0.0.1:${OPS_AGENT_PORT}/health..."
+backend_ready=0
+for _ in $(seq 1 90); do
+    if command -v curl >/dev/null 2>&1; then
+        if curl -fsS "http://127.0.0.1:${OPS_AGENT_PORT}/health" >/dev/null 2>&1; then
+            backend_ready=1
+            break
+        fi
+    elif command -v python3 >/dev/null 2>&1; then
+        if python3 - "$OPS_AGENT_PORT" >/dev/null 2>&1 <<'PY'
+import sys
+import urllib.request
+
+port = sys.argv[1]
+with urllib.request.urlopen(f"http://127.0.0.1:{port}/health", timeout=2) as response:
+    raise SystemExit(0 if response.status == 200 else 1)
+PY
+        then
+            backend_ready=1
+            break
+        fi
+    fi
+    sleep 0.5
+done
+
+if [ "$backend_ready" != "1" ]; then
+    echo "Backend did not become healthy."
+    cleanup
+fi
+
 echo "Starting Ops Agent Frontend..."
 echo "Frontend API proxy target: ${VITE_API_PROXY_TARGET}"
 cd "$REPO_ROOT/web" && pnpm dev &

@@ -37,7 +37,7 @@ function PrefixEditor({ title, description, placeholder, tone, values, inputValu
     }
   }
 
-  const accent = tone === 'allow' ? 'text-ops-cyan border-ops-cyan/20 bg-ops-cyan/10' : 'text-ops-warning border-ops-warning/20 bg-ops-warning/10'
+  const accent = tone === 'allow' ? 'text-ops-green border-ops-green/20 bg-ops-green/10' : 'text-ops-warning border-ops-warning/20 bg-ops-warning/10'
 
   return (
     <section className="flex flex-col gap-4">

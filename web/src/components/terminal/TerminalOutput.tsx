@@ -20,6 +20,44 @@ function stripReplayControlSequences(value: string) {
     .replace(/\u001b\[\?9001l/g, '')
 }
 
+function hideInternalCommandOutput(value: string) {
+  const lines = value.match(/[^\r\n]*(?:\r\n|\n|\r)?/g) ?? []
+  let suppressInternalWrapper = false
+
+  return lines
+    .filter((line) => {
+      if (line.length === 0) {
+        return false
+      }
+
+      const startsInternalWrapper = line.includes('$__opsAgent') || line.includes('__opsAgent')
+      const hasExitMarker = line.includes('__OPS_AGENT_EXIT_STATUS_') || line.includes('OPS_AGENT_EXIT_STATUS_') || line.includes('PS_AGENT_EXIT_STATUS_')
+
+      if (startsInternalWrapper) {
+        suppressInternalWrapper = !hasExitMarker
+        return false
+      }
+
+      if (suppressInternalWrapper) {
+        if (hasExitMarker) {
+          suppressInternalWrapper = false
+        }
+        return false
+      }
+
+      if (hasExitMarker) {
+        return false
+      }
+
+      return true
+    })
+    .join('')
+}
+
+function cleanTerminalOutput(value: string) {
+  return hideInternalCommandOutput(stripReplayControlSequences(value))
+}
+
 const darkTerminalTheme: ITheme = {
   background: 'rgb(11, 15, 25)',
   foreground: 'rgb(241, 245, 249)',
@@ -73,6 +111,7 @@ export function TerminalOutput({ sessionKey, output, onInput, onResize }: Termin
   const terminalRef = useRef<Terminal | null>(null)
   const fitAddonRef = useRef<FitAddon | null>(null)
   const writtenLengthRef = useRef(0)
+  const visibleWrittenLengthRef = useRef(0)
   const currentSessionKeyRef = useRef(sessionKey)
   const replayingRef = useRef(false)
   const onInputRef = useRef(onInput)
@@ -125,9 +164,11 @@ export function TerminalOutput({ sessionKey, output, onInput, onResize }: Termin
         onResizeRef.current(terminal.cols, terminal.rows)
 
         if (outputRef.current.length > 0) {
+          const visibleOutput = cleanTerminalOutput(outputRef.current)
           replayingRef.current = true
-          terminal.write(stripReplayControlSequences(outputRef.current))
+          terminal.write(visibleOutput)
           writtenLengthRef.current = outputRef.current.length
+          visibleWrittenLengthRef.current = visibleOutput.length
           queueMicrotask(() => {
             replayingRef.current = false
           })
@@ -202,6 +243,7 @@ export function TerminalOutput({ sessionKey, output, onInput, onResize }: Termin
       terminalRef.current = null
       fitAddonRef.current = null
       writtenLengthRef.current = 0
+      visibleWrittenLengthRef.current = 0
     }
   }, [])
 
@@ -227,12 +269,15 @@ export function TerminalOutput({ sessionKey, output, onInput, onResize }: Termin
       terminal.clear()
       terminal.reset()
       writtenLengthRef.current = 0
+      visibleWrittenLengthRef.current = 0
       currentSessionKeyRef.current = sessionKey
 
       if (output.length > 0) {
+        const visibleOutput = cleanTerminalOutput(output)
         replayingRef.current = true
-        terminal.write(stripReplayControlSequences(output))
+        terminal.write(visibleOutput)
         writtenLengthRef.current = output.length
+        visibleWrittenLengthRef.current = visibleOutput.length
         queueMicrotask(() => {
           replayingRef.current = false
         })
@@ -249,20 +294,28 @@ export function TerminalOutput({ sessionKey, output, onInput, onResize }: Termin
     if (output.length < writtenLengthRef.current) {
       terminal.clear()
       writtenLengthRef.current = 0
+      visibleWrittenLengthRef.current = 0
+    }
+
+    const visibleOutput = cleanTerminalOutput(output)
+    if (visibleOutput.length < visibleWrittenLengthRef.current) {
+      terminal.clear()
+      visibleWrittenLengthRef.current = 0
     }
 
     // Incremental write
-    const nextChunk = output.slice(writtenLengthRef.current)
+    const nextChunk = visibleOutput.slice(visibleWrittenLengthRef.current)
     if (nextChunk.length > 0) {
       terminal.write(nextChunk)
-      writtenLengthRef.current = output.length
+      visibleWrittenLengthRef.current = visibleOutput.length
     }
+    writtenLengthRef.current = output.length
   }, [sessionKey, output])
 
   return (
     <div
       ref={containerRef}
-      className="relative flex-1 w-full overflow-hidden bg-slate-950 p-3 text-slate-100 shadow-[inset_0_1px_0_rgb(255_255_255/0.06)] focus:outline-none dark:bg-ops-deep dark:text-ops-text"
+      className="relative flex-1 w-full overflow-hidden bg-ops-deep p-3 text-ops-text shadow-[inset_0_1px_0_rgb(255_255_255/0.06)] focus:outline-none dark:bg-ops-deep dark:text-ops-text"
       aria-label={t('terminal.session')}
       onMouseDown={() => {
         terminalRef.current?.focus()

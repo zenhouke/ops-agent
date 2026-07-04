@@ -20,16 +20,16 @@ function SkillCard({ skill }: { skill: SkillPackage }) {
   const statusLabel = skill.valid ? t('settings.valid') : t('settings.invalid')
   const statusClasses = skill.valid
     ? 'text-ops-emerald bg-ops-emerald/10 border-ops-emerald/20'
-    : 'text-red-400 bg-red-500/10 border-red-500/20'
+    : 'text-ops-danger bg-ops-danger/10 border-ops-danger/20'
 
   return (
-    <article className={`rounded-2xl border p-5 shadow-sm transition-all duration-300 ${skill.valid ? 'bg-ops-panel/40 border-ops-border/20 hover:border-ops-cyan/30 hover:bg-ops-panel/60' : 'bg-red-500/5 border-red-500/20 hover:border-red-500/30'}`}>
+    <article className={`rounded-2xl border p-5 shadow-sm transition-all duration-300 ${skill.valid ? 'bg-ops-panel/40 border-ops-border/20 hover:border-ops-green/30 hover:bg-ops-panel/60' : 'bg-ops-danger/5 border-ops-danger/20 hover:border-ops-danger/30'}`}>
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div className="flex min-w-0 flex-col gap-1.5">
             <div className="flex flex-wrap items-center gap-3">
               <strong className="text-[13px] font-bold text-ops-text tracking-tight break-all">{skill.name}</strong>
-              <span className={`px-2 py-0.5 text-[9px] font-bold tracking-widest rounded-md border ${statusClasses}`}>{statusLabel}</span>
+              <span className={`px-2 py-0.5 text-[10px] font-bold tracking-widest rounded-md border ${statusClasses}`}>{statusLabel}</span>
             </div>
             <p className="text-[11px] text-ops-muted leading-5">{skill.description || t('settings.noDescription')}</p>
           </div>
@@ -50,14 +50,14 @@ function SkillCard({ skill }: { skill: SkillPackage }) {
           </div>
           <div className="flex flex-col gap-1 rounded-xl border border-ops-border/10 bg-ops-deep/30 px-4 py-3">
             <dt className="text-[10px] font-bold tracking-widest text-ops-muted/70">{t('settings.status')}</dt>
-            <dd className={skill.valid ? 'text-[11px] text-ops-emerald' : 'text-[11px] text-red-400'}>{statusLabel}</dd>
+            <dd className={skill.valid ? 'text-[11px] text-ops-emerald' : 'text-[11px] text-ops-danger'}>{statusLabel}</dd>
           </div>
         </dl>
 
         {!skill.valid && skill.error ? (
-          <div className="rounded-xl border border-red-500/20 bg-red-500/10 px-4 py-3">
-            <div className="text-[10px] font-bold tracking-widest text-red-300">{t('settings.loadError')}</div>
-            <div className="mt-1 text-[11px] text-red-200 break-words">{skill.error}</div>
+          <div className="rounded-xl border border-ops-danger/20 bg-ops-danger/10 px-4 py-3">
+            <div className="text-[10px] font-bold tracking-widest text-ops-danger">{t('settings.loadError')}</div>
+            <div className="mt-1 text-[11px] text-ops-danger/80 break-words">{skill.error}</div>
           </div>
         ) : null}
       </div>
@@ -86,7 +86,7 @@ export function SkillsSection({ skills, loading, error, onRetry }: SkillsSection
       {loading ? <div className="flex items-center justify-center h-40 text-ops-muted text-sm">{t('settings.loadingSkills')}</div> : null}
 
       {!loading && error ? (
-        <div className="p-4 rounded-md bg-red-500/10 border border-red-500/20 text-red-400 text-sm flex items-center justify-between gap-4">
+        <div className="p-4 rounded-md bg-ops-danger/10 border border-ops-danger/20 text-ops-danger text-sm flex items-center justify-between gap-4">
           <span>{error}</span>
           <button type="button" className="px-3 py-1.5 rounded-md bg-ops-border/20 hover:bg-ops-border/30 transition-colors text-ops-text text-sm" onClick={onRetry}>{t('common.retry')}</button>
         </div>

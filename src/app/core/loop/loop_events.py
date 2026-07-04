@@ -89,7 +89,7 @@ def emit_message_update(*, runtime_id: str, message: AgentMessage) -> LoopEvent:
     )
 
 
-def emit_plan_update(*, runtime_id: str, plan_id: str, title: str, steps: list[LoopRuntimeStep], version: int, locked_plan: bool = True, is_latest: bool = True, updated: bool = False, loading: bool = False, mode: str = "plan") -> LoopEvent:
+def emit_plan_update(*, runtime_id: str, plan_id: str, title: str, steps: list[LoopRuntimeStep], version: int, locked_plan: bool = True, is_latest: bool = True, updated: bool = False, loading: bool = False, mode: str = "plan", status: str = "planning") -> LoopEvent:
     payload = {
         "id": plan_id,
         "kind": "plan",
@@ -112,11 +112,12 @@ def emit_plan_update(*, runtime_id: str, plan_id: str, title: str, steps: list[L
         "runtimeId": runtime_id,
         "mode": mode,
         "lockedPlan": locked_plan,
+        "status": status,
     }
     return LoopEvent(
         event_type="plan",
         runtime_id=runtime_id,
-        phase="planning",
+        phase=status,
         payload=payload,
     )
 

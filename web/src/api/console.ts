@@ -215,10 +215,23 @@ export async function streamRunAgent(
   return readEventStream(response)
 }
 
-export async function streamApproveAgent(runtimeId: string, approved: boolean, approvalToken?: string, allowPrefix?: string): Promise<AsyncGenerator<EventItem, void, void>> {
+export async function streamApproveAgent(runtimeId: string, approved: boolean, approvalToken?: string, allowPrefix?: string, terminalId?: string | null): Promise<AsyncGenerator<EventItem, void, void>> {
   const response = await requestEventStream('/api/console/approval', {
     method: 'POST',
-    body: JSON.stringify({ runtime_id: runtimeId, approved, approval_token: approvalToken ?? null, allow_prefix: allowPrefix?.trim() || null }),
+    body: JSON.stringify({
+      runtime_id: runtimeId,
+      approved,
+      approval_token: approvalToken ?? null,
+      allow_prefix: allowPrefix?.trim() || null,
+      terminal_id: terminalId ?? null,
+    }),
+  })
+  return readEventStream(response)
+}
+
+export async function streamApprovePlan(runtimeId: string): Promise<AsyncGenerator<EventItem, void, void>> {
+  const response = await requestEventStream(`/api/console/runtimes/${encodeURIComponent(runtimeId)}/plan/approve`, {
+    method: 'POST',
   })
   return readEventStream(response)
 }

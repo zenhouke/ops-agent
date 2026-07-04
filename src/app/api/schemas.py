@@ -388,6 +388,7 @@ class ConsoleBootstrapView(BaseModel):
     groups: list[AssetGroupView]
     historyByAsset: dict[int, list[ConsoleSessionRecordView]]
     modelOptions: list[str]
+    selectedModel: str = ""
     modelConfigured: bool = True
     modelConfigurationMessage: str = ""
     sshKeys: list[SSHKeyView] = Field(default_factory=list)
@@ -434,6 +435,16 @@ class ConsoleOrchestrationResolveTargetsRequest(BaseModel):
     model_name: str | None = Field(default=None, alias="modelName")
 
 
+class OrchestrationTargetPreparationView(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    asset_id: int = Field(alias="assetId")
+    asset_name: str = Field(alias="assetName")
+    status: str
+    terminal_id: str | None = Field(default=None, alias="terminalId")
+    reason: str = ""
+
+
 class ConsoleOrchestrationResolveTargetsResponse(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -441,6 +452,8 @@ class ConsoleOrchestrationResolveTargetsResponse(BaseModel):
     target_selection_source: str = Field(alias="targetSelectionSource")
     target_selection_reason: str = Field(alias="targetSelectionReason")
     confidence: str = "medium"
+    confirmation_token: str = Field(alias="confirmationToken")
+    preparations: list["OrchestrationTargetPreparationView"] = Field(default_factory=list)
 
 
 class ConsoleOrchestrationRunRequest(BaseModel):
@@ -449,10 +462,18 @@ class ConsoleOrchestrationRunRequest(BaseModel):
     prompt: str
     current_asset_id: int | None = Field(default=None, alias="currentAssetId")
     target_asset_ids: list[int] | None = Field(default=None, alias="targetAssetIds")
+    confirmation_token: str | None = Field(default=None, alias="confirmationToken")
     conversation_id: str = Field(default="console", alias="conversationId")
     model_name: str | None = Field(default=None, alias="modelName")
     selected_skill_name: str | None = Field(default=None, alias="selectedSkillName")
     max_concurrency: int = Field(default=3, alias="maxConcurrency", ge=1, le=10)
+
+
+class ConsoleOrchestrationApprovalRequest(BaseModel):
+    runtime_id: str = Field(alias="runtimeId")
+    approved: bool
+    approval_token: str | None = Field(default=None, alias="approvalToken")
+    allow_prefix: str | None = Field(default=None, alias="allowPrefix")
 
 
 class ConsoleApprovalRequest(BaseModel):
@@ -460,6 +481,7 @@ class ConsoleApprovalRequest(BaseModel):
     approved: bool
     approval_token: str | None = None
     allow_prefix: str | None = None
+    terminal_id: str | None = None
 
 
 class ConsolePlanStepUpdate(BaseModel):

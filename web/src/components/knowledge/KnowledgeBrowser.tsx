@@ -196,7 +196,7 @@ export function KnowledgeBrowser({
               </button>
               <button
                 type="button"
-                className="rounded-xl border border-ops-border/20 px-3 py-2 text-[10px] font-black text-ops-muted transition hover:border-ops-cyan/40 hover:text-ops-cyan active:scale-95 disabled:cursor-not-allowed disabled:opacity-45"
+                className="rounded-xl border border-ops-border/20 px-3 py-2 text-[10px] font-black text-ops-muted transition hover:border-ops-green/40 hover:text-ops-green active:scale-95 disabled:cursor-not-allowed disabled:opacity-45"
                 disabled={reindexing}
                 onClick={() => void onReindex()}
               >

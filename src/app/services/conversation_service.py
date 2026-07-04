@@ -6,6 +6,7 @@ import logging
 from datetime import UTC, datetime
 from pathlib import Path
 import re
+from typing import Any
 from uuid import uuid4
 
 from app.utils.file_store import atomic_write_json
@@ -184,28 +185,32 @@ class ConversationService:
         self._delete_summary(conversation_id)
 
     def _sanitize_event(self, event: dict) -> dict:
-        sanitized = dict(event)
-        if "approvalToken" in sanitized:
-            sanitized["approvalToken"] = None
-        tool_call = sanitized.get("toolCall")
-        if isinstance(tool_call, dict) and "approvalToken" in tool_call:
-            sanitized["toolCall"] = {**tool_call, "approvalToken": None}
-        return sanitized
+        return self._sanitize_approval_tokens(event)
+
+    def _sanitize_approval_tokens(self, value: Any) -> Any:
+        if isinstance(value, dict):
+            return {
+                key: None if key == "approvalToken" else self._sanitize_approval_tokens(item)
+                for key, item in value.items()
+            }
+        if isinstance(value, list):
+            return [self._sanitize_approval_tokens(item) for item in value]
+        return value
 
     def _merge_events(self, existing_events: list[dict], new_events: list[dict]) -> None:
-        message_index_by_id = {
+        event_index_by_id = {
             event.get("id"): index
             for index, event in enumerate(existing_events)
-            if self._is_agent_message(event)
+            if isinstance(event.get("id"), str)
         }
         for event in new_events:
-            if self._is_agent_message(event):
-                message_id = event.get("id")
-                existing_index = message_index_by_id.get(message_id)
+            event_id = event.get("id")
+            if isinstance(event_id, str):
+                existing_index = event_index_by_id.get(event_id)
                 if existing_index is not None:
                     existing_events[existing_index] = event
                     continue
-                message_index_by_id[message_id] = len(existing_events)
+                event_index_by_id[event_id] = len(existing_events)
             existing_events.append(event)
 
     def _is_agent_message(self, event: dict) -> bool:

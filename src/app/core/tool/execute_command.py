@@ -73,10 +73,14 @@ class ExecuteCommandHandler:
                         "type": "string",
                         "description": "Runtime terminal authorization ID for the target terminal session.",
                     },
+                    "terminal_id": {
+                        "type": "string",
+                        "description": "Target terminal session ID. Must match the terminal bound to authorization_id.",
+                    },
                     "command": {"type": "string", "description": "The command to execute, must be specified."},
                     "working_directory": {"type": "string", "description": "Working directory (optional)"},
                 },
-                "required": ["authorization_id", "command"],
+                "required": ["authorization_id", "terminal_id", "command"],
             },
         )
 
@@ -91,6 +95,15 @@ class ExecuteCommandHandler:
                 authorization = self._terminal.resolve_terminal_authorization(runtime_id, authorization_id)
             except ValueError as exc:
                 return "deny", str(exc)
+            requested_terminal_id = str(args.get("terminal_id", "") or "")
+            if not requested_terminal_id:
+                return "deny", "Missing terminal_id for terminal authorization."
+            if requested_terminal_id and requested_terminal_id != authorization.terminal_id:
+                return "deny", "terminal_id does not match the terminal authorization."
+            if not self._terminal.session_belongs_to_asset(authorization.terminal_id, authorization.asset_id):
+                return "deny", "Authorized terminal is no longer valid for the asset."
+            if self._terminal.get_session(authorization.terminal_id) is None:
+                return "deny", "Terminal session does not exist, cannot request command approval."
             args["asset_id"] = authorization.asset_id
             args["asset_name"] = authorization.asset_name
             args["terminal_id"] = authorization.terminal_id
@@ -133,6 +146,17 @@ class ExecuteCommandHandler:
                 yield from manager.update(text=f"\nError: {error}")
             return False, error
         terminal_id = authorization.terminal_id
+        requested_terminal_id = str(args.get("terminal_id", "") or "")
+        if not requested_terminal_id:
+            error = "Missing terminal_id for terminal authorization."
+            if manager:
+                yield from manager.update(text=f"\nError: {error}")
+            return False, error
+        if requested_terminal_id and requested_terminal_id != terminal_id:
+            error = "terminal_id does not match the terminal authorization."
+            if manager:
+                yield from manager.update(text=f"\nError: {error}")
+            return False, error
         args["asset_id"] = authorization.asset_id
         args["asset_name"] = authorization.asset_name
         args["terminal_id"] = authorization.terminal_id
@@ -164,6 +188,8 @@ class ExecuteCommandHandler:
                 yield from manager.update(text=f"\nError: {error}")
             return False, error
 
+        release_slot_in_finally = True
+
         try:
             self._terminal.append_terminal_command_submitted(
                 ctx.runtime_id,
@@ -177,8 +203,9 @@ class ExecuteCommandHandler:
             execution_context = ExecutionContext(
                 working_directory=step.working_directory,
                 timeout_seconds=DEFAULT_COMMAND_TIMEOUT_SECONDS,
+                cancel_check=lambda: state.cancel_requested,
             )
-            if authorization.shell_type in {"posix", "powershell", "cmd"}:
+            if authorization.execution_profile == "posix-shell":
                 execution_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
 
                 def on_output_chunk(chunk: str) -> None:
@@ -205,7 +232,14 @@ class ExecuteCommandHandler:
                 execution = None
                 streamed_output = ""
                 while True:
-                    event_type, payload = execution_queue.get()
+                    if state.cancel_requested and not worker.is_alive():
+                        break
+                    try:
+                        event_type, payload = execution_queue.get(timeout=0.2)
+                    except queue.Empty:
+                        if state.cancel_requested and not worker.is_alive():
+                            break
+                        continue
                     if event_type == "chunk":
                         chunk_text = str(payload)
                         streamed_output += chunk_text
@@ -228,11 +262,77 @@ class ExecuteCommandHandler:
                     execution = payload
                     break
                 worker.join(timeout=1.0)
+                if execution is None:
+                    return False, "Command execution cancelled."
             else:
-                execution_id = session_manager.start_execution(command, execution_context)
-                execution = session_manager.get_execution_result(execution_id)
+                if state.cancel_requested:
+                    return False, "Command execution cancelled."
+                execution_queue: queue.Queue[tuple[str, Any]] = queue.Queue()
+                execution_id_holder: dict[str, str] = {}
+                cancel_requested_for_execution = False
+
+                def run_sync_execution() -> None:
+                    try:
+                        execution_id = session_manager.start_execution(command, execution_context)
+                        execution_id_holder["execution_id"] = execution_id
+                        if state.cancel_requested:
+                            try:
+                                session_manager.cancel_execution(execution_id)
+                            except Exception:
+                                logger.exception(
+                                    "Command cancellation failed runtime_id=%s, command_id=%s",
+                                    ctx.runtime_id,
+                                    step.step_id,
+                                )
+                        result = session_manager.get_execution_result(execution_id)
+                        execution_queue.put(("result", result))
+                    except Exception as exc:
+                        execution_queue.put(("error", exc))
+
+                worker = threading.Thread(target=run_sync_execution, daemon=True)
+                worker.start()
+                execution = None
                 streamed_output = ""
-            
+                while True:
+                    try:
+                        event_type, payload = execution_queue.get(timeout=0.2)
+                    except queue.Empty:
+                        if state.cancel_requested and worker.is_alive():
+                            execution_id = execution_id_holder.get("execution_id")
+                            if execution_id and not cancel_requested_for_execution:
+                                cancel_requested_for_execution = True
+                                try:
+                                    session_manager.cancel_execution(execution_id)
+                                except Exception:
+                                    logger.exception(
+                                        "Command cancellation failed runtime_id=%s, command_id=%s",
+                                        ctx.runtime_id,
+                                        step.step_id,
+                                    )
+                            release_slot_in_finally = False
+
+                            def release_slot_after_worker() -> None:
+                                try:
+                                    worker.join()
+                                finally:
+                                    try:
+                                        self._terminal.release_terminal_slot(ctx.runtime_id, terminal_id)
+                                    except Exception:
+                                        logger.exception(
+                                            "Deferred terminal slot release failed runtime_id=%s terminal_id=%s",
+                                            ctx.runtime_id,
+                                            terminal_id,
+                                        )
+
+                            threading.Thread(target=release_slot_after_worker, daemon=True).start()
+                            return False, "Command execution cancelled."
+                        continue
+                    if event_type == "error":
+                        raise payload
+                    execution = payload
+                    break
+                if state.cancel_requested:
+                    return False, "Command execution cancelled."
 
             step.output = execution.output
             step.exit_code = execution.exit_code
@@ -251,4 +351,5 @@ class ExecuteCommandHandler:
                 yield from manager.update(text=f"\nError: {error}")
             return False, error
         finally:
-            self._terminal.release_terminal_slot(ctx.runtime_id, terminal_id)
+            if release_slot_in_finally:
+                self._terminal.release_terminal_slot(ctx.runtime_id, terminal_id)

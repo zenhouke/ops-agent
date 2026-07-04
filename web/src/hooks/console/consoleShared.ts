@@ -204,9 +204,21 @@ export function upsertStreamEvent(
   currentEvents: EventItem[],
   event: EventItem
 ): EventItem[] {
+  const eventsForUpsert = event.kind === 'error'
+    ? finalizeOpenPartialMessages(currentEvents.filter((currentEvent) => currentEvent.id !== PENDING_ASSISTANT_MESSAGE_ID))
+    : currentEvents
+  const existingEventIdIndex = typeof event.id === 'string'
+    ? eventsForUpsert.findIndex((currentEvent) => currentEvent.id === event.id)
+    : -1
+  if (existingEventIdIndex >= 0) {
+    const nextEvents = [...eventsForUpsert]
+    nextEvents[existingEventIdIndex] = event
+    return normalizePlanEvents(nextEvents)
+  }
+
   if (event.kind === 'error') {
     return normalizePlanEvents([
-      ...currentEvents.filter((currentEvent) => currentEvent.id !== PENDING_ASSISTANT_MESSAGE_ID),
+      ...eventsForUpsert,
       event,
     ])
   }
@@ -245,6 +257,31 @@ export function upsertStreamEvent(
   })
 
   return normalizePlanEvents(hasExistingPlan ? nextEvents : [...currentEvents, event])
+}
+
+export function isTerminalStreamEvent(event: EventItem): boolean {
+  return event.kind === 'error'
+    || event.kind === 'failed'
+    || event.kind === 'completed'
+    || event.kind === 'final'
+    || (event.kind === 'plan' && event.status === 'waiting_plan_approval')
+}
+
+export function finalizeOpenPartialMessages(events: EventItem[]): EventItem[] {
+  return events.map((event) => {
+    if (
+      'type' in event
+      && event.type === 'say'
+      && event.say === 'text'
+      && event.partial
+      && !event.text
+      && !event.thinking
+      && !event.toolCall
+    ) {
+      return { ...event, partial: false }
+    }
+    return event
+  })
 }
 
 /**

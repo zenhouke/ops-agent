@@ -62,7 +62,7 @@ export function AssetList({ assets, groups, selectedAssetId, onSelectAsset, onEd
 
                 return (
                   <li key={asset.id} className="relative group">
-                    <div className={`relative flex items-center transition-all duration-200 ${selected ? 'bg-ops-cyan/5 shadow-[inset_4px_0_0_0_rgb(var(--ops-cyan))]' : 'hover:bg-ops-panel/40'} ${menuOpen ? 'bg-ops-panel/80' : ''}`}>
+                    <div className={`relative flex items-center transition-all duration-200 ${selected ? 'bg-ops-green/5 shadow-[inset_4px_0_0_0_rgb(var(--ops-green))]' : 'hover:bg-ops-panel/40'} ${menuOpen ? 'bg-ops-panel/80' : ''}`}>
                       <ListItemCard
                         title={asset.name}
                         meta={getAssetMeta(asset, t('assets.localSystem'))}
@@ -76,7 +76,7 @@ export function AssetList({ assets, groups, selectedAssetId, onSelectAsset, onEd
 
                       <button
                         type="button"
-                        className={`absolute right-3 p-1.5 rounded-md transition-all duration-200 z-10 active:scale-90 ${menuOpen ? 'opacity-100 bg-ops-cyan/20 text-ops-cyan shadow-glow' : 'opacity-0 group-hover:opacity-100 text-ops-muted hover:text-ops-cyan hover:bg-ops-cyan/10'
+                        className={`absolute right-3 p-1.5 rounded-md transition-all duration-200 z-10 active:scale-90 ${menuOpen ? 'opacity-100 bg-ops-green/20 text-ops-green shadow-glow' : 'opacity-0 group-hover:opacity-100 text-ops-muted hover:text-ops-green hover:bg-ops-green/10'
                           }`}
                         aria-label={t('assets.operations', { name: asset.name })}
                         onClick={(event) => {
@@ -96,7 +96,7 @@ export function AssetList({ assets, groups, selectedAssetId, onSelectAsset, onEd
                       <div className="absolute right-3 top-10 z-20 w-40 overflow-hidden rounded-xl border border-ops-border/40 bg-ops-panel shadow-2xl backdrop-blur-md animate-in fade-in zoom-in duration-200" role="menu" aria-label={t('assets.operations', { name: asset.name })}>
                         <button
                           type="button"
-                          className="w-full text-left px-4 py-2.5 text-[11px] font-bold  tracking-wider text-ops-text hover:bg-ops-cyan hover:text-ops-bg transition-all flex items-center gap-3"
+                          className="w-full text-left px-4 py-2.5 text-[11px] font-bold  tracking-wider text-ops-text hover:bg-ops-green hover:text-ops-bg transition-all flex items-center gap-3"
                           role="menuitem"
                           onClick={() => {
                             onEditAsset?.(asset)

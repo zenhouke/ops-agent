@@ -7,7 +7,7 @@ from collections import deque
 from collections.abc import Iterator
 from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 
 from app.core.connectors.device_profiles import select_device_profile, select_execution_profile
 from app.core.connectors.execution_context import build_asset_summary, build_device_context, infer_os_type
@@ -107,7 +107,7 @@ class LoopRuntimeManager:
         expired_runtime_ids = [
             runtime_id
             for runtime_id, runtime in self._by_runtime.items()
-            if runtime.state.phase in {"completed", "failed"}
+            if runtime.state.phase in {"completed", "failed", "cancelled"}
             and now - runtime.updated_at >= self.COMPLETED_RUNTIME_TTL
         ]
         for runtime_id in expired_runtime_ids:
@@ -359,9 +359,12 @@ class LoopRuntimeManager:
         self,
         request: PendingTerminalRequest,
         authorization: RuntimeTerminalAuthorization | None = None,
+        *,
+        already_decided: bool = False,
     ) -> dict[str, Any]:
         return {
             "status": request.user_decision_status,
+            "alreadyDecided": already_decided,
             "requestId": request.request_id,
             "authorizationId": authorization.authorization_id if authorization else None,
             "assetId": request.asset_id,
@@ -385,6 +388,8 @@ class LoopRuntimeManager:
         runtime = self._by_runtime.get(runtime_id)
         if runtime is None:
             raise ValueError("runtime not found")
+        if runtime.state.cancel_requested or runtime.state.is_terminal():
+            raise ValueError("runtime is already terminal")
         self._expire_terminal_requests(runtime)
         request = runtime.terminal_requests.get(request_id)
         if request is None or request.runtime_id != runtime_id:
@@ -396,6 +401,7 @@ class LoopRuntimeManager:
             return self._terminal_request_decision_response(
                 request,
                 self._find_active_authorization_for_request(runtime, request.request_id),
+                already_decided=True,
             )
         request.decided_at = now
         request.approval_token = None
@@ -585,6 +591,64 @@ class LoopRuntimeManager:
         if self._terminal_slots.get(terminal_id) == runtime_id:
             self._terminal_slots.pop(terminal_id, None)
 
+    def cancel_runtime(self, runtime_id: str, *, reason: str = "Runtime cancelled.") -> dict[str, Any]:
+        runtime = self._by_runtime.get(runtime_id)
+        if runtime is None:
+            raise ValueError("runtime not found")
+
+        state = runtime.state
+        state.cancel_requested = True
+        state.error_message = reason
+        if not state.is_terminal():
+            state.phase = "cancelled"
+        if state.pending_approval_step_id:
+            step = state.get_step(state.pending_approval_step_id)
+            if step is not None and step.status in {"pending", "running"}:
+                step.status = "failed"
+                step.output = reason
+        state.pending_tool_call_id = None
+        state.pending_tool_name = None
+        state.pending_tool_args = None
+        state.pending_message_id = None
+        state.pending_approval_token = None
+        state.pending_approval_token_hash = None
+        state.pending_approval_consistency = None
+        state.pending_approval_step_id = None
+
+        now = self._now()
+        for authorization in list(runtime.terminal_authorizations.values()):
+            if authorization.status != "active":
+                continue
+            authorization.status = "revoked"
+            authorization.revoked_at = now
+            authorization.updated_at = now
+            authorization.revoke_reason = reason
+            self._append_runtime_event(
+                runtime,
+                "terminal_authorization_revoked",
+                {
+                    "runtimeId": runtime.runtime_id,
+                    "authorizationId": authorization.authorization_id,
+                    "assetId": authorization.asset_id,
+                    "assetName": authorization.asset_name,
+                    "terminalId": authorization.terminal_id,
+                    "status": authorization.status,
+                    "reason": reason,
+                    "revokeReason": reason,
+                },
+            )
+
+        return self._append_runtime_event(
+            runtime,
+            "cancelled",
+            {
+                "runtimeId": runtime_id,
+                "status": state.phase,
+                "error": reason,
+                "text": reason,
+            },
+        )
+
     def create_runtime(self, *, conversation_id: str, asset_id: int, terminal_id: str | None, context: LoopContext) -> LoopState:
         self._expire_completed_runtimes()
         runtime_id = context.runtime_id
@@ -610,7 +674,11 @@ class LoopRuntimeManager:
 
     def list_runtimes(self, conversation_id: str) -> list[RuntimeState]:
         self._expire_completed_runtimes()
-        return list(self._by_conversation.get(conversation_id, {}).values())
+        return sorted(
+            self._by_conversation.get(conversation_id, {}).values(),
+            key=lambda runtime: runtime.updated_at,
+            reverse=True,
+        )
 
     def events_since(self, runtime_id: str, since: int) -> tuple[int, list[dict]]:
         self._expire_completed_runtimes()
@@ -768,7 +836,15 @@ class LoopRuntimeManager:
         )
         return self._to_ws_event(event, rt)
 
-    def resume(self, *, runtime_id: str, approved: bool, approval_token: str | None, terminal_service) -> Iterator[dict]:
+    def resume(
+        self,
+        *,
+        runtime_id: str,
+        approved: bool,
+        approval_token: str | None,
+        terminal_service,
+        on_approval_validated: Callable[[], None] | None = None,
+    ) -> Iterator[dict]:
         rt = self._by_runtime.get(runtime_id)
         if rt is None:
             raise ValueError("runtime not found")
@@ -781,9 +857,12 @@ class LoopRuntimeManager:
             hashlib.sha256(approval_token.encode("utf-8")).hexdigest(),
         ):
             raise PermissionError("invalid approval token")
-
         loop = AgentLoop(tools=self._tools_factory(terminal_service), usage_callback=self._usage_callback)
-        for event in loop.resume_with_approval(rt.state, approved=approved):
+        for event in loop.resume_with_approval(
+            rt.state,
+            approved=approved,
+            on_approval_validated=on_approval_validated,
+        ):
             yield self._to_ws_event(event, rt)
             usage_event = self._build_usage_event(rt)
             if usage_event is not None:
@@ -800,8 +879,13 @@ class LoopRuntimeManager:
         rt = self._by_runtime.get(runtime_id)
         if rt is None:
             raise ValueError("runtime not found")
+        if rt.state.cancel_requested or rt.state.is_terminal():
+            raise ValueError("runtime is already terminal")
         rt.state.phase = "executing"
-        rt.state.context.default_authorization_id = authorization_id or self._latest_active_authorization_id(rt) or rt.state.context.default_authorization_id
+        self._set_default_authorization_context(
+            rt,
+            authorization_id or self._latest_active_authorization_id(rt) or rt.state.context.default_authorization_id,
+        )
         rt.state.messages.append(LLMMessage(role="user", content=self._terminal_request_resume_prompt(rt, resume_message)))
         loop = AgentLoop(tools=self._tools_factory(terminal_service), usage_callback=self._usage_callback)
         for event in loop.run(rt.state):
@@ -822,6 +906,7 @@ class LoopRuntimeManager:
                 "\n".join(
                     [
                         f"- {authorization.asset_name} (asset_id={authorization.asset_id}) authorization_id={authorization.authorization_id}",
+                        f"  terminal_id: {authorization.terminal_id}",
                         f"  Asset Type: {authorization.asset_type or 'unknown'}",
                         f"  Shell: {authorization.shell_type}",
                         f"  Operating System Type: {authorization.os_type}",
@@ -840,7 +925,7 @@ class LoopRuntimeManager:
             f"{authorization_summary}\n\n"
             "Continue the original task. If the user requested additional assets that are not listed above, "
             "request terminal access for those assets before executing commands or producing the final summary. "
-            "Use execute_command with the matching authorization_id for each authorized asset."
+            "Use execute_command with the matching authorization_id and terminal_id for each authorized asset."
         )
 
     def _latest_active_authorization_id(self, rt: RuntimeState) -> str | None:
@@ -853,6 +938,24 @@ class LoopRuntimeManager:
             return None
         latest_authorization = max(active_authorizations, key=lambda authorization: authorization.created_at)
         return latest_authorization.authorization_id
+
+    def _set_default_authorization_context(self, rt: RuntimeState, authorization_id: str | None) -> None:
+        if not authorization_id:
+            return
+        authorization = rt.terminal_authorizations.get(authorization_id)
+        if authorization is None or authorization.status != "active":
+            return
+        context = rt.state.context
+        context.default_authorization_id = authorization.authorization_id
+        context.asset_id = authorization.asset_id
+        context.asset_type = authorization.asset_type
+        context.terminal_id = authorization.terminal_id
+        context.asset_summary = authorization.asset_summary
+        context.shell_type = authorization.shell_type
+        context.os_type = authorization.os_type
+        context.execution_profile = authorization.execution_profile
+        context.device_vendor = authorization.device_vendor
+        context.device_context = authorization.device_context
 
     def _pending_approval_view(self, state: LoopState) -> dict[str, Any] | None:
         if state.phase != "approving" or state.pending_approval_token is None:

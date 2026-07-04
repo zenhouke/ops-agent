@@ -10,6 +10,8 @@ type UseConsolePageStateProps = {
 export function useConsolePageState({ events, activeRuntimeSnapshot }: UseConsolePageStateProps) {
   const [activeModal, setActiveModal] = useState<'settings' | null>(null)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
+  const [assetsDrawerOpen, setAssetsDrawerOpen] = useState(false)
+  const [terminalDrawerOpen, setTerminalDrawerOpen] = useState(false)
   const [runMode, setRunMode] = useState<RunMode>('agent')
 
   useEffect(() => {
@@ -40,6 +42,10 @@ export function useConsolePageState({ events, activeRuntimeSnapshot }: UseConsol
     setActiveModal,
     sidebarCollapsed,
     setSidebarCollapsed,
+    assetsDrawerOpen,
+    setAssetsDrawerOpen,
+    terminalDrawerOpen,
+    setTerminalDrawerOpen,
     runMode,
     setRunMode,
     busyCommand,

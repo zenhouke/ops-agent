@@ -405,15 +405,21 @@ class ConsoleAppService:
             yield self._runtime_error_event(runtime_id, "Runtime not found.", recoverable=False)
             return
 
-        def resume_events():
+        def add_allow_prefix_after_validation() -> None:
             if approved and allow_prefix:
                 get_approval_service().add_allow_prefix(allow_prefix)
-            return self.runtime_manager.resume(
-                runtime_id=runtime_id,
-                approved=approved,
-                approval_token=approval_token,
-                terminal_service=terminal_service,
-            )
+
+        def resume_events():
+            try:
+                yield from self.runtime_manager.resume(
+                    runtime_id=runtime_id,
+                    approved=approved,
+                    approval_token=approval_token,
+                    terminal_service=terminal_service,
+                    on_approval_validated=add_allow_prefix_after_validation,
+                )
+            except (PermissionError, ValueError) as exc:
+                yield self._runtime_error_event(runtime_id, self._error_message(exc), recoverable=True)
 
         yield from self._stream_events_with_error_handling(
             runtime_id=runtime_id,
@@ -424,6 +430,9 @@ class ConsoleAppService:
 
     def update_plan(self, *, runtime_id: str, steps: list[dict]) -> dict:
         return self.runtime_manager.update_plan(runtime_id=runtime_id, steps=steps)
+
+    def cancel_runtime(self, runtime_id: str, *, reason: str = "Runtime cancelled.") -> dict[str, Any]:
+        return self.runtime_manager.cancel_runtime(runtime_id, reason=reason)
 
     def stream_plan_approval(self, *, runtime_id: str, terminal_service: TerminalService) -> Iterator[dict]:
         yield from self._stream_events_with_error_handling(
@@ -459,7 +468,7 @@ class ConsoleAppService:
                 yield event
         except Exception as exc:
             logger.exception(log_message, *log_context.values())
-            yield self._runtime_error_event(runtime_id, str(exc), recoverable=True)
+            yield self._runtime_error_event(runtime_id, self._error_message(exc), recoverable=True)
 
     def _runtime_error_event(self, runtime_id: str, text: str, *, recoverable: bool) -> dict[str, Any]:
         return {
@@ -471,6 +480,43 @@ class ConsoleAppService:
             "text": text,
             "recoverable": recoverable,
         }
+
+    def _error_message(self, exc: Exception) -> str:
+        status_code = getattr(exc, "status_code", None)
+        detail = self._extract_api_error_detail(exc)
+        if status_code and detail:
+            return f"Upstream API error {status_code}: {detail}"
+        if detail:
+            return detail
+        return str(exc)
+
+    def _extract_api_error_detail(self, exc: Exception) -> str:
+        body = getattr(exc, "body", None)
+        detail = self._extract_error_body_message(body)
+        if detail:
+            return detail
+        response = getattr(exc, "response", None)
+        if response is None:
+            return ""
+        try:
+            return self._extract_error_body_message(response.json())
+        except Exception:
+            text = getattr(response, "text", "")
+            return str(text)[:1000] if text else ""
+
+    def _extract_error_body_message(self, body: Any) -> str:
+        if isinstance(body, dict):
+            error = body.get("error")
+            if isinstance(error, dict):
+                message = error.get("message") or error.get("code") or error.get("type")
+                if message:
+                    return str(message)[:1000]
+            message = body.get("message") or body.get("detail")
+            if message:
+                return str(message)[:1000]
+        if isinstance(body, str):
+            return body[:1000]
+        return ""
 
     def _resolve_asset(self, session: Session, asset_id: int):
         asset = get_asset(session, asset_id)

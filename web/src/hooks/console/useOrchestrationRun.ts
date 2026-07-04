@@ -1,8 +1,10 @@
 import { useCallback, useMemo, useState } from 'react'
 import {
   cancelOrchestration,
+  getOrchestrationEvents,
+  getOrchestrationSnapshot,
   resolveOrchestrationTargets,
-  streamApproveAgent,
+  streamApproveOrchestrationChild,
   streamRunOrchestration,
   type ResolvedOrchestrationTargets,
 } from '../../api'
@@ -15,6 +17,7 @@ import type {
   OrchestrationSnapshot,
   OrchestrationStatus,
 } from '../../types/ops'
+import { getApprovalKeys, isApprovalSettlingEvent } from '../../utils/approvalState'
 
 type PendingOrchestrationApproval = {
   orchestrationId: string
@@ -24,6 +27,20 @@ type PendingOrchestrationApproval = {
   command: string
   approvalToken: string | null
 }
+
+const ORCHESTRATION_REFERENCE_KINDS = new Set([
+  'orchestration_started',
+  'child_runtime_started',
+  'child_runtime_event',
+  'child_runtime_status',
+  'child_runtime_completed',
+  'child_runtime_failed',
+  'orchestration_summary',
+  'orchestration_needs_approval',
+  'orchestration_completed',
+  'orchestration_failed',
+  'orchestration_cancelled',
+])
 
 export type OrchestrationTargetPreview = ResolvedOrchestrationTargets & {
   prompt: string
@@ -90,6 +107,19 @@ function upsertChild(
   )
 }
 
+function upsertChildEvent(events: EventItem[], event: EventItem): EventItem[] {
+  if (typeof event.id !== 'string') {
+    return [...events, event]
+  }
+  const existingIndex = events.findIndex((item) => item.id === event.id)
+  if (existingIndex < 0) {
+    return [...events, event]
+  }
+  const nextEvents = [...events]
+  nextEvents[existingIndex] = event
+  return nextEvents
+}
+
 function childStatusFromRuntimeEvent(event: EventItem | undefined, fallback: OrchestrationChildStatus): OrchestrationChildStatus {
   if (!event) {
     return fallback
@@ -111,10 +141,20 @@ function childStatusFromRuntimeEvent(event: EventItem | undefined, fallback: Orc
   if (kind === 'approval_rejected') {
     return 'failed'
   }
-  if (kind === 'final') {
+  if (kind === 'command_end') {
+    const exitCode = (event as any).exitCode
+    if (typeof exitCode === 'number' && exitCode !== 0) {
+      return 'failed'
+    }
+    return fallback
+  }
+  if (kind === 'completed' || kind === 'final' || kind === 'loop_final') {
+    if (fallback === 'failed') {
+      return fallback
+    }
     return 'completed'
   }
-  if (kind === 'failed' || kind === 'error') {
+  if (kind === 'failed' || kind === 'error' || kind === 'loop_failed' || kind === 'task_failed') {
     return 'failed'
   }
   return fallback
@@ -124,10 +164,11 @@ function childSummaryFromRuntimeEvent(event: EventItem | undefined, fallback: st
   if (!event) {
     return fallback
   }
+  const kind = event.kind as string
   if ('summary' in event && typeof event.summary === 'string') {
     return event.summary
   }
-  if (event.kind === 'final' && 'text' in event && typeof event.text === 'string') {
+  if ((kind === 'completed' || kind === 'final' || kind === 'loop_final') && 'text' in event && typeof event.text === 'string') {
     return event.text
   }
   return fallback
@@ -139,6 +180,9 @@ function childErrorFromRuntimeEvent(event: EventItem | undefined, fallback: stri
   }
   if (event.kind === 'error' && 'text' in event && typeof event.text === 'string') {
     return event.text
+  }
+  if ((event.kind === 'loop_failed' || event.kind === 'task_failed') && 'error' in event && typeof event.error === 'string') {
+    return event.error
   }
   if ('error' in event && typeof event.error === 'string') {
     return event.error
@@ -175,6 +219,27 @@ function applyEvent(snapshot: OrchestrationSnapshot | null, event: EventItem): O
     return snapshot
   }
   const current = snapshot ?? emptySnapshot(event)
+  if (current.status === 'cancelled' && event.kind !== 'orchestration_cancelled' && event.kind !== 'orchestration_summary') {
+    if (event.kind === 'child_runtime_status' && event.assetId && event.assetName && event.status === 'cancelled') {
+      const existing = current.children.find((child) => child.assetId === event.assetId)
+      return {
+        ...current,
+        children: upsertChild(current.children, {
+          assetId: event.assetId,
+          assetName: event.assetName,
+          runtimeId: event.runtimeId ?? existing?.runtimeId ?? null,
+          terminalId: event.terminalId ?? existing?.terminalId ?? null,
+          status: 'cancelled',
+          summary: event.summary ?? existing?.summary ?? '',
+          errorMessage: event.errorMessage ?? existing?.errorMessage ?? '',
+          lastSequence: event.childSequence ?? existing?.lastSequence ?? 0,
+        }),
+        lastSequence: event.sequence ?? current.lastSequence,
+        updatedAt: new Date().toISOString(),
+      }
+    }
+    return current
+  }
   let next: OrchestrationSnapshot = {
     ...current,
     lastSequence: event.sequence ?? current.lastSequence,
@@ -195,7 +260,7 @@ function applyEvent(snapshot: OrchestrationSnapshot | null, event: EventItem): O
 
   if (event.assetId && event.assetName) {
     const existing = next.children.find((child) => child.assetId === event.assetId)
-    const childEvents = event.event && existing ? [...existing.events, event.event] : existing?.events
+    const childEvents = event.event ? upsertChildEvent(existing?.events ?? [], event.event) : existing?.events
     const fallbackStatus = (event.status as OrchestrationChildStatus | undefined) ?? existing?.status ?? 'running'
     next = {
       ...next,
@@ -203,6 +268,7 @@ function applyEvent(snapshot: OrchestrationSnapshot | null, event: EventItem): O
         assetId: event.assetId,
         assetName: event.assetName,
         runtimeId: event.runtimeId ?? existing?.runtimeId ?? null,
+        terminalId: event.terminalId ?? existing?.terminalId ?? null,
         status: childStatusFromRuntimeEvent(event.event, fallbackStatus),
         summary: event.summary ?? childSummaryFromRuntimeEvent(event.event, existing?.summary ?? ''),
         errorMessage: event.errorMessage ?? childErrorFromRuntimeEvent(event.event, existing?.errorMessage ?? ''),
@@ -238,7 +304,12 @@ function applyEvent(snapshot: OrchestrationSnapshot | null, event: EventItem): O
     }
   }
 
-  if (event.kind === 'orchestration_completed' || event.kind === 'orchestration_failed' || event.kind === 'orchestration_cancelled') {
+  if (
+    event.kind === 'orchestration_needs_approval' ||
+    event.kind === 'orchestration_completed' ||
+    event.kind === 'orchestration_failed' ||
+    event.kind === 'orchestration_cancelled'
+  ) {
     next = {
       ...next,
       status: (event.status as OrchestrationStatus | undefined) ?? next.status,
@@ -247,6 +318,44 @@ function applyEvent(snapshot: OrchestrationSnapshot | null, event: EventItem): O
   }
 
   return next
+}
+
+function latestOrchestrationId(events: EventItem[], conversationId: string): string | null {
+  for (let index = events.length - 1; index >= 0; index -= 1) {
+    const event = events[index]
+    if (!isOrchestrationEvent(event)) {
+      continue
+    }
+    if (!ORCHESTRATION_REFERENCE_KINDS.has(event.kind)) {
+      continue
+    }
+    if (event.conversationId && event.conversationId !== conversationId) {
+      continue
+    }
+    return event.orchestrationId
+  }
+  return null
+}
+
+function replayConversationOrchestration(events: EventItem[], orchestrationId: string): OrchestrationSnapshot | null {
+  return events
+    .filter((event): event is OrchestrationEvent => isOrchestrationEvent(event) && event.orchestrationId === orchestrationId)
+    .reduce<OrchestrationSnapshot | null>((currentSnapshot, event) => applyEvent(currentSnapshot, event), null)
+}
+
+function hasReplayableProgress(snapshot: OrchestrationSnapshot | null): snapshot is OrchestrationSnapshot {
+  if (!snapshot) {
+    return false
+  }
+  return (
+    snapshot.lastSequence > 1 ||
+    Boolean(snapshot.finalSummary) ||
+    snapshot.children.some((child) => child.events.length > 0 || child.status !== 'pending')
+  )
+}
+
+function isTerminalOrchestrationStatus(status: OrchestrationStatus): boolean {
+  return status === 'completed' || status === 'partial_failed' || status === 'failed' || status === 'cancelled'
 }
 
 function derivePendingApprovals(snapshot: OrchestrationSnapshot | null): PendingOrchestrationApproval[] {
@@ -261,13 +370,10 @@ function derivePendingApprovals(snapshot: OrchestrationSnapshot | null): Pending
     const settledApprovalKeys = new Set<string>()
     for (let index = child.events.length - 1; index >= 0; index -= 1) {
       const event = child.events[index]
-      if (event.kind === 'message_update') {
-        const message = event as any
-        const toolCallId = message.toolCall?.id ?? message.id
-        if (message.type === 'say' && message.say === 'tool_use' && toolCallId) {
-          settledApprovalKeys.add(String(toolCallId))
-          continue
-        }
+      const approvalKeys = getApprovalKeys(event)
+      if (approvalKeys.length > 0 && isApprovalSettlingEvent(event)) {
+        approvalKeys.forEach((key) => settledApprovalKeys.add(key))
+        continue
       }
       if (event.kind !== 'message_update') {
         continue
@@ -277,8 +383,7 @@ function derivePendingApprovals(snapshot: OrchestrationSnapshot | null): Pending
       if (message.type !== 'ask' || !approvalToken || !child.runtimeId) {
         continue
       }
-      const key = String(message.toolCall?.id ?? message.id)
-      if (settledApprovalKeys.has(key)) {
+      if (approvalKeys.some((key) => settledApprovalKeys.has(key))) {
         continue
       }
       approvals.push({
@@ -324,7 +429,7 @@ export function useOrchestrationRun() {
       setTargetPreview({
         ...resolved,
         prompt: input.prompt,
-        assets: input.assets.filter((asset) => resolved.targetAssetIds.includes(asset.id)),
+        assets: input.assets.filter((asset) => resolved.preparations.some((item) => item.assetId === asset.id)),
         currentAsset: input.currentAsset,
         conversationId: input.conversationId,
         modelName: input.modelName ?? null,
@@ -349,6 +454,7 @@ export function useOrchestrationRun() {
         prompt: targetPreview.prompt,
         currentAssetId: targetPreview.currentAsset?.id ?? null,
         targetAssetIds: targetAssetIds ?? targetPreview.targetAssetIds,
+        confirmationToken: targetPreview.confirmationToken,
         conversationId: targetPreview.conversationId,
         modelName: targetPreview.modelName ?? null,
         selectedSkillName: targetPreview.selectedSkillName ?? null,
@@ -377,49 +483,74 @@ export function useOrchestrationRun() {
     setSnapshot((current) => applyEvent(current, event))
   }, [snapshot])
 
-  const applyStream = useCallback(async (stream: AsyncGenerator<EventItem, void, void>, runtimeId: string) => {
-    for await (const event of stream) {
-      setSnapshot((current) => {
-        if (!current) {
-          return current
-        }
-        const child = current.children.find((item) => item.runtimeId === runtimeId)
-        if (!child) {
-          return current
-        }
-        return applyEvent(current, {
-          id: `orch-resume-${event.id}`,
-          kind: 'child_runtime_event',
-          orchestrationId: current.orchestrationId,
-          runtimeId,
-          assetId: child.assetId,
-          assetName: child.assetName,
-          childSequence: 'sequence' in event && typeof event.sequence === 'number' ? event.sequence : child.lastSequence,
-          event,
-        })
-      })
-    }
-  }, [])
-
   const approveChildRun = useCallback(async (runtimeId: string, approvalToken: string | null, allowPrefix?: string) => {
     setError(null)
     try {
-      const stream = await streamApproveAgent(runtimeId, true, approvalToken ?? undefined, allowPrefix)
-      await applyStream(stream, runtimeId)
+      if (!snapshot) {
+        throw new Error('Orchestration snapshot is not available.')
+      }
+      const stream = await streamApproveOrchestrationChild(
+        snapshot.orchestrationId,
+        runtimeId,
+        true,
+        approvalToken ?? undefined,
+        allowPrefix,
+      )
+      for await (const event of stream) {
+        setSnapshot((current) => applyEvent(current, event))
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Failed to approve child run.')
     }
-  }, [applyStream])
+  }, [snapshot])
 
   const rejectChildRun = useCallback(async (runtimeId: string, approvalToken: string | null) => {
     setError(null)
     try {
-      const stream = await streamApproveAgent(runtimeId, false, approvalToken ?? undefined)
-      await applyStream(stream, runtimeId)
+      if (!snapshot) {
+        throw new Error('Orchestration snapshot is not available.')
+      }
+      const stream = await streamApproveOrchestrationChild(
+        snapshot.orchestrationId,
+        runtimeId,
+        false,
+        approvalToken ?? undefined,
+      )
+      for await (const event of stream) {
+        setSnapshot((current) => applyEvent(current, event))
+      }
     } catch (caught) {
       setError(caught instanceof Error ? caught.message : 'Failed to reject child run.')
     }
-  }, [applyStream])
+  }, [snapshot])
+
+  const restoreFromConversation = useCallback(async (conversationId: string | null, events: EventItem[]) => {
+    if (!conversationId) {
+      setSnapshot(null)
+      return
+    }
+    const orchestrationId = latestOrchestrationId(events, conversationId)
+    if (!orchestrationId) {
+      setSnapshot(null)
+      return
+    }
+    const conversationSnapshot = replayConversationOrchestration(events, orchestrationId)
+    if (hasReplayableProgress(conversationSnapshot) && isTerminalOrchestrationStatus(conversationSnapshot.status)) {
+      setSnapshot(conversationSnapshot)
+      return
+    }
+    try {
+      const restoredSnapshot = await getOrchestrationSnapshot(orchestrationId)
+      const restoredEvents = await getOrchestrationEvents(orchestrationId, 0)
+      const replayedSnapshot = restoredEvents.events.reduce(
+        (currentSnapshot, event) => applyEvent(currentSnapshot, event),
+        restoredSnapshot as OrchestrationSnapshot | null,
+      )
+      setSnapshot(replayedSnapshot ?? conversationSnapshot)
+    } catch {
+      setSnapshot(conversationSnapshot)
+    }
+  }, [])
 
   return {
     snapshot,
@@ -433,6 +564,7 @@ export function useOrchestrationRun() {
     clearTargetPreview,
     approveChildRun,
     rejectChildRun,
+    restoreFromConversation,
     cancel,
   }
 }

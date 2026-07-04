@@ -101,12 +101,15 @@ export type ConsoleOrchestrationResolveTargetsResponseDto = {
   targetSelectionSource: string
   targetSelectionReason: string
   confidence: 'high' | 'medium' | 'low'
+  confirmationToken: string
+  preparations: OrchestrationTargetPreparationDto[]
 }
 
 export type ConsoleOrchestrationRunRequest = {
   prompt: string
   currentAssetId?: number | null
   targetAssetIds?: number[] | null
+  confirmationToken?: string | null
   conversationId: string
   modelName?: string | null
   selectedSkillName?: string | null
@@ -122,6 +125,14 @@ export type OrchestrationChildDto = {
   summary: string
   errorMessage: string
   lastSequence: number
+}
+
+export type OrchestrationTargetPreparationDto = {
+  assetId: number
+  assetName: string
+  status: 'ready' | 'needs_terminal' | 'unavailable'
+  terminalId: string | null
+  reason: string
 }
 
 export type OrchestrationSnapshotDto = {
@@ -155,6 +166,7 @@ export type ConsoleBootstrap = {
   groups: AssetGroup[]
   historyByAsset: Record<number, SessionRecord[]>
   modelOptions: string[]
+  selectedModel: string
   modelConfigured: boolean
   modelConfigurationMessage: string
   terminalSessionId: string | null

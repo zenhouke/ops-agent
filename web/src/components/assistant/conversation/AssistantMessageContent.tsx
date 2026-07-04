@@ -72,13 +72,13 @@ export function AssistantMessageContent({
     // Show a loading indicator when the message is partial (LLM hasn't produced tokens yet)
     if (message?.partial || isStreaming) {
       return (
-        <div className="flex w-fit items-center gap-3 rounded-full border border-ops-cyan/10 bg-ops-panel/45 px-4 py-2 text-ops-muted/70 shadow-[0_12px_32px_rgba(0,0,0,0.18)]">
+        <div className="flex w-fit items-center gap-2.5 rounded-xl border border-ops-border/15 bg-ops-panel/40 px-4 py-2.5 text-ops-muted/60">
           <div className="flex items-center gap-1">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ops-cyan/70" style={{ animationDelay: '0ms' }} />
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ops-cyan/70" style={{ animationDelay: '200ms' }} />
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ops-cyan/70" style={{ animationDelay: '400ms' }} />
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ops-green/70" style={{ animationDelay: '0ms' }} />
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ops-green/70" style={{ animationDelay: '200ms' }} />
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ops-green/70" style={{ animationDelay: '400ms' }} />
           </div>
-          <span className="text-[10px] font-black uppercase tracking-[0.16em] text-ops-muted/55">{t('conversation.thinking')}</span>
+          <span className="text-[10px] font-bold uppercase tracking-[0.12em] text-ops-muted/50">{t('conversation.thinking')}</span>
         </div>
       )
     }
@@ -86,12 +86,13 @@ export function AssistantMessageContent({
   }
 
   return (
-    <article className="relative w-full overflow-hidden rounded-[24px] rounded-tl-md border border-ops-border/25 bg-[linear-gradient(145deg,rgb(var(--ops-panel)/0.82),rgb(var(--ops-deep)/0.74))] p-4 shadow-[0_18px_50px_rgb(var(--ops-bg)/0.22),inset_0_1px_0_rgb(var(--ops-text)/0.035)] backdrop-blur-md">
-      <div className="pointer-events-none absolute inset-y-4 left-0 w-px bg-gradient-to-b from-transparent via-ops-cyan/45 to-transparent" />
-      <div className="mb-3 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.16em] text-ops-muted/55">
-        <span className="flex h-5 w-5 items-center justify-center rounded-full border border-ops-cyan/18 bg-ops-cyan/8 text-[11px] text-ops-cyan">✦</span>
+    <article className="relative w-full overflow-hidden rounded-2xl rounded-tl-sm border border-ops-border/20 bg-ops-panel/50 p-4 shadow-sm">
+      <div className="mb-2.5 flex items-center gap-2 text-[10px] font-bold uppercase tracking-[0.14em] text-ops-muted/50">
+        <span className="flex h-4 w-4 items-center justify-center rounded-full bg-ops-green/12 text-ops-green">
+          <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M12 2a3 3 0 0 0-3 3v1a3 3 0 0 0-3 3v1a3 3 0 0 0-3 3v3a3 3 0 0 0 3 3h12a3 3 0 0 0 3-3v-3a3 3 0 0 0-3-3V9a3 3 0 0 0-3-3V5a3 3 0 0 0-3-3z" /></svg>
+        </span>
         {t('conversation.agentResponse')}
-        {isStreaming && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ops-cyan" />}
+        {isStreaming && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ops-green" />}
       </div>
 
       <div className="flex flex-col gap-3">
@@ -99,23 +100,20 @@ export function AssistantMessageContent({
           <div className="flex flex-col gap-2">
             <button
               onClick={() => setIsThinkExpanded(!isThinkExpanded)}
-              className="flex w-fit items-center gap-2 rounded-full border border-ops-cyan/10 bg-ops-cyan/5 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-ops-cyan/65 transition-colors hover:border-ops-cyan/25 hover:text-ops-cyan"
+              className="flex w-fit items-center gap-1.5 rounded-lg px-2 py-1 text-[10px] font-bold uppercase tracking-[0.1em] text-ops-muted/60 transition-colors hover:bg-ops-panel/60 hover:text-ops-green"
             >
-              <div className={`flex h-4 w-4 items-center justify-center rounded-full border border-ops-cyan/25 bg-ops-deep/50 transition-transform duration-200 ${isThinkExpanded ? 'rotate-180' : ''}`}>
-                <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="m6 9 6 6 6-6"/></svg>
-              </div>
+              <svg width="10" height="10" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" className={`transition-transform duration-200 ${isThinkExpanded ? 'rotate-180' : ''}`}><path d="m6 9 6 6 6-6"/></svg>
               <span>{parsed.isStillThinking ? t('conversation.thinkingInProgress') : t('conversation.thoughtProcess')}</span>
-              {parsed.isStillThinking && isStreaming && <span className="h-1 w-1 animate-pulse rounded-full bg-ops-cyan" />}
+              {parsed.isStillThinking && isStreaming && <span className="h-1 w-1 animate-pulse rounded-full bg-ops-green" />}
             </button>
 
             {isThinkExpanded && (
-              <div className="relative overflow-hidden rounded-2xl border border-ops-border/20 bg-ops-deep/45 px-4 py-3 text-[13px] leading-relaxed text-ops-muted/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] animate-in fade-in slide-in-from-top-1 duration-200">
-                <div className="absolute left-0 top-0 h-full w-0.5 bg-ops-cyan/30" />
+              <div className="overflow-hidden rounded-xl border border-ops-border/15 bg-ops-deep/40 px-4 py-3 text-[13px] leading-relaxed text-ops-muted/75 animate-in fade-in slide-in-from-top-1 duration-200">
                 <div className="prose prose-invert prose-sm max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_p]:my-2 [&_code]:rounded [&_code]:bg-ops-deep [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-[11px] [&_pre]:my-3 [&_pre]:rounded-lg [&_pre]:bg-ops-deep [&_pre]:p-3 [&_pre>code]:text-[11px]">
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>{parsed.thinking}</ReactMarkdown>
                 </div>
                 {parsed.isStillThinking && isStreaming && (
-                  <span className="ml-1 inline-block h-3.5 w-1.5 animate-pulse rounded-sm bg-ops-cyan/85 align-[-2px]" />
+                  <span className="ml-1 inline-block h-3.5 w-1.5 animate-pulse rounded-sm bg-ops-green/85 align-[-2px]" />
                 )}
               </div>
             )}
@@ -126,7 +124,7 @@ export function AssistantMessageContent({
           <div className={PROSE_CLASS}>
             <ReactMarkdown remarkPlugins={[remarkGfm]}>{parsed.output}</ReactMarkdown>
             {(isStreaming || (message?.partial && !message?.toolCall)) && !parsed.isStillThinking && (
-              <span className="ml-1 inline-block h-3.5 w-1.5 animate-pulse rounded-sm bg-ops-cyan/85 align-[-2px]" />
+              <span className="ml-1 inline-block h-3.5 w-1.5 animate-pulse rounded-sm bg-ops-green/85 align-[-2px]" />
             )}
           </div>
         )}

@@ -260,11 +260,16 @@ class OpenAICompatibleLLMProvider:
         )
         return self._client
 
+    _MAX_TOOL_CONTENT_CHARS = 50_000
+
     def _serialize_message(self, message):
-        payload = {"role": message.role, "content": message.content}
+        content = message.content
+        if message.role == "tool" and len(content) > self._MAX_TOOL_CONTENT_CHARS:
+            content = content[:self._MAX_TOOL_CONTENT_CHARS] + f"\n...[truncated {len(content) - self._MAX_TOOL_CONTENT_CHARS} chars]..."
+        payload = {"role": message.role, "content": content}
         if message.tool_call_id:
             payload["tool_call_id"] = message.tool_call_id
-        if message.name and message.role != "tool":
+        if message.name:
             payload["name"] = message.name
         if message.role == "assistant" and message.tool_calls:
             payload["tool_calls"] = [

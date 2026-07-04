@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
+from collections.abc import Callable
 from typing import Literal
 
 
@@ -22,6 +23,7 @@ class ExecutionContext:
     working_directory: str | None = None
     timeout_seconds: float | None = None
     metadata: dict[str, str] = field(default_factory=dict)
+    cancel_check: Callable[[], bool] | None = None
 
 
 @dataclass(slots=True)

@@ -57,7 +57,10 @@ class TargetAssetResolver:
     ) -> TargetAssetSelection:
         valid_ids = {candidate.id for candidate in candidates}
         if explicit_asset_ids:
-            selected = [asset_id for asset_id in explicit_asset_ids if asset_id in valid_ids]
+            selected: list[int] = []
+            for asset_id in explicit_asset_ids:
+                if asset_id in valid_ids and asset_id not in selected:
+                    selected.append(asset_id)
             if selected:
                 return TargetAssetSelection(
                     asset_ids=selected,
@@ -160,6 +163,28 @@ class TargetAssetResolver:
         normalized_prompt: str,
         candidates: list[AssetSelectionCandidate],
     ) -> TargetAssetSelection:
+        if any(
+            term in normalized_prompt
+            for term in [
+                "所有资产",
+                "全部资产",
+                "所有节点",
+                "全部节点",
+                "每台资产",
+                "每个资产",
+                "all assets",
+                "every asset",
+            ]
+        ):
+            asset_ids = [candidate.id for candidate in candidates]
+            if asset_ids:
+                return TargetAssetSelection(
+                    asset_ids=asset_ids,
+                    source="prompt_asset_scope",
+                    reason="提示词要求所有资产，已选择资产目录中的全部资产。",
+                    confidence="high",
+                )
+
         if any(
             term in normalized_prompt
             for term in ["所有网络设备", "全部网络设备", "所有交换机", "全部交换机", "network devices", "all switches"]

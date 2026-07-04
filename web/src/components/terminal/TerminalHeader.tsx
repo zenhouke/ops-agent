@@ -28,8 +28,8 @@ export function TerminalHeader({
   const { t } = useAppearance()
 
   return (
-    <header className="flex h-[66px] shrink-0 flex-col border-b border-ops-border/15 bg-ops-deep relative overflow-hidden dark:border-ops-border/20 dark:bg-ops-panel/80">
-      <div className="absolute top- left-0 w-1 h-full bg-ops-cyan/20 pointer-events-none" />
+    <header className="flex h-[60px] shrink-0 flex-col border-b border-ops-border/15 bg-ops-deep relative overflow-hidden dark:border-ops-border/20 dark:bg-ops-panel/80">
+      <div className="absolute top- left-0 w-1 h-full bg-ops-green/20 pointer-events-none" />
       <div className="flex items-center gap-3 px-3 py-2">
         {/* Tabs (with close button, local terminal is permanent) */}
         <div className="flex min-w-0 flex-1 items-center gap-1 overflow-x-auto" aria-label={t('terminal.tabs')}>
@@ -41,19 +41,19 @@ export function TerminalHeader({
               <div
                 key={tabAsset.id}
                 className={`group relative flex max-w-[200px] shrink-0 items-center rounded-xl border transition-all duration-300 ${isActive
-                  ? 'border-ops-cyan/30 bg-ops-cyan/10 shadow-glow'
+                  ? 'border-ops-green/30 bg-ops-green/10 shadow-glow'
                   : 'border-transparent bg-transparent hover:border-ops-border/20 hover:bg-ops-panel/40'
                   }`}
               >
                 <button
                   type="button"
-                  className={`flex min-w-0 items-center gap-2.5 px-4 py-2 text-[10px] font-bold tracking-[0.1em] ${isActive ? 'text-ops-cyan shadow-glow' : 'text-ops-muted/60'
+                  className={`flex min-w-0 items-center gap-2.5 px-4 py-2 text-[10px] font-bold tracking-[0.1em] ${isActive ? 'text-ops-green shadow-glow' : 'text-ops-muted/60'
                     }`}
                   onClick={() => onSelectTab(tabAsset.id)}
                   title={`${label}${isLocal ? ` (${t('terminal.local')})` : ''}`}
                 >
                   <span
-                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${isActive ? 'bg-ops-cyan shadow-glow animate-pulse' : 'bg-ops-border/40'}`}
+                    className={`h-1.5 w-1.5 shrink-0 rounded-full ${isActive ? 'bg-ops-green shadow-glow animate-pulse' : 'bg-ops-border/40'}`}
                     aria-hidden="true"
                   />
                   <span className="truncate">{label}</span>
@@ -120,7 +120,7 @@ function ToolButton({ onClick, title, 'aria-label': ariaLabel, children }: ToolB
       onClick={onClick}
       title={title}
       aria-label={ariaLabel}
-      className="flex h-7 w-7 items-center justify-center rounded-md text-ops-muted transition-all duration-200 hover:bg-ops-border/30 hover:text-ops-cyan active:scale-95"
+      className="flex h-7 w-7 items-center justify-center rounded-md text-ops-muted transition-all duration-200 hover:bg-ops-border/30 hover:text-ops-green active:scale-95"
     >
       {children}
     </button>

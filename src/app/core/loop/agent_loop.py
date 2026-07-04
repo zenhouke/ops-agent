@@ -6,7 +6,7 @@ import logging
 import secrets
 import re
 import uuid
-from collections.abc import Generator, Iterator
+from collections.abc import Callable, Generator, Iterator
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -157,6 +157,8 @@ class AgentLoop:
             return "Authorized asset changed after approval was requested."
         if args.get("authorization_id") != snapshot["authorization_id"]:
             return "Approval target authorization changed."
+        if args.get("terminal_id") != snapshot["terminal_id"]:
+            return "Approval terminal changed."
         if args.get("command") != snapshot["command"]:
             return "Approved command changed before execution."
         if not belongs_to_asset(authorization.terminal_id, authorization.asset_id):
@@ -175,8 +177,12 @@ class AgentLoop:
         if metadata.extra.get("kind") != "command":
             return args
         prepared = dict(args)
+        used_default_authorization = False
         if state.context.default_authorization_id and not str(prepared.get("authorization_id", "") or ""):
             prepared["authorization_id"] = state.context.default_authorization_id
+            used_default_authorization = True
+        if used_default_authorization and state.context.terminal_id and not str(prepared.get("terminal_id", "") or ""):
+            prepared["terminal_id"] = state.context.terminal_id
         prepared.setdefault("asset_type", state.context.asset_type)
         prepared["runtime_id"] = state.context.runtime_id
         prepared["shell_type"] = state.context.shell_type
@@ -219,12 +225,28 @@ class AgentLoop:
 
     def run(self, state: LoopState) -> Iterator[LoopEvent]:
         manager = MessageManager(runtime_id=state.context.runtime_id)
+        if state.cancel_requested:
+            state.phase = "cancelled"
+            state.error_message = state.error_message or "Runtime cancelled."
+            yield emit_failed(runtime_id=state.context.runtime_id, error=state.error_message)
+            return
         if state.context.mode == "plan":
             yield from self._run_plan_mode(state, manager=manager)
             return
         yield from self._tool_calling_loop(state, manager=manager)
 
-    def resume_with_approval(self, state: LoopState, *, approved: bool) -> Iterator[LoopEvent]:
+    def resume_with_approval(
+        self,
+        state: LoopState,
+        *,
+        approved: bool,
+        on_approval_validated: Callable[[], None] | None = None,
+    ) -> Iterator[LoopEvent]:
+        if state.cancel_requested:
+            state.phase = "cancelled"
+            state.error_message = state.error_message or "Runtime cancelled."
+            yield emit_failed(runtime_id=state.context.runtime_id, error=state.error_message)
+            return
         if state.phase != "approving":
             return
 
@@ -275,6 +297,15 @@ class AgentLoop:
             yield from self._tool_calling_loop(state, manager=manager)
             return
 
+        if on_approval_validated is not None:
+            on_approval_validated()
+
+        if state.cancel_requested:
+            state.phase = "cancelled"
+            state.error_message = state.error_message or "Runtime cancelled."
+            yield emit_failed(runtime_id=state.context.runtime_id, error=state.error_message)
+            return
+
         current_step.status = "running"
         state.phase = "executing"
 
@@ -318,6 +349,12 @@ class AgentLoop:
         yield from self._tool_calling_loop(state, manager=manager)
 
     def _run_plan_mode(self, state: LoopState, *, manager: MessageManager, continue_existing: bool = False) -> Iterator[LoopEvent]:
+        if state.cancel_requested:
+            state.phase = "cancelled"
+            state.error_message = state.error_message or "Runtime cancelled."
+            yield emit_failed(runtime_id=state.context.runtime_id, error=state.error_message)
+            return
+
         if not continue_existing and not state.steps:
             yield from self._generate_plan(state, manager=manager)
             return
@@ -326,6 +363,11 @@ class AgentLoop:
             return
 
         while state.cursor < len(state.steps):
+            if state.cancel_requested:
+                state.phase = "cancelled"
+                state.error_message = state.error_message or "Runtime cancelled."
+                yield emit_failed(runtime_id=state.context.runtime_id, error=state.error_message)
+                return
             step = state.get_current_step()
             if step is None:
                 break
@@ -349,6 +391,16 @@ class AgentLoop:
                     step.output = summary
                 state.phase = "failed"
                 state.error_message = summary or "Failed to execute plan step."
+                yield emit_failed(runtime_id=state.context.runtime_id, error=state.error_message)
+                return
+
+            if step.exit_code is None and not step.output:
+                step.status = "failed"
+                state.phase = "failed"
+                state.error_message = (
+                    "Plan step finished without command execution evidence. "
+                    "Use execute_command on the authorized terminal before completing an operational step."
+                )
                 yield emit_failed(runtime_id=state.context.runtime_id, error=state.error_message)
                 return
 
@@ -376,6 +428,7 @@ class AgentLoop:
             updated=True,
             loading=False,
             mode=state.context.mode,
+            status=state.phase,
         )
 
     def _summarize_plan_completion(self, state: LoopState, *, manager: MessageManager) -> Generator[LoopEvent, None, str]:
@@ -412,6 +465,11 @@ class AgentLoop:
     def _generate_plan(self, state: LoopState, *, manager: MessageManager) -> Iterator[LoopEvent]:
         provider = build_llm_provider(state.context.model_config)
         ctx = state.context
+        if state.cancel_requested:
+            state.phase = "cancelled"
+            state.error_message = state.error_message or "Runtime cancelled."
+            yield emit_failed(runtime_id=ctx.runtime_id, error=state.error_message)
+            return
         
         yield from manager.begin_message(message_type="say", say_type="text")
         request = self._request_builder.build_plan_generation_request(state=state)
@@ -451,8 +509,8 @@ class AgentLoop:
                     )
                 )
 
-            state.phase = "executing"
-            state.locked_plan = True
+            state.phase = "waiting_plan_approval"
+            state.locked_plan = False
             yield emit_plan_update(
                 runtime_id=ctx.runtime_id,
                 plan_id=f"plan-{ctx.runtime_id}",
@@ -464,8 +522,8 @@ class AgentLoop:
                 updated=False,
                 loading=False,
                 mode=ctx.mode,
+                status=state.phase,
             )
-            yield from self._run_plan_mode(state, manager=manager, continue_existing=True)
         except Exception as exc:
             error = f"Task planning failed: {exc}"
             state.phase = "failed"
@@ -504,6 +562,11 @@ class AgentLoop:
         unresolved_tool_failure = any(step.status == "failed" for step in state.steps)
 
         while True:
+            if state.cancel_requested:
+                state.phase = "cancelled"
+                state.error_message = state.error_message or "Runtime cancelled."
+                yield emit_failed(runtime_id=ctx.runtime_id, error=state.error_message)
+                return True, False, state.error_message
             response_text_parts: list[str] = []
             response_thinking_parts: list[str] = []
             response_tool_calls = []
@@ -519,6 +582,12 @@ class AgentLoop:
                 config=ctx.model_config,
                 request=self._request_builder.build_tool_calling_request(state=state, tools=tools),
             ):
+                if state.cancel_requested:
+                    state.phase = "cancelled"
+                    state.error_message = state.error_message or "Runtime cancelled."
+                    yield from manager.finalize(text="\nCancelled.")
+                    yield emit_failed(runtime_id=ctx.runtime_id, error=state.error_message)
+                    return True, False, state.error_message
                 if not first_chunk_logged:
                     first_chunk_logged = True
                 if chunk.thinking_delta:
@@ -560,18 +629,22 @@ class AgentLoop:
 
             if not response.tool_calls:
                 summary = response.text or "Task execution completed."
+                if state.cancel_requested:
+                    state.phase = "cancelled"
+                    state.error_message = state.error_message or "Runtime cancelled."
+                    return True, False, state.error_message
                 if finalize_on_complete:
-                    if unresolved_tool_failure:
-                        state.phase = "failed"
-                        state.error_message = summary
-                        yield emit_failed(runtime_id=ctx.runtime_id, error=summary)
-                        return False, False, summary
                     state.phase = "completed"
                     state.summary = summary
                 return False, True, summary
 
             restart_tool_calling = False
             for index, tool_call in enumerate(response.tool_calls):
+                if state.cancel_requested:
+                    state.phase = "cancelled"
+                    state.error_message = state.error_message or "Runtime cancelled."
+                    yield emit_failed(runtime_id=ctx.runtime_id, error=state.error_message)
+                    return True, False, state.error_message
                 handler = self._tools.get(tool_call.name)
                 if handler is None:
                     state.messages.append(
@@ -689,6 +762,11 @@ class AgentLoop:
 
                 step.status = "running"
                 state.phase = "executing"
+                if state.cancel_requested:
+                    state.phase = "cancelled"
+                    state.error_message = state.error_message or "Runtime cancelled."
+                    yield emit_failed(runtime_id=ctx.runtime_id, error=state.error_message)
+                    return True, False, state.error_message
 
                 # Emit a 'say' message for tool execution
                 yield from manager.begin_message(message_type="say", say_type="tool_use")

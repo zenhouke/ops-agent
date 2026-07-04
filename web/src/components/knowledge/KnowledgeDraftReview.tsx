@@ -131,7 +131,7 @@ export function KnowledgeDraftReview({
           onClick={() => setExpanded((current) => !current)}
           aria-expanded={expanded}
         >
-          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-ops-cyan/25 bg-ops-cyan/10 text-ops-cyan">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl border border-ops-green/25 bg-ops-green/10 text-ops-green">
             <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M12 3v18" /><path d="M5 8h14" /><path d="M5 16h14" /></svg>
           </span>
           <span className="min-w-0 flex-1">
@@ -144,7 +144,7 @@ export function KnowledgeDraftReview({
         {!hasDraft ? (
           <button
             type="button"
-            className="shrink-0 rounded-xl border border-ops-cyan/30 bg-ops-cyan/10 px-3 py-2 text-[10px] font-black tracking-[0.08em] text-ops-cyan transition hover:bg-ops-cyan/20 active:scale-95 disabled:cursor-not-allowed disabled:opacity-45"
+            className="shrink-0 rounded-xl border border-ops-green/30 bg-ops-green/10 px-3 py-2 text-[10px] font-black tracking-[0.08em] text-ops-green transition hover:bg-ops-green/20 active:scale-95 disabled:cursor-not-allowed disabled:opacity-45"
             disabled={!conversationId || disabled}
             onClick={handleGenerate}
           >
@@ -153,7 +153,7 @@ export function KnowledgeDraftReview({
         ) : (
           <button
             type="button"
-            className="shrink-0 rounded-xl border border-ops-border/20 px-3 py-2 text-[10px] font-black text-ops-muted transition hover:border-ops-cyan/40 hover:text-ops-cyan active:scale-95"
+            className="shrink-0 rounded-xl border border-ops-border/20 px-3 py-2 text-[10px] font-black text-ops-muted transition hover:border-ops-green/40 hover:text-ops-green active:scale-95"
             onClick={() => setExpanded((current) => !current)}
           >
             {expanded ? '收起' : '展开'}
@@ -184,7 +184,7 @@ export function KnowledgeDraftReview({
             <label className="lg:col-span-2">
               <span className="mb-1 block text-[10px] font-black uppercase tracking-[0.14em] text-ops-muted/70">标题</span>
               <input
-                className="w-full rounded-xl border border-ops-border/20 bg-ops-bg/70 px-3 py-2 text-sm font-bold text-ops-text outline-none transition focus:border-ops-cyan/50"
+                className="w-full rounded-xl border border-ops-border/20 bg-ops-bg/70 px-3 py-2 text-sm font-bold text-ops-text outline-none transition focus:border-ops-green/50"
                 value={form.title}
                 disabled={disabled}
                 onChange={(event) => handleFieldChange('title', event.target.value)}
@@ -199,7 +199,7 @@ export function KnowledgeDraftReview({
             <label className="lg:col-span-2">
               <span className="mb-1 block text-[10px] font-black uppercase tracking-[0.14em] text-ops-muted/70">标签</span>
               <input
-                className="w-full rounded-xl border border-ops-border/20 bg-ops-bg/70 px-3 py-2 text-sm text-ops-text outline-none transition focus:border-ops-cyan/50"
+                className="w-full rounded-xl border border-ops-border/20 bg-ops-bg/70 px-3 py-2 text-sm text-ops-text outline-none transition focus:border-ops-green/50"
                 value={form.tags}
                 disabled={disabled}
                 placeholder="tag-a, tag-b"
@@ -250,7 +250,7 @@ function DraftTextarea({ label, value, disabled, onChange }: DraftTextareaProps)
     <label>
       <span className="mb-1 block text-[10px] font-black uppercase tracking-[0.14em] text-ops-muted/70">{label}</span>
       <textarea
-        className="min-h-24 w-full resize-y rounded-xl border border-ops-border/20 bg-ops-bg/70 px-3 py-2 text-sm text-ops-text outline-none transition focus:border-ops-cyan/50"
+        className="min-h-24 w-full resize-y rounded-xl border border-ops-border/20 bg-ops-bg/70 px-3 py-2 text-sm text-ops-text outline-none transition focus:border-ops-green/50"
         value={value}
         disabled={disabled}
         onChange={(event) => onChange(event.target.value)}

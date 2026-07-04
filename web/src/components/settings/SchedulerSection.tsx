@@ -17,15 +17,15 @@ type SchedulerSectionProps = {
 const PRESET_PROMPTS = [
   {
     label: '磁盘空间与负载巡检',
-    value: '请对系统进行健康检查。主要查看 CPU 负载、内存使用率和磁盘空间。如果发现任何磁盘分区使用率超过 85%，或者 CPU 平均负载过高，请输出 [ALERT: 系统资源不足] 分区使用率/负载详情。如果正常则输出 [OK]。',
+    value: '请对系统进行健康检查。主要检查 CPU 负载、内存使用率和磁盘空间。如果发现任何磁盘分区使用率超过 85%，或 CPU 平均负载过高，请输出 [ALERT: 系统资源不足] 分区使用率与负载详情。如果正常则输出 [OK]。',
   },
   {
     label: '系统安全日志审计',
-    value: '检查系统的安全日志或 SSH 登录记录（如 /var/log/auth.log 或 journalctl）。分析是否有大量失败的登录尝试。如果发现可疑的暴力破解迹象，请输出 [ALERT: 安全审计告警] 发现来自 IP xxx 的多次登录失败。如果无异常则输出 [OK]。',
+    value: '检查系统的安全日志与 SSH 登录记录（如 /var/log/auth.log 或 journalctl）。分析是否有大量失败的登录尝试。如果发现可疑的暴力破解迹象，请输出 [ALERT: 安全审计告警] 发现来自 IP xxx 的多次登录失败。如果无异常则输出 [OK]。',
   },
   {
     label: '关键服务状态检查',
-    value: '检查系统中关键服务（如 docker, nginx, mysql）的运行状态。如果发现服务处于 inactive 或 error 状态，请输出 [ALERT: 服务停用] 服务名 处于停止状态。如果全部运行正常则请输出 [OK]。',
+    value: '检查系统中关键服务（如 docker, nginx, mysql）的运行状态。如果发现服务处于 inactive 或 error 状态，请输出 [ALERT: 服务停用] 服务名处于停止状态。如果全部运行正常则请输出 [OK]。',
   },
 ]
 
@@ -183,7 +183,7 @@ export function SchedulerSection({ assets }: SchedulerSectionProps) {
     <div className="flex flex-col h-full space-y-4">
       <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h4 className="text-xs font-bold text-ops-cyan tracking-wider">{t('scheduler.title')}</h4>
+          <h4 className="text-xs font-bold text-ops-green tracking-wider">{t('scheduler.title')}</h4>
           <p className="text-[10px] text-ops-muted mt-0.5">{t('scheduler.description')}</p>
         </div>
         {!showForm && (
@@ -191,7 +191,7 @@ export function SchedulerSection({ assets }: SchedulerSectionProps) {
             type="button"
             onClick={startCreate}
             disabled={!hasAssets}
-            className="button h-8 px-4 text-[10px] font-black tracking-widest text-ops-cyan border border-ops-cyan/35 bg-ops-cyan/10 hover:bg-ops-cyan/20 active:scale-95 transition-all disabled:opacity-40"
+            className="button h-8 px-4 text-[10px] font-black tracking-widest text-ops-green border border-ops-green/35 bg-ops-green/10 hover:bg-ops-green/20 active:scale-95 transition-all disabled:opacity-40"
           >
             {t('scheduler.newJob')}
           </button>
@@ -225,7 +225,7 @@ export function SchedulerSection({ assets }: SchedulerSectionProps) {
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder={t('scheduler.jobNamePlaceholder')}
-                className="h-9 w-full rounded-lg bg-ops-deep px-3 text-[11px] font-medium text-ops-text border border-ops-border/20 focus:border-ops-cyan/40 focus:ring-1 focus:ring-ops-cyan/35 transition-all outline-none"
+                className="h-9 w-full rounded-lg bg-ops-deep px-3 text-[11px] font-medium text-ops-text border border-ops-border/20 focus:border-ops-green/40 focus:ring-1 focus:ring-ops-green/35 transition-all outline-none"
               />
             </div>
 
@@ -234,7 +234,7 @@ export function SchedulerSection({ assets }: SchedulerSectionProps) {
               <select
                 value={assetId}
                 onChange={(e) => setAssetId(Number(e.target.value))}
-                className="h-9 w-full rounded-lg bg-ops-deep px-3 text-[11px] font-medium text-ops-text border border-ops-border/20 focus:border-ops-cyan/40 outline-none"
+                className="h-9 w-full rounded-lg bg-ops-deep px-3 text-[11px] font-medium text-ops-text border border-ops-border/20 focus:border-ops-green/40 outline-none"
               >
                 {assets.map((asset) => (
                   <option key={asset.id} value={asset.id}>
@@ -251,7 +251,7 @@ export function SchedulerSection({ assets }: SchedulerSectionProps) {
               <select
                 value={intervalSeconds}
                 onChange={(e) => setIntervalSeconds(Number(e.target.value))}
-                className="h-9 w-full rounded-lg bg-ops-deep px-3 text-[11px] font-medium text-ops-text border border-ops-border/20 focus:border-ops-cyan/40 outline-none"
+                className="h-9 w-full rounded-lg bg-ops-deep px-3 text-[11px] font-medium text-ops-text border border-ops-border/20 focus:border-ops-green/40 outline-none"
               >
                 <option value={60}>{t('scheduler.everyMinute')}</option>
                 <option value={300}>{t('scheduler.everyFiveMinutes')}</option>
@@ -269,7 +269,7 @@ export function SchedulerSection({ assets }: SchedulerSectionProps) {
                 id="job-enabled"
                 checked={enabled}
                 onChange={(e) => setEnabled(e.target.checked)}
-                className="h-4 w-4 rounded border-ops-border/40 bg-ops-deep text-ops-cyan outline-none"
+                className="h-4 w-4 rounded border-ops-border/40 bg-ops-deep text-ops-green outline-none"
               />
               <label htmlFor="job-enabled" className="text-[11px] font-bold text-ops-text cursor-pointer select-none">
                 {t('scheduler.enableJob')}
@@ -286,7 +286,7 @@ export function SchedulerSection({ assets }: SchedulerSectionProps) {
                     key={idx}
                     type="button"
                     onClick={() => setPrompt(preset.value)}
-                    className="text-[9px] font-bold text-ops-cyan/80 hover:text-ops-cyan transition-colors"
+                    className="text-[10px] font-bold text-ops-green/80 hover:text-ops-green transition-colors"
                   >
                     [{preset.label}]
                   </button>
@@ -299,7 +299,7 @@ export function SchedulerSection({ assets }: SchedulerSectionProps) {
               value={prompt}
               onChange={(e) => setPrompt(e.target.value)}
               placeholder={t('scheduler.promptPlaceholder')}
-              className="w-full rounded-lg bg-ops-deep p-3 text-[11px] font-medium text-ops-text border border-ops-border/20 focus:border-ops-cyan/40 focus:ring-1 focus:ring-ops-cyan/35 transition-all outline-none resize-y"
+              className="w-full rounded-lg bg-ops-deep p-3 text-[11px] font-medium text-ops-text border border-ops-border/20 focus:border-ops-green/40 focus:ring-1 focus:ring-ops-green/35 transition-all outline-none resize-y"
             />
           </div>
 
@@ -314,7 +314,7 @@ export function SchedulerSection({ assets }: SchedulerSectionProps) {
             <button
               type="submit"
               disabled={saving}
-              className="button h-8 px-5 text-[10px] font-bold text-ops-text bg-ops-cyan/20 border border-ops-cyan/40 hover:bg-ops-cyan/35 active:scale-95 transition-all disabled:opacity-50"
+              className="button h-8 px-5 text-[10px] font-bold text-ops-text bg-ops-green/20 border border-ops-green/40 hover:bg-ops-green/35 active:scale-95 transition-all disabled:opacity-50"
             >
               {saving ? t('settings.saving') : t('scheduler.confirmSave')}
             </button>
@@ -342,7 +342,7 @@ export function SchedulerSection({ assets }: SchedulerSectionProps) {
                 <div key={job.id} className="p-4 flex flex-col md:flex-row md:items-center justify-between gap-4 bg-ops-deep/10 hover:bg-ops-deep/20 transition-all">
                   <div className="space-y-1">
                     <div className="flex items-center gap-2">
-                      <span className={`inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[9px] font-bold tracking-wide border ${
+                      <span className={`inline-flex items-center gap-1.5 rounded-md px-1.5 py-0.5 text-[10px] font-bold tracking-wide border ${
                         job.enabled
                           ? 'border-ops-emerald/30 bg-ops-emerald/10 text-ops-emerald'
                           : 'border-ops-border/30 bg-ops-border/10 text-ops-muted'
@@ -354,7 +354,7 @@ export function SchedulerSection({ assets }: SchedulerSectionProps) {
                     </div>
 
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-ops-muted font-medium pt-1">
-                      <span>{t('scheduler.assetLabel')} <strong className="text-ops-cyan/90 font-bold">{getAssetName(job.assetId)}</strong></span>
+                      <span>{t('scheduler.assetLabel')} <strong className="text-ops-green/90 font-bold">{getAssetName(job.assetId)}</strong></span>
                       <span>{t('scheduler.intervalLabel')} <strong className="text-ops-text font-bold">{formatInterval(job.intervalSeconds)}</strong></span>
                       <span>{t('scheduler.lastRunLabel')} <strong className="text-ops-text font-bold">{formatTime(job.lastRunAt)}</strong></span>
                     </div>
@@ -362,7 +362,7 @@ export function SchedulerSection({ assets }: SchedulerSectionProps) {
 
                   <div className="flex flex-wrap items-center gap-2 shrink-0">
                     {triggerStatus[job.id] ? (
-                      <span className="text-[9px] font-bold text-ops-cyan bg-ops-cyan/10 border border-ops-cyan/20 px-2 py-1 rounded">
+                      <span className="text-[10px] font-bold text-ops-green bg-ops-green/10 border border-ops-green/20 px-2 py-1 rounded">
                         {triggerStatus[job.id]}
                       </span>
                     ) : null}
@@ -371,21 +371,21 @@ export function SchedulerSection({ assets }: SchedulerSectionProps) {
                       type="button"
                       disabled={triggeringId !== null}
                       onClick={() => handleTrigger(job.id)}
-                      className="button-mini button-mini-primary h-7 px-3 text-[9px]"
+                      className="button-mini button-mini-primary h-7 px-3 text-[10px]"
                     >
                       {t('scheduler.triggerNow')}
                     </button>
                     <button
                       type="button"
                       onClick={() => startEdit(job)}
-                      className="button-mini h-7 px-3 text-[9px]"
+                      className="button-mini h-7 px-3 text-[10px]"
                     >
                       {t('common.edit')}
                     </button>
                     <button
                       type="button"
                       onClick={() => handleDelete(job.id)}
-                      className="button-mini button-mini-danger h-7 px-3 text-[9px]"
+                      className="button-mini button-mini-danger h-7 px-3 text-[10px]"
                     >
                       {t('common.delete')}
                     </button>

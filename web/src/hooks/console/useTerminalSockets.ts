@@ -4,6 +4,19 @@ import type { TerminalTabState } from './terminalSessionPersistence'
 import { trimTerminalOutput } from './terminalSessionPersistence'
 import { buildTerminalWebSocketUrl } from './consoleShared'
 
+const INTERNAL_COMMAND_OUTPUT_MARKERS = [
+  '__OPS_AGENT_EXIT_STATUS_',
+  '$__opsAgent',
+]
+
+function filterInternalCommandOutput(value: string): string {
+  const lines = value.match(/[^\r\n]*(?:\r\n|\n|\r)?/g) ?? []
+  return lines
+    .filter((line) => line.length > 0)
+    .filter((line) => !INTERNAL_COMMAND_OUTPUT_MARKERS.some((marker) => line.includes(marker)))
+    .join('')
+}
+
 type UseTerminalSocketsProps = {
   terminalTabs: TerminalTabState[]
   activeTerminalAssetId: number
@@ -89,7 +102,7 @@ export function useTerminalSockets({
           }
 
           if (payload.type === 'output') {
-            const incomingOutput = payload.data ?? ''
+            const incomingOutput = filterInternalCommandOutput(payload.data ?? '')
             if (incomingOutput.length === 0) {
               return
             }
@@ -120,10 +133,14 @@ export function useTerminalSockets({
             setLoadError(payload.message ?? 'Terminal session error.')
           }
         } catch {
+          const incomingOutput = filterInternalCommandOutput(String(event.data))
+          if (!incomingOutput) {
+            return
+          }
           syncTerminalTabs((currentTabs) =>
             currentTabs.map((item) =>
               item.assetId === tabItem.assetId
-                ? { ...item, output: trimTerminalOutput(`${item.output}${String(event.data)}`) }
+                ? { ...item, output: trimTerminalOutput(`${item.output}${incomingOutput}`) }
                 : item
             )
           )

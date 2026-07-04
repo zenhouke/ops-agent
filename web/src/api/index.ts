@@ -7,6 +7,7 @@ export {
   getRuntimeSnapshot,
   listConversationRuntimes,
   streamApproveAgent,
+  streamApprovePlan,
   streamRunAgent,
 } from './console'
 export {
@@ -14,6 +15,7 @@ export {
   getOrchestrationEvents,
   getOrchestrationSnapshot,
   resolveOrchestrationTargets,
+  streamApproveOrchestrationChild,
   streamRunOrchestration,
 } from './orchestrations'
 export type { ResolvedOrchestrationTargets } from './orchestrations'

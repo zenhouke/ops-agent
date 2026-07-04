@@ -62,9 +62,9 @@ export function NotificationCenter({
         }
       default:
         return {
-          bg: 'bg-ops-cyan/10 border-ops-cyan/30',
-          dot: 'bg-ops-cyan',
-          text: 'text-ops-cyan',
+          bg: 'bg-ops-green/10 border-ops-green/30',
+          dot: 'bg-ops-green',
+          text: 'text-ops-green',
         }
     }
   }
@@ -103,7 +103,7 @@ export function NotificationCenter({
           <path d="M13.73 21a2 2 0 0 1-3.46 0" />
         </svg>
         {unreadCount > 0 ? (
-          <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-ops-danger px-1 text-[9px] font-black text-ops-text shadow-glow animate-pulse">
+          <span className="absolute -top-1.5 -right-1.5 flex h-4 min-w-4 items-center justify-center rounded-full bg-ops-danger px-1 text-[10px] font-black text-ops-text shadow-glow animate-pulse">
             {unreadCount}
           </span>
         ) : null}
@@ -112,7 +112,7 @@ export function NotificationCenter({
       {isOpen ? (
         <div className="absolute right-0 mt-2.5 flex max-h-[min(460px,calc(100vh-72px))] w-[calc(100vw-1rem)] max-w-80 flex-col rounded-xl border border-ops-border/25 bg-ops-panel/95 backdrop-blur-xl shadow-2xl z-[100] animate-in fade-in slide-in-from-top-3 duration-200">
           <div className="flex items-center justify-between gap-3 p-4 border-b border-ops-border/15 shrink-0 bg-ops-panel">
-            <h4 className="text-xs font-bold text-ops-cyan tracking-wider">{t('alerts.title', { count: String(alerts.length) })}</h4>
+            <h4 className="text-xs font-bold text-ops-green tracking-wider">{t('alerts.title', { count: String(alerts.length) })}</h4>
             {unreadCount > 0 ? (
               <button
                 type="button"
@@ -121,7 +121,7 @@ export function NotificationCenter({
                     if (a.status === 'unread') void resolveAlert(a.id)
                   })
                 }}
-                className="button-mini h-7 shrink-0 px-2 text-[9px] text-ops-muted hover:text-ops-text"
+                className="button-mini h-7 shrink-0 px-2 text-[10px] text-ops-muted hover:text-ops-text"
               >
                 {t('alerts.resolveAll')}
               </button>
@@ -155,7 +155,7 @@ export function NotificationCenter({
                     onClick={() => handleAlertClick(alert)}
                     className={`flex flex-col p-3 rounded-lg border cursor-pointer transition-all duration-150 ${
                       isUnread
-                        ? `${styles.bg} hover:border-ops-cyan/40 shadow-sm`
+                        ? `${styles.bg} hover:border-ops-green/40 shadow-sm`
                         : 'bg-ops-deep/30 border-ops-border/10 hover:border-ops-border/20 opacity-60'
                     }`}
                   >
@@ -166,7 +166,7 @@ export function NotificationCenter({
                           {alert.title}
                         </span>
                       </div>
-                      <span className="text-[9px] font-bold text-ops-muted shrink-0">
+                      <span className="text-[10px] font-bold text-ops-muted shrink-0">
                         {formatTime(alert.createdAt)}
                       </span>
                     </div>
@@ -176,7 +176,7 @@ export function NotificationCenter({
                     </p>
 
                     <div className="flex items-center justify-between mt-2 pt-2 border-t border-ops-border/10">
-                      <span className="min-w-0 truncate text-[9px] font-bold text-ops-cyan/85">
+                      <span className="min-w-0 truncate text-[10px] font-bold text-ops-green/85">
                         {getAssetName(alert.assetId)}
                       </span>
                       <div className="flex shrink-0 items-center gap-2">
@@ -187,13 +187,13 @@ export function NotificationCenter({
                               event.stopPropagation()
                               markResolved(alert.id)
                             }}
-                            className="text-[9px] font-black text-ops-muted hover:text-ops-text transition-colors"
+                            className="text-[10px] font-black text-ops-muted hover:text-ops-text transition-colors"
                           >
                             {t('alerts.markRead')}
                           </button>
                         ) : null}
                         {alert.conversationId ? (
-                          <span className="inline-flex items-center gap-0.5 text-[9px] font-black text-ops-cyan hover:underline">
+                          <span className="inline-flex items-center gap-0.5 text-[10px] font-black text-ops-green hover:underline">
                             {alert.severity === 'critical' ? t('alerts.handleApproval') : t('alerts.openConversation')}
                             <svg viewBox="0 0 24 24" className="h-2.5 w-2.5" fill="none" stroke="currentColor" strokeWidth="2.5">
                               <path d="M5 12h14M12 5l7 7-7 7" />

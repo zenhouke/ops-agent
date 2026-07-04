@@ -42,19 +42,24 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ──────────────────────────────────────────────
+   Dark theme — Emerald Ops
+   主色由 cyan 切换为 emerald，背景层次重新校准：
+   bg 最暗 → panel 中间 → deep 介于两者之间
+   ────────────────────────────────────────────── */
 :root,
 :root[data-theme='dark'] {
-  --ops-bg: 11 15 25;
-  --ops-panel: 21 27 40;
+  --ops-bg: 8 12 22;
+  --ops-panel: 17 24 39;
   --ops-strong: 30 41 59;
-  --ops-deep: 5 8 15;
-  --ops-border: 51 65 85;
-  --ops-text: 241 245 249;
-  --ops-muted: 148 163 184;
-  --ops-green: 16 185 129;
-  --ops-cyan: 6 182 212;
+  --ops-deep: 12 18 30;
+  --ops-border: 58 74 96;
+  --ops-text: 238 242 248;
+  --ops-muted: 139 154 178;
+  --ops-green: 52 211 153;
+  --ops-cyan: 56 189 248;
   --ops-warning: 245 158 11;
-  --ops-danger: 239 68 68;
+  --ops-danger: 248 81 73;
 }
 
 :root[data-theme='light'] {
@@ -78,11 +83,45 @@
 }
 
 @layer components {
+  /* ── 动态背景：极光光晕 ──
+     两团缓慢漂移的 emerald/cyan 光晕，营造"活的"背景氛围 */
+  .aurora-bg {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    overflow: hidden;
+  }
+  .aurora-bg::before,
+  .aurora-bg::after {
+    content: '';
+    position: absolute;
+    border-radius: 50%;
+    filter: blur(80px);
+    opacity: 0.5;
+  }
+  .aurora-bg::before {
+    width: 40vw;
+    height: 40vw;
+    top: -10%;
+    left: 10%;
+    background: radial-gradient(circle, rgb(var(--ops-green) / 0.12), transparent 70%);
+    animation: aurora-shift 20s ease-in-out infinite;
+  }
+  .aurora-bg::after {
+    width: 35vw;
+    height: 35vw;
+    bottom: -10%;
+    right: 5%;
+    background: radial-gradient(circle, rgb(var(--ops-cyan) / 0.08), transparent 70%);
+    animation: aurora-shift 25s ease-in-out infinite reverse;
+  }
+
   .field-control {
     @apply rounded-xl border border-ops-border/40 bg-ops-deep text-ops-text px-4 py-2.5
       shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] transition-all duration-200
       placeholder:text-ops-muted/40 text-[13px] font-medium
-      focus:outline-none focus:border-ops-cyan/50 focus:ring-1 focus:ring-ops-cyan/20 focus:shadow-glow;
+      focus:outline-none focus:border-ops-green/50 focus:ring-1 focus:ring-ops-green/20 focus:shadow-glow;
   }
 
   .button {
@@ -92,12 +131,12 @@
   }
 
   .button-primary {
-    @apply border-ops-cyan/40 text-ops-cyan hover:border-ops-cyan/60 hover:shadow-glow;
-    background-color: rgb(var(--ops-cyan) / 0.1);
+    @apply border-ops-green/40 text-ops-green hover:border-ops-green/60 hover:shadow-glow;
+    background-color: rgb(var(--ops-green) / 0.1);
   }
 
   .button-primary:hover {
-    background-color: rgb(var(--ops-cyan) / 0.15);
+    background-color: rgb(var(--ops-green) / 0.15);
   }
 
   .button-danger {
@@ -116,8 +155,8 @@
   }
 
   .button-mini-primary {
-    @apply border-ops-cyan/30 text-ops-cyan hover:border-ops-cyan/50 hover:shadow-glow;
-    background-color: rgb(var(--ops-cyan) / 0.05);
+    @apply border-ops-green/30 text-ops-green hover:border-ops-green/50 hover:shadow-glow;
+    background-color: rgb(var(--ops-green) / 0.05);
   }
 
   .button-mini-danger {
@@ -142,7 +181,7 @@
   }
 
   .chat-bubble-agent {
-    @apply bg-ops-cyan/10 border-ops-cyan/30 text-ops-text self-start rounded-tl-none mr-12;
+    @apply bg-ops-green/10 border-ops-green/30 text-ops-text self-start rounded-tl-none mr-12;
   }
 
   .chat-bubble-status {

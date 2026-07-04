@@ -1,6 +1,8 @@
 import json
 import logging
 import uuid
+import hashlib
+import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -32,6 +34,26 @@ def _sse_event(payload: dict) -> str:
     return f"event: {payload.get('kind', 'message')}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
 
 
+def _conversation_event_for_persistence(event: dict) -> dict | None:
+    if event.get("kind") == "context_status":
+        return None
+    if event.get("kind") == "message_update":
+        return {**event, "kind": "message"}
+    return event
+
+
+def _persist_conversation_event(conversation_service, conversation_id: str | None, event: dict) -> None:
+    if conversation_service is None or not conversation_id or conversation_id == "console":
+        return
+    persisted_event = _conversation_event_for_persistence(event)
+    if persisted_event is None:
+        return
+    try:
+        conversation_service.append_events(conversation_id, [persisted_event], async_title_generation=False)
+    except Exception:
+        logger.exception("failed to persist console event conversation_id=%s", conversation_id)
+
+
 async def _parse_request_model(request: Request, model_type):
     payload = await request.json()
     if isinstance(payload, str):
@@ -47,6 +69,22 @@ def get_console_app_service() -> ConsoleAppService:
     return _console_app_service
 
 
+def _validate_console_approval_terminal(payload: ConsoleApprovalRequest, state) -> None:
+    if state.pending_tool_name != "execute_command":
+        return
+
+    pending_args = state.pending_tool_args or {}
+    expected_terminal_id = str(pending_args.get("terminal_id", "") or "")
+    requested_terminal_id = str(payload.terminal_id or "")
+
+    if not expected_terminal_id:
+        raise HTTPException(status_code=409, detail="pending command has no terminal_id")
+    if not requested_terminal_id:
+        raise HTTPException(status_code=400, detail="terminal_id is required for command approval")
+    if requested_terminal_id != expected_terminal_id:
+        raise HTTPException(status_code=409, detail="approval terminal_id does not match pending command")
+
+
 @router.get("/api/console/bootstrap")
 def get_console_bootstrap(
     session: Session = Depends(get_session),
@@ -58,8 +96,11 @@ def get_console_bootstrap(
     default_config = model_service.from_record(default_record) if default_record is not None else None
     model_configured = default_config is not None
     model_options = [record.model_name for record in list_model_configs(session)] if model_configured else []
-    if default_config is not None and default_config.model_name and default_config.model_name not in model_options:
-        model_options = [default_config.model_name, *model_options]
+    if default_config is not None and default_config.model_name:
+        model_options = [
+            default_config.model_name,
+            *[model_name for model_name in model_options if model_name != default_config.model_name],
+        ]
     model_configuration_message = "" if model_configured else "LLM \u6a21\u578b\u672a\u914d\u7f6e\uff0c\u8bf7\u5148\u5728\u8bbe\u7f6e\u4e2d\u6dfb\u52a0\u5e76\u8bbe\u4e3a\u9ed8\u8ba4\u6a21\u578b\u3002"
     local_terminal_asset = next((asset for asset in assets if asset.asset_type == AssetType.LOCAL_TERMINAL.value), None)
     if local_terminal_asset is None:
@@ -75,6 +116,7 @@ def get_console_bootstrap(
         groups=[to_asset_group_view(group) for group in list_asset_group_records(session)],
         historyByAsset={},
         modelOptions=model_options,
+        selectedModel=default_config.model_name if default_config is not None else "",
         modelConfigured=model_configured,
         modelConfigurationMessage=model_configuration_message,
         terminalSessionId=terminal_session_id,
@@ -97,6 +139,8 @@ async def run_console_agent(
     t_start = _time.monotonic()
     payload = await _parse_request_model(request, ConsoleRunRequest)
     t_parse = _time.monotonic()
+    conversation_service = None
+    user_event = None
     if payload.conversation_id and payload.conversation_id != "console":
         conversation_service = get_conversation_service()
         user_event = {
@@ -105,7 +149,7 @@ async def run_console_agent(
             "text": payload.prompt,
         }
         try:
-            conversation_service.append_events(payload.conversation_id, [user_event])
+            conversation_service.get_conversation(payload.conversation_id)
         except FileNotFoundError as exc:
             raise HTTPException(status_code=404, detail="Conversation not found") from exc
     t_persist = _time.monotonic()
@@ -128,6 +172,9 @@ async def run_console_agent(
             mode=payload.mode,
         )
         first_event = next(stream)
+        if conversation_service is not None and user_event is not None:
+            conversation_service.append_events(payload.conversation_id, [user_event])
+            _persist_conversation_event(conversation_service, payload.conversation_id, first_event)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -138,10 +185,13 @@ async def run_console_agent(
             for event in stream:
                 if t_first_event is None:
                     t_first_event = _time.monotonic()
+                _persist_conversation_event(conversation_service, payload.conversation_id, event)
                 yield _sse_event(event)
         except Exception as exc:
             logger.exception("console.run stream failed conversation_id=%s", payload.conversation_id)
-            yield _sse_event({"id": "error-run", "kind": "error", "text": str(exc), "recoverable": True})
+            error_event = {"id": f"error-run-{uuid.uuid4().hex}", "kind": "error", "text": str(exc), "recoverable": True}
+            _persist_conversation_event(conversation_service, payload.conversation_id, error_event)
+            yield _sse_event(error_event)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -196,6 +246,8 @@ async def decide_terminal_request(
         runtime = _console_app_service.runtime_manager.get_runtime(payload.runtime_id)
         if runtime is None:
             raise ValueError("runtime not found")
+        if runtime.state.cancel_requested or runtime.state.is_terminal():
+            raise HTTPException(status_code=409, detail="runtime is already terminal")
         terminal_request = runtime.terminal_requests.get(request_id)
         if terminal_request is None:
             raise KeyError("terminal request not found")
@@ -218,6 +270,8 @@ async def decide_terminal_request(
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
+    if result.get("alreadyDecided"):
+        raise HTTPException(status_code=409, detail=result)
     if result["status"] == "expired":
         raise HTTPException(status_code=409, detail=result)
     if result.get("terminalCreationStatus") == "failed":
@@ -237,6 +291,9 @@ async def decide_terminal_request(
         "channel": result.get("channel"),
         "reason": result.get("failureReason") or result.get("status"),
     }
+    conversation_id = runtime.conversation_id
+    conversation_service = get_conversation_service() if conversation_id and conversation_id != "console" else None
+    _persist_conversation_event(conversation_service, conversation_id, response_event)
     stream = orchestrator.stream_after_terminal_request(
         runtime_id=payload.runtime_id,
         resume_message=str(result.get("resumeMessage") or "Terminal request was rejected by the user."),
@@ -247,9 +304,12 @@ async def decide_terminal_request(
         yield _sse_event(response_event)
         try:
             for event in stream:
+                _persist_conversation_event(conversation_service, conversation_id, event)
                 yield _sse_event(event)
         except Exception as exc:
-            yield _sse_event({"id": "error-terminal-decision", "kind": "error", "text": str(exc), "recoverable": True})
+            error_event = {"id": f"error-terminal-decision-{uuid.uuid4().hex}", "kind": "error", "text": str(exc), "recoverable": True}
+            _persist_conversation_event(conversation_service, conversation_id, error_event)
+            yield _sse_event(error_event)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -271,14 +331,32 @@ def approve_runtime_plan(
     runtime_id: str,
     orchestrator: TaskOrchestrator = Depends(get_task_orchestrator),
 ):
+    runtime = _console_app_service.runtime_manager.get_runtime(runtime_id)
+    if runtime is None:
+        raise HTTPException(status_code=404, detail="runtime not found")
+    state = runtime.state
+    if state.context.mode != "plan":
+        raise HTTPException(status_code=409, detail="runtime is not in plan mode")
+    if state.phase != "waiting_plan_approval":
+        raise HTTPException(status_code=409, detail="plan is not waiting for approval")
+    if not state.steps:
+        raise HTTPException(status_code=409, detail="plan has no steps")
+    conversation_id = runtime.conversation_id
+    conversation_service = get_conversation_service() if conversation_id and conversation_id != "console" else None
     stream = orchestrator.stream_plan_approval(runtime_id=runtime_id)
+    first_event = next(stream)
+    _persist_conversation_event(conversation_service, conversation_id, first_event)
 
     def event_stream():
+        yield _sse_event(first_event)
         try:
             for event in stream:
+                _persist_conversation_event(conversation_service, conversation_id, event)
                 yield _sse_event(event)
         except Exception as exc:
-            yield _sse_event({"id": "error-plan-approve", "kind": "error", "text": str(exc), "recoverable": True})
+            error_event = {"id": f"error-plan-approve-{uuid.uuid4().hex}", "kind": "error", "text": str(exc), "recoverable": True}
+            _persist_conversation_event(conversation_service, conversation_id, error_event)
+            yield _sse_event(error_event)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 
@@ -290,6 +368,22 @@ async def approve_console_agent(
     orchestrator: TaskOrchestrator = Depends(get_task_orchestrator),
 ):
     payload = await _parse_request_model(request, ConsoleApprovalRequest)
+    runtime = _console_app_service.runtime_manager.get_runtime(payload.runtime_id)
+    if runtime is None:
+        raise HTTPException(status_code=404, detail="runtime not found")
+    state = runtime.state
+    if state.cancel_requested or state.is_terminal():
+        raise HTTPException(status_code=409, detail="runtime is already terminal")
+    if state.phase != "approving" or not state.pending_approval_token_hash:
+        raise HTTPException(status_code=409, detail="runtime is not waiting for approval")
+    if payload.approval_token is None or not secrets.compare_digest(
+        state.pending_approval_token_hash,
+        hashlib.sha256(payload.approval_token.encode("utf-8")).hexdigest(),
+    ):
+        raise HTTPException(status_code=403, detail="invalid approval token")
+    _validate_console_approval_terminal(payload, state)
+    conversation_id = runtime.conversation_id if runtime is not None else None
+    conversation_service = get_conversation_service() if conversation_id and conversation_id != "console" else None
     stream = orchestrator.stream_approve(
         session=session,
         runtime_id=payload.runtime_id,
@@ -301,8 +395,11 @@ async def approve_console_agent(
     def event_stream():
         try:
             for event in stream:
+                _persist_conversation_event(conversation_service, conversation_id, event)
                 yield _sse_event(event)
         except Exception as exc:
-            yield _sse_event({"id": "error-approve", "kind": "error", "text": str(exc), "recoverable": True})
+            error_event = {"id": f"error-approve-{uuid.uuid4().hex}", "kind": "error", "text": str(exc), "recoverable": True}
+            _persist_conversation_event(conversation_service, conversation_id, error_event)
+            yield _sse_event(error_event)
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")

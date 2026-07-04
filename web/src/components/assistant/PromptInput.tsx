@@ -14,6 +14,7 @@ type PromptInputProps = {
   contextStatus: ConversationContextStatus | null
   blockedRun: { message: string; actionLabel: string } | null
   onViewBlockedRun?: () => void
+  onOpenSettings?: () => void
   onPromptChange: (prompt: string) => void
   onModelChange: (model: string) => void
   onRunModeChange: (mode: RunMode) => void
@@ -95,6 +96,7 @@ export function PromptInput({
   contextStatus,
   blockedRun,
   onViewBlockedRun,
+  onOpenSettings,
   onPromptChange,
   onModelChange,
   onRunModeChange,
@@ -176,16 +178,15 @@ export function PromptInput({
   }
 
   return (
-    <div className="relative mx-5 mb-3 mt-1 shrink-0 rounded-[22px] border border-ops-cyan/10 bg-ops-deep/80 p-[1px] shadow-[0_16px_48px_rgb(var(--ops-bg)/0.38)] backdrop-blur-xl transition-all duration-300 before:pointer-events-none before:absolute before:inset-x-8 before:bottom-[-1px] before:h-px before:bg-gradient-to-r before:from-transparent before:via-ops-cyan/60 before:to-transparent focus-within:border-ops-cyan/40 focus-within:shadow-[0_20px_58px_rgb(var(--ops-bg)/0.48),0_0_28px_rgb(var(--ops-cyan)/0.12)]">
-      <div className="relative overflow-visible rounded-[21px] border border-ops-border/10 bg-[radial-gradient(circle_at_18%_0%,rgb(var(--ops-cyan)/0.14),transparent_34%),linear-gradient(180deg,rgb(var(--ops-panel)/0.92),rgb(var(--ops-deep)/0.96))]">
-        <div className="pointer-events-none absolute inset-0 bg-[linear-gradient(90deg,rgb(var(--ops-text)/0.025)_1px,transparent_1px),linear-gradient(180deg,rgb(var(--ops-text)/0.018)_1px,transparent_1px)] bg-[size:28px_28px] opacity-40" />
+    <div className="relative mx-5 mb-3 mt-1 shrink-0 rounded-2xl border border-ops-border/20 bg-ops-panel/70 shadow-lg backdrop-blur-xl transition-all duration-300 focus-within:border-ops-green/30 focus-within:shadow-[0_0_24px_rgb(var(--ops-green)/0.08)]">
+      <div className="relative overflow-visible rounded-2xl bg-[radial-gradient(circle_at_18%_0%,rgb(var(--ops-green)/0.08),transparent_40%),linear-gradient(180deg,rgb(var(--ops-panel)/0.85),rgb(var(--ops-deep)/0.9))]">
         <div className="relative flex items-center gap-3 border-b border-ops-border/10 px-3 py-1.5">
           <div className="flex min-w-0 flex-1 items-center gap-2" aria-label={t('assistant.context')}>
             <span className="relative flex h-2.5 w-2.5 shrink-0">
-              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-ops-cyan opacity-30" />
-              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-ops-cyan shadow-glow" />
+              <span className="absolute inline-flex h-full w-full animate-ping rounded-full bg-ops-green opacity-30" />
+              <span className="relative inline-flex h-2.5 w-2.5 rounded-full bg-ops-green shadow-glow" />
             </span>
-            <span className="truncate text-[11px] font-black uppercase tracking-[0.18em] text-ops-cyan/90">
+            <span className="truncate text-[11px] font-black uppercase tracking-[0.18em] text-ops-green/90">
               {selectedAsset.name}
             </span>
             <span className="hidden truncate rounded-full border border-ops-border/30 bg-ops-deep/70 px-2.5 py-1 font-mono text-[10px] text-ops-muted/70 md:inline">
@@ -216,7 +217,7 @@ export function PromptInput({
           <textarea
             id="prompt-input"
             ref={textareaRef}
-            className="min-h-[56px] w-full resize-none bg-transparent px-4 pb-3.5 pr-16 pt-2.5 text-[13px] font-medium leading-relaxed text-ops-text caret-ops-cyan outline-none placeholder:text-ops-muted/32 scrollbar-thin"
+            className="min-h-[56px] w-full resize-none bg-transparent px-4 pb-3.5 pr-16 pt-2.5 text-[13px] font-medium leading-relaxed text-ops-text caret-ops-green outline-none placeholder:text-ops-muted/32 scrollbar-thin"
             value={prompt}
             onChange={(event) => onPromptChange(event.target.value)}
             onKeyDown={(e) => {
@@ -229,9 +230,9 @@ export function PromptInput({
           />
 
           <button
-            className={`absolute bottom-3 right-3 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border transition-all duration-200 active:scale-95 ${prompt.trim() && !effectiveBlockedRun
-              ? 'border-ops-cyan/45 bg-ops-cyan text-ops-deep shadow-[0_0_28px_rgb(var(--ops-cyan)/0.38)] hover:-translate-y-0.5 hover:bg-cyan-300 hover:shadow-[0_0_36px_rgb(var(--ops-cyan)/0.55)]'
-              : 'cursor-not-allowed border-ops-border/20 bg-ops-panel/70 text-ops-muted/25'
+            className={`absolute bottom-3 right-3 flex h-9 w-9 shrink-0 items-center justify-center rounded-lg border transition-all duration-200 active:scale-95 ${prompt.trim() && !effectiveBlockedRun
+              ? 'border-ops-green/40 bg-ops-green text-ops-deep hover:-translate-y-0.5 hover:bg-ops-green/85 hover:shadow-glow'
+              : 'cursor-not-allowed border-ops-border/20 bg-ops-panel/60 text-ops-muted/25'
               }`}
             type="button"
             onClick={() => {
@@ -254,6 +255,14 @@ export function PromptInput({
                 onClick={onViewBlockedRun}
               >
                 {blockedRun.actionLabel}
+              </button>
+            ) : modelBlockedRun && onOpenSettings ? (
+              <button
+                type="button"
+                className="shrink-0 rounded-lg border border-ops-warning/30 px-2.5 py-1 text-[10px] font-black transition hover:bg-ops-warning/10 active:scale-95"
+                onClick={onOpenSettings}
+              >
+                {t('assistant.openSettings')}
               </button>
             ) : null}
           </div>
@@ -279,10 +288,8 @@ export function PromptInput({
                       aria-checked={isActive}
                       title={t(MODE_DESCRIPTION_KEY[mode])}
                       onClick={() => onRunModeChange(mode)}
-                      className={`inline-flex items-center gap-2 rounded-full border px-3.5 py-1.5 text-[10px] font-black uppercase tracking-[0.12em] transition-all duration-200 active:scale-95 ${isActive
-                        ? mode === 'agent'
-                          ? 'border-ops-cyan/35 bg-ops-cyan/16 text-ops-cyan shadow-[0_0_18px_rgba(6,182,212,0.16)]'
-                          : 'border-ops-green/35 bg-ops-green/15 text-ops-green shadow-[0_0_18px_rgba(16,185,129,0.14)]'
+                      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-[10px] font-bold uppercase tracking-[0.1em] transition-all duration-200 active:scale-95 ${isActive
+                        ? 'border-ops-green/30 bg-ops-green/12 text-ops-green'
                         : 'border-transparent text-ops-muted/55 hover:bg-ops-panel/80 hover:text-ops-text'
                         }`}
                     >
@@ -306,11 +313,11 @@ export function PromptInput({
 
       {shouldShowSlashSuggestions ? (
         <div
-          className="absolute bottom-[calc(100%+0.35rem)] left-4 right-16 z-50 overflow-hidden rounded-2xl border border-ops-cyan/20 bg-ops-deep/95 shadow-[0_18px_60px_rgba(0,0,0,0.45)] backdrop-blur-xl"
+          className="absolute bottom-[calc(100%+0.35rem)] left-4 right-16 z-50 overflow-hidden rounded-xl border border-ops-border/25 bg-ops-deep/95 shadow-xl backdrop-blur-xl"
           role="listbox"
           aria-label={t('assistant.availableSkills')}
         >
-          <div className="border-b border-ops-border/10 px-3.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.14em] text-ops-muted/65">
+          <div className="border-b border-ops-border/10 px-3.5 py-1.5 text-[10px] font-bold uppercase tracking-[0.1em] text-ops-muted/60">
             {t('assistant.slashSkills')}
           </div>
           <div className="max-h-[420px] overflow-y-auto py-1">
@@ -321,7 +328,7 @@ export function PromptInput({
                 <button
                   key={skill.path}
                   type="button"
-                  className="flex min-h-[42px] w-full flex-col items-start gap-0.5 px-3.5 py-2 text-left transition-colors hover:bg-ops-cyan/10 focus:bg-ops-cyan/10 focus:outline-none"
+                  className="flex min-h-[42px] w-full flex-col items-start gap-0.5 px-3.5 py-2 text-left transition-colors hover:bg-ops-green/10 focus:bg-ops-green/10 focus:outline-none"
                   onMouseDown={(event) => {
                     event.preventDefault()
                   }}
@@ -329,7 +336,7 @@ export function PromptInput({
                   role="option"
                   aria-label={`/${skill.name}`}
                 >
-                  <span className="font-mono text-[12px] text-ops-cyan">/{skill.name}</span>
+                  <span className="font-mono text-[12px] text-ops-green">/{skill.name}</span>
                   <span className="line-clamp-1 text-[10px] leading-4 text-ops-muted/80">{skill.description || t('settings.noDescription')}</span>
                 </button>
               ))

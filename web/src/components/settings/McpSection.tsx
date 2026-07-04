@@ -40,14 +40,14 @@ function ServerCard({ server, selected, saving, onSelect, onEdit, onDelete, onTe
   const enableBlocked = !server.enabled && !server.lastRefreshSucceeded
 
   return (
-    <article className={`rounded-2xl border p-5 shadow-sm transition-all duration-300 ${selected ? 'bg-ops-cyan/5 border-ops-cyan/30' : 'bg-ops-panel/40 border-ops-border/20 hover:border-ops-cyan/30 hover:bg-ops-panel/60'}`}>
+    <article className={`rounded-2xl border p-5 shadow-sm transition-all duration-300 ${selected ? 'bg-ops-green/5 border-ops-green/30' : 'bg-ops-panel/40 border-ops-border/20 hover:border-ops-green/30 hover:bg-ops-panel/60'}`}>
       <div className="flex flex-col gap-4">
         <div className="flex flex-wrap items-start justify-between gap-3">
           <button type="button" className="min-w-0 flex-1 text-left" onClick={() => onSelect(server.id)}>
             <div className="flex flex-wrap items-center gap-3">
               <strong className="text-[13px] font-bold text-ops-text tracking-tight break-all">{server.name}</strong>
-              <span className="px-2 py-0.5 text-[9px] font-bold tracking-widest rounded-md text-ops-cyan bg-ops-cyan/10 border border-ops-cyan/20">{transportLabel(server)}</span>
-              <span className={`px-2 py-0.5 text-[9px] font-bold tracking-widest rounded-md border ${server.enabled ? 'text-ops-emerald bg-ops-emerald/10 border-ops-emerald/20' : 'text-ops-muted bg-ops-border/10 border-ops-border/20'}`}>{server.enabled ? t('settings.enabled') : t('settings.disabled')}</span>
+              <span className="px-2 py-0.5 text-[10px] font-bold tracking-widest rounded-md text-ops-green bg-ops-green/10 border border-ops-green/20">{transportLabel(server)}</span>
+              <span className={`px-2 py-0.5 text-[10px] font-bold tracking-widest rounded-md border ${server.enabled ? 'text-ops-emerald bg-ops-emerald/10 border-ops-emerald/20' : 'text-ops-muted bg-ops-border/10 border-ops-border/20'}`}>{server.enabled ? t('settings.enabled') : t('settings.disabled')}</span>
             </div>
             <div className="mt-2 flex flex-wrap gap-2 text-[10px] font-medium tracking-wider text-ops-muted">
               <span className={`px-2 py-0.5 rounded-md border ${statusClass(server.connectionStatus)}`}>{t('settings.connection')}: {server.connectionStatus}</span>
@@ -165,7 +165,7 @@ export function McpSection({
             </>
           )}
 
-          {testResult ? <div className="col-span-2 p-4 text-[11px] font-mono text-ops-cyan bg-ops-cyan/10 border border-ops-cyan/20 rounded-xl break-all animate-in fade-in duration-300">{testResult}</div> : null}
+          {testResult ? <div className="col-span-2 p-4 text-[11px] font-mono text-ops-green bg-ops-green/10 border border-ops-green/20 rounded-xl break-all animate-in fade-in duration-300">{testResult}</div> : null}
           <div className="flex items-center justify-end gap-3 mt-4 pt-6 border-t border-ops-border/20 col-span-2">
             <button type="button" className="button px-6" onClick={onCancelForm}>{t('common.cancel')}</button>
             <button type="submit" className="button button-primary px-8" disabled={saving}>{saving ? t('settings.processing') : editingServer ? t('settings.saveServer') : t('settings.createServer')}</button>
@@ -213,14 +213,14 @@ export function McpSection({
                       <div className="flex flex-wrap items-center gap-2">
                         <strong className="text-[12px] text-ops-text break-all">{tool.exposedName}</strong>
                         <span className="text-[10px] text-ops-muted font-mono break-all">{t('settings.original')}: {tool.originalName}</span>
-                        <span className={`px-2 py-0.5 text-[9px] font-bold tracking-widest rounded-md border ${tool.enabled ? 'text-ops-emerald bg-ops-emerald/10 border-ops-emerald/20' : 'text-ops-muted bg-ops-border/10 border-ops-border/20'}`}>{tool.enabled ? t('settings.enabled') : t('settings.disabled')}</span>
+                        <span className={`px-2 py-0.5 text-[10px] font-bold tracking-widest rounded-md border ${tool.enabled ? 'text-ops-emerald bg-ops-emerald/10 border-ops-emerald/20' : 'text-ops-muted bg-ops-border/10 border-ops-border/20'}`}>{tool.enabled ? t('settings.enabled') : t('settings.disabled')}</span>
                       </div>
                       <p className="mt-2 text-[11px] leading-5 text-ops-muted">{tool.description || t('settings.noDescription')}</p>
                       <p className="mt-1 text-[10px] font-mono text-ops-muted/80">{summarizeSchema(tool, t)}</p>
                     </div>
                     <div className="flex flex-wrap items-center gap-2">
                       <label className="flex items-center gap-2 text-[10px] font-bold tracking-widest text-ops-muted/70">
-                        <input type="checkbox" className="accent-ops-cyan w-4 h-4 rounded-md" checked={tool.enabled} onChange={(event) => onUpdateTool(tool, { enabled: event.target.checked })} disabled={saving} />
+                        <input type="checkbox" className="accent-ops-green w-4 h-4 rounded-md" checked={tool.enabled} onChange={(event) => onUpdateTool(tool, { enabled: event.target.checked })} disabled={saving} />
                         Enabled
                       </label>
                       <select className="field-control h-8 py-0 text-[10px]" value={tool.approvalPolicy} onChange={(event) => onUpdateTool(tool, { approvalPolicy: event.target.value === 'allow' ? 'allow' : event.target.value === 'deny' ? 'deny' : 'ask' })} disabled={saving}>

@@ -10,8 +10,8 @@ import {
   getRuntimeSnapshot,
   listConversationRuntimes,
 } from '../../api'
-import type { ConversationContextStatus, ConversationSummary, EventItem, RuntimeSnapshot, RuntimeSummary } from '../../types/ops'
-import { normalizePlanEvents, upsertConversationSummary, upsertStreamEvent } from './consoleShared'
+import type { AgentMessage, ConversationContextStatus, ConversationSummary, EventItem, RuntimeSnapshot, RuntimeSummary } from '../../types/ops'
+import { normalizePlanEvents, upsertConversationSummary, upsertMessageEvent, upsertStreamEvent } from './consoleShared'
 
 const CONVERSATION_EVENTS_PAGE_SIZE = 200
 
@@ -22,7 +22,7 @@ type ConversationEventWindow = {
   hasMoreAfter: boolean
 }
 
-function pendingApprovalSnapshotEvent(snapshot: RuntimeSnapshot | null): EventItem | null {
+function pendingApprovalSnapshotEvent(snapshot: RuntimeSnapshot | null): AgentMessage | null {
   const pending = snapshot?.pendingApproval
   if (!snapshot || !pending?.approvalToken) return null
   const messageId = pending.messageId || `snapshot:approval:${snapshot.runtimeId}:${pending.stepId || pending.toolCallId || 'pending'}`
@@ -42,7 +42,7 @@ function pendingApprovalSnapshotEvent(snapshot: RuntimeSnapshot | null): EventIt
       approvalToken: pending.approvalToken,
       args: pending.args,
     },
-  } as EventItem
+  } as AgentMessage
 }
 function terminalSnapshotEvents(snapshot: RuntimeSnapshot | null): EventItem[] {
   if (!snapshot) return []
@@ -81,7 +81,7 @@ function terminalSnapshotEvents(snapshot: RuntimeSnapshot | null): EventItem[] {
 
 function mergeSnapshotRuntimeEvents(events: EventItem[], snapshot: RuntimeSnapshot | null): EventItem[] {
   const pendingApprovalEvent = pendingApprovalSnapshotEvent(snapshot)
-  const baseEvents = pendingApprovalEvent ? upsertStreamEvent(events, pendingApprovalEvent) : events
+  const baseEvents = pendingApprovalEvent ? upsertMessageEvent(events, pendingApprovalEvent) : events
   return terminalSnapshotEvents(snapshot).reduce((currentEvents, event) => upsertStreamEvent(currentEvents, event), normalizePlanEvents(baseEvents))
 }
 
@@ -91,6 +91,33 @@ function mergePrependedEvents(olderEvents: EventItem[], currentEvents: EventItem
     ...olderEvents.filter((event) => !currentIds.has(event.id)),
     ...currentEvents,
   ])
+}
+
+const ACTIVE_RUNTIME_STATUSES = new Set([
+  'approving',
+  'waiting_terminal_approval',
+  'waiting_plan_approval',
+  'executing',
+  'planning',
+  'running',
+])
+
+function runtimeUpdatedAt(runtime: RuntimeSummary): number {
+  const timestamp = Date.parse(runtime.updatedAt)
+  return Number.isFinite(timestamp) ? timestamp : 0
+}
+
+function selectRuntimeId(runtimes: RuntimeSummary[], activeRuntimeId: string | null): string | null {
+  if (activeRuntimeId && runtimes.some((runtime) => runtime.runtimeId === activeRuntimeId)) {
+    return activeRuntimeId
+  }
+  const activeRuntime = runtimes
+    .filter((runtime) => ACTIVE_RUNTIME_STATUSES.has(runtime.status))
+    .sort((left, right) => runtimeUpdatedAt(right) - runtimeUpdatedAt(left))[0]
+  if (activeRuntime) {
+    return activeRuntime.runtimeId
+  }
+  return [...runtimes].sort((left, right) => runtimeUpdatedAt(right) - runtimeUpdatedAt(left))[0]?.runtimeId ?? null
 }
 
 export function useConversationState(selectedModel: string) {
@@ -141,7 +168,7 @@ export function useConversationState(selectedModel: string) {
     }
     setContextStatus(nextContextStatus)
     setRuntimeSummaries(runtimes)
-    const nextRuntimeId = runtimes[0]?.runtimeId ?? null
+    const nextRuntimeId = selectRuntimeId(runtimes, null)
     setActiveRuntimeId(nextRuntimeId)
     const nextRuntimeSnapshot = nextRuntimeId ? await getRuntimeSnapshot(nextRuntimeId) : null
     if (loadConversationRequestRef.current !== requestId) {
@@ -199,9 +226,7 @@ export function useConversationState(selectedModel: string) {
   const syncConversationRuntimes = useCallback(async (conversationId: string) => {
     const runtimes = await listConversationRuntimes(conversationId)
     setRuntimeSummaries(runtimes)
-    const nextRuntimeId = activeRuntimeId && runtimes.some((runtime: RuntimeSummary) => runtime.runtimeId === activeRuntimeId)
-      ? activeRuntimeId
-      : (runtimes[0]?.runtimeId ?? null)
+    const nextRuntimeId = selectRuntimeId(runtimes, activeRuntimeId)
     setActiveRuntimeId(nextRuntimeId)
     const nextSnapshot = nextRuntimeId ? await getRuntimeSnapshot(nextRuntimeId) : null
     setActiveRuntimeSnapshot(nextSnapshot)

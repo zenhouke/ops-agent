@@ -6,13 +6,15 @@ import type {
   OrchestrationEventsResponseDto,
   OrchestrationSnapshotDto,
 } from '../types/api'
-import type { EventItem, OrchestrationChildStatus, OrchestrationSnapshot } from '../types/ops'
+import type { EventItem, OrchestrationChildStatus, OrchestrationSnapshot, OrchestrationTargetPreparation } from '../types/ops'
 
 export type ResolvedOrchestrationTargets = {
   targetAssetIds: number[]
   targetSelectionSource: string
   targetSelectionReason: string
   confidence: 'high' | 'medium' | 'low'
+  confirmationToken: string
+  preparations: OrchestrationTargetPreparation[]
 }
 
 function parseSseBlock(block: string): EventItem | null {
@@ -93,6 +95,14 @@ export async function resolveOrchestrationTargets(input: ConsoleOrchestrationRes
     targetSelectionSource: response.targetSelectionSource,
     targetSelectionReason: response.targetSelectionReason,
     confidence: response.confidence,
+    confirmationToken: response.confirmationToken,
+    preparations: response.preparations.map((item) => ({
+      assetId: item.assetId,
+      assetName: item.assetName,
+      status: item.status,
+      terminalId: item.terminalId,
+      reason: item.reason,
+    })),
   }
 }
 
@@ -118,4 +128,23 @@ export async function getOrchestrationEvents(orchestrationId: string, since = 0)
 
 export async function cancelOrchestration(orchestrationId: string): Promise<EventItem> {
   return requestJson<EventItem>(`/api/console/orchestrations/${orchestrationId}/cancel`, { method: 'POST' })
+}
+
+export async function streamApproveOrchestrationChild(
+  orchestrationId: string,
+  runtimeId: string,
+  approved: boolean,
+  approvalToken?: string,
+  allowPrefix?: string,
+): Promise<AsyncGenerator<EventItem, void, void>> {
+  const response = await requestEventStream(`/api/console/orchestrations/${orchestrationId}/approval`, {
+    method: 'POST',
+    body: JSON.stringify({
+      runtimeId,
+      approved,
+      approvalToken: approvalToken ?? null,
+      allowPrefix: allowPrefix?.trim() || null,
+    }),
+  })
+  return readEventStream(response)
 }

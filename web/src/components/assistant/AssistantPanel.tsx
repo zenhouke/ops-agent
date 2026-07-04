@@ -8,12 +8,15 @@ import type {
   RuntimeSnapshot,
   RuntimeSummary,
 } from '../../types/ops'
+import { ConversationHistoryDropdown } from './ConversationHistoryDropdown'
 import { ConversationView } from './ConversationView'
 import { OrchestrationCard } from './conversation/OrchestrationCard'
 import { OrchestrationTargetConfirmCard } from './conversation/OrchestrationTargetConfirmCard'
 import { PromptInput } from './PromptInput'
 import { useAppearance } from '../../hooks/useAppearance'
+import type { TranslationKey } from '../../i18n/translations'
 import type { OrchestrationTargetPreview } from '../../hooks/console/useOrchestrationRun'
+import type { ConversationRunBadge } from './ConversationList'
 
 type BackgroundRunStatus = 'running' | 'needs_approval' | 'completed' | 'failed'
 
@@ -22,7 +25,7 @@ type BackgroundRunState = {
   title: string
   status: BackgroundRunStatus
   hasUnread: boolean
-}
+} & ConversationRunBadge
 
 type AssistantPanelProps = {
   conversationSummaries: ConversationSummary[]
@@ -36,6 +39,7 @@ type AssistantPanelProps = {
   orchestrationSnapshot: OrchestrationSnapshot | null
   orchestrationTargetPreview: OrchestrationTargetPreview | null
   orchestrationResolvingTargets: boolean
+  orchestrationRunning: boolean
   runtimeSummaries: RuntimeSummary[]
   activeRuntimeSnapshot: RuntimeSnapshot | null
   models: string[]
@@ -60,24 +64,54 @@ type AssistantPanelProps = {
   onRejectOrchestrationChild: (runtimeId: string, approvalToken: string | null) => void
   onApprove: (allowPrefix?: string) => void
   onReject: () => void
+  onApproveCommand: (input: { runtimeId: string | null; approvalToken: string | null; terminalId: string | null; allowPrefix?: string }) => void
+  onRejectCommand: (input: { runtimeId: string | null; approvalToken: string | null; terminalId: string | null }) => void
+  onApprovePlan?: (runtimeId: string) => void
   onTerminalRequestDecision?: (input: { runtimeId: string; requestId: string; approvalToken: string; approved: boolean }) => Promise<void>
   onLoadOlderEvents: () => Promise<void>
+  onOpenSettings?: () => void
 }
 
-function backgroundRunCopy(run: BackgroundRunState) {
+function backgroundRunCopy(run: BackgroundRunState, t: (key: TranslationKey, values?: Record<string, string>) => string) {
   if (run.status === 'needs_approval') {
-    return { message: `会话「${run.title}」需要审批`, action: '前往处理', tone: 'warning' as const }
+    return {
+      message: t('assistant.backgroundRunNeedsApproval', { title: run.title }),
+      action: t('assistant.backgroundRunActionHandle'),
+      tone: 'warning' as const,
+      badge: 'bg-ops-warning/10',
+      button: 'border-ops-warning/30 hover:bg-ops-warning/10',
+    }
   }
   if (run.status === 'completed') {
-    return { message: `会话「${run.title}」已完成`, action: '查看', tone: 'success' as const }
+    return {
+      message: t('assistant.backgroundRunCompleted', { title: run.title }),
+      action: t('assistant.backgroundRunActionView'),
+      tone: 'success' as const,
+      badge: 'bg-ops-emerald/10',
+      button: 'border-ops-emerald/30 hover:bg-ops-emerald/10',
+    }
   }
   if (run.status === 'failed') {
-    return { message: `会话「${run.title}」执行失败`, action: '查看', tone: 'danger' as const }
+    return {
+      message: t('assistant.backgroundRunFailed', { title: run.title }),
+      action: t('assistant.backgroundRunActionView'),
+      tone: 'danger' as const,
+      badge: 'bg-ops-danger/10',
+      button: 'border-ops-danger/30 hover:bg-ops-danger/10',
+    }
   }
-  return { message: `会话「${run.title}」正在后台运行`, action: '查看', tone: 'running' as const }
+  return {
+    message: t('assistant.backgroundRunRunning', { title: run.title }),
+    action: t('assistant.backgroundRunActionView'),
+    tone: 'running' as const,
+    badge: 'bg-ops-green/10',
+    button: 'border-ops-green/30 hover:bg-ops-green/10',
+  }
 }
 
 export function AssistantPanel({
+  conversationSummaries,
+  activeConversationId,
   activeConversationTitle,
   backgroundRun,
   events,
@@ -87,6 +121,7 @@ export function AssistantPanel({
   orchestrationSnapshot,
   orchestrationTargetPreview,
   orchestrationResolvingTargets,
+  orchestrationRunning,
   runtimeSummaries,
   activeRuntimeSnapshot,
   models,
@@ -111,26 +146,43 @@ export function AssistantPanel({
   onRejectOrchestrationChild,
   onApprove,
   onReject,
+  onApproveCommand,
+  onRejectCommand,
+  onApprovePlan,
   onTerminalRequestDecision,
   onLoadOlderEvents,
+  onOpenSettings,
 }: AssistantPanelProps) {
   const { t } = useAppearance()
-  const backgroundRunInfo = backgroundRun ? backgroundRunCopy(backgroundRun) : null
+  const backgroundRunInfo = backgroundRun ? backgroundRunCopy(backgroundRun, t) : null
   return (
     <div className="flex h-full w-full flex-col overflow-hidden bg-ops-bg">
-      <header className="relative z-10 flex shrink-0 items-center justify-between border-b border-ops-border/15 bg-ops-deep px-6 py-4 dark:border-ops-border/20 dark:bg-ops-panel/80 dark:shadow-2xl">
-        <div className="min-w-0 flex-1">
-          <h2 className="truncate text-[18px] font-black tracking-tight text-ops-text">
-            {activeConversationTitle || t('assistant.unclassifiedMission')}
-          </h2>
+      <header className="relative z-30 flex h-12 shrink-0 items-center justify-between border-b border-ops-border/15 bg-ops-bg/80 backdrop-blur-md px-4 dark:border-ops-border/20 dark:bg-ops-panel/60">
+        <div className="flex min-w-0 flex-1 items-center gap-3">
+          <ConversationHistoryDropdown
+            items={conversationSummaries}
+            activeConversationId={activeConversationId}
+            activeConversationTitle={activeConversationTitle}
+            backgroundRun={backgroundRun}
+            onSelect={onSelectConversation}
+            onDelete={onDeleteConversation}
+            onCreate={onCreateConversation}
+          />
+          {selectedAsset ? (
+            <div className="flex shrink-0 items-center gap-1.5 rounded-md border border-ops-green/20 bg-ops-green/10 px-2 py-0.5">
+              <span className="h-1.5 w-1.5 rounded-full bg-ops-green" />
+              <span className="max-w-[120px] truncate text-[10px] font-bold text-ops-green">{selectedAsset.name}</span>
+              <span className="text-[9px] text-ops-muted/50 font-mono">{selectedAsset.host || ''}</span>
+            </div>
+          ) : null}
         </div>
-        <div className="flex shrink-0 items-center gap-3">
+        <div className="flex shrink-0 items-center gap-2">
           <button
             type="button"
-            className="inline-flex items-center gap-2 rounded-xl border border-ops-cyan/30 bg-ops-cyan/10 px-4 py-2 text-[10px] font-bold tracking-[0.1em] text-ops-cyan shadow-glow transition-all duration-200 hover:bg-ops-cyan/20 active:scale-95"
+            className="inline-flex items-center gap-1.5 rounded-lg border border-ops-green/25 bg-ops-green/10 px-3 py-1.5 text-[10px] font-bold tracking-[0.08em] text-ops-green transition-all duration-200 hover:bg-ops-green/20 active:scale-95"
             onClick={onCreateConversation}
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
+            <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><line x1="12" y1="5" x2="12" y2="19"></line><line x1="5" y1="12" x2="19" y2="12"></line></svg>
             {t('assistant.newSession')}
           </button>
         </div>
@@ -138,7 +190,7 @@ export function AssistantPanel({
 
       <div className="min-h-0 flex flex-1 overflow-hidden">
         <div className="min-w-0 flex flex-1 flex-col overflow-hidden bg-ops-bg relative">
-          <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgba(6,182,212,0.05),transparent_50%)] pointer-events-none" />
+          <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_0%,rgb(var(--ops-green)/0.05),transparent_50%)] pointer-events-none" />
           {loadError ? (
             <div className="mx-4 mt-4 rounded-md border border-ops-danger/40 bg-ops-danger/10 px-3 py-2 text-sm text-ops-text" role="alert">
               {loadError}
@@ -146,12 +198,12 @@ export function AssistantPanel({
           ) : null}
 
           {backgroundRun && backgroundRunInfo ? (
-            <div className={`relative z-10 mx-4 mt-4 flex items-center gap-3 rounded-2xl border px-4 py-3 text-xs font-bold ${backgroundRunInfo.tone === 'warning' ? 'border-ops-warning/35 bg-ops-warning/10 text-ops-warning' : backgroundRunInfo.tone === 'danger' ? 'border-ops-danger/35 bg-ops-danger/10 text-ops-danger' : backgroundRunInfo.tone === 'success' ? 'border-ops-emerald/30 bg-ops-emerald/10 text-ops-emerald' : 'border-ops-cyan/30 bg-ops-cyan/10 text-ops-cyan'}`}>
+            <div className={`relative z-10 mx-4 mt-4 flex items-center gap-3 rounded-2xl border px-4 py-3 text-xs font-bold ${backgroundRunInfo.tone === 'warning' ? 'border-ops-warning/35 bg-ops-warning/10 text-ops-warning' : backgroundRunInfo.tone === 'danger' ? 'border-ops-danger/35 bg-ops-danger/10 text-ops-danger' : backgroundRunInfo.tone === 'success' ? 'border-ops-emerald/30 bg-ops-emerald/10 text-ops-emerald' : 'border-ops-green/30 bg-ops-green/10 text-ops-green'}`}>
               <span className="min-w-0 flex-1 truncate">{backgroundRunInfo.message}</span>
-              {backgroundRun.hasUnread ? <span className="rounded-full bg-current/10 px-2 py-0.5 text-[10px]">有新输出</span> : null}
+              {backgroundRun.hasUnread ? <span className={`rounded-full ${backgroundRunInfo.badge} px-2 py-0.5 text-[10px]`}>{t('assistant.backgroundRunUnread')}</span> : null}
               <button
                 type="button"
-                className="shrink-0 rounded-xl border border-current/30 px-3 py-1.5 text-[10px] font-black transition hover:bg-current/10 active:scale-95"
+                className={`shrink-0 rounded-xl border ${backgroundRunInfo.button} px-3 py-1.5 text-[10px] font-black transition active:scale-95`}
                 onClick={() => onViewBackgroundRun(backgroundRun.conversationId)}
               >
                 {backgroundRunInfo.action}
@@ -163,10 +215,12 @@ export function AssistantPanel({
             <OrchestrationTargetConfirmCard
               prompt={orchestrationTargetPreview.prompt}
               assets={orchestrationTargetPreview.assets}
+              preparations={orchestrationTargetPreview.preparations}
               reason={orchestrationTargetPreview.targetSelectionReason}
               confidence={orchestrationTargetPreview.confidence}
               maxConcurrency={orchestrationTargetPreview.maxConcurrency}
               resolving={orchestrationResolvingTargets}
+              running={orchestrationRunning}
               onStart={onConfirmOrchestration}
               onCancel={onCancelOrchestrationPreview}
             />
@@ -189,6 +243,9 @@ export function AssistantPanel({
             onLoadOlder={onLoadOlderEvents}
             onApprove={onApprove}
             onReject={onReject}
+            onApproveCommand={onApproveCommand}
+            onRejectCommand={onRejectCommand}
+            onApprovePlan={onApprovePlan}
             onTerminalRequestDecision={onTerminalRequestDecision}
           />
 
@@ -205,6 +262,7 @@ export function AssistantPanel({
             onModelChange={onModelChange}
             onRunModeChange={onRunModeChange}
             onRun={onRun}
+            onOpenSettings={onOpenSettings}
           />
         </div>
       </div>

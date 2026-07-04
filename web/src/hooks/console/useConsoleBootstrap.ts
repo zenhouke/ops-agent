@@ -7,6 +7,7 @@ const emptyBootstrap: ConsoleBootstrap = {
   groups: [],
   historyByAsset: {},
   modelOptions: [],
+  selectedModel: '',
   modelConfigured: false,
   modelConfigurationMessage: 'LLM 模型未配置，请先在设置中添加并设为默认模型。',
   terminalSessionId: null,
@@ -41,7 +42,7 @@ export function useConsoleBootstrap() {
           return
         }
         setBootstrap(data)
-        setSelectedModel(data.modelOptions[0] ?? '')
+        setSelectedModel(data.selectedModel || data.modelOptions[0] || '')
         if (!localStorage.getItem('ops_agent_prompt') && data.initialPrompt) {
           setPrompt(data.initialPrompt)
         }

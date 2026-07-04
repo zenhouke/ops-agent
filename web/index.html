@@ -3,7 +3,23 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <link rel="icon" type="image/png" href="/logo.png" />
     <title>Ops Agent Console</title>
+    <script>
+      // next-themes no-flash: 在 React 渲染前从 localStorage 读取主题并设置 data-theme，
+      // 避免页面加载时出现主题闪烁。与 ThemeProvider 的 storageKey 保持一致。
+      ;(function () {
+        try {
+          var stored = localStorage.getItem('ops-agent-theme-mode')
+          var theme = stored || 'system'
+          var isDark =
+            theme === 'dark' ||
+            (theme === 'system' &&
+              window.matchMedia('(prefers-color-scheme: dark)').matches)
+          document.documentElement.dataset.theme = isDark ? 'dark' : 'light'
+        } catch (e) {}
+      })()
+    </script>
   </head>
   <body>
     <div id="root"></div>

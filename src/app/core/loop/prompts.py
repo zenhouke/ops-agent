@@ -59,7 +59,11 @@ def build_plan_step_system_prompt(ctx: LoopContext) -> str:
     device_context = f"\n\n设备执行规则:\n{ctx.device_context}" if ctx.device_context else ""
     skill_prompt = build_skill_index_prompt(ctx)
     skill_section = f"\n\n{skill_prompt}" if skill_prompt else ""
-    authorization_context = f"Initial authorized terminal authorization_id: {ctx.default_authorization_id}\n" if ctx.default_authorization_id else ""
+    authorization_context = ""
+    if ctx.default_authorization_id:
+        authorization_context += f"Initial authorized terminal authorization_id: {ctx.default_authorization_id}\n"
+    if ctx.terminal_id:
+        authorization_context += f"Initial authorized terminal terminal_id: {ctx.terminal_id}\n"
     return (
         f"Operating System Type: {ctx.os_type}\n"
         f"Current Host Information: {ctx.asset_summary}\n"
@@ -67,14 +71,15 @@ def build_plan_step_system_prompt(ctx: LoopContext) -> str:
         f"Shell: {ctx.shell_type}\n"
         f"Execution Profile: {ctx.execution_profile}{device_context}\n\n"
         "You are an operations assistant executing a single plan step. "
-        "The initial/current terminal is already authorized when an authorization_id is provided above; use execute_command with that authorization_id for current-terminal work and do not request a new terminal session for it. "
+        "The initial/current terminal is already authorized when an authorization_id is provided above; use execute_command with that authorization_id and the matching terminal_id for current-terminal work and do not request a new terminal session for it. "
         "Treat Current Host Information and the initial/current terminal as authoritative for phrases like current system, current host, current machine, or current device. "
         "Prior remote terminal sessions mentioned in conversation history are historical and transient; do not infer the current asset from them. "
         "Default to the current selected or already-authorized terminal context. Do not discover assets by default. "
         "Use list_assets only when the original task or current step explicitly requires choosing a remote asset; include its schema-required intent and justification. "
         "Use request_terminal_session only when remote asset access is explicitly required by the task or step, or when you first explain why the current task needs that remote asset; include its schema-required intent. "
-        "Run commands only with execute_command using an authorization_id; never treat asset_id or terminal_id as execution credentials. "
-        "Prioritize completing the current step, and directly provide a brief summary of the result once finished. "
+        "Run commands only with execute_command using both an authorization_id and its matching terminal_id so the target terminal is explicit. Never treat asset_id or terminal_id as execution credentials. "
+        "Operational plan steps require live evidence: before summarizing a step that inspects or changes the host, call execute_command on the authorized terminal and base the summary on the command output. "
+        "Prioritize completing the current step, and provide a brief summary only after the required evidence has been collected. "
         "Respond in Chinese unless the user explicitly requests another language."
         f"{skill_section}"
     )
@@ -100,7 +105,11 @@ def build_tool_calling_system_prompt(ctx: LoopContext) -> str:
     device_context = f"\nDevice Execution Rules:\n{ctx.device_context}\n" if ctx.device_context else "\n"
     skill_prompt = build_skill_index_prompt(ctx)
     skill_section = f"\n\n{skill_prompt}" if skill_prompt else ""
-    authorization_context = f"Initial authorized terminal authorization_id: {ctx.default_authorization_id}\n" if ctx.default_authorization_id else ""
+    authorization_context = ""
+    if ctx.default_authorization_id:
+        authorization_context += f"Initial authorized terminal authorization_id: {ctx.default_authorization_id}\n"
+    if ctx.terminal_id:
+        authorization_context += f"Initial authorized terminal terminal_id: {ctx.terminal_id}\n"
     return (
         f"Operating System Type: {ctx.os_type}\n"
         f"Current Host Information: {ctx.asset_summary}\n"
@@ -108,13 +117,13 @@ def build_tool_calling_system_prompt(ctx: LoopContext) -> str:
         f"Shell: {ctx.shell_type}\n"
         f"Execution Profile: {ctx.execution_profile}{device_context}\n"
         "Rules: " + mode_instruction + "\n"
-        "The initial/current terminal is already authorized when an authorization_id is provided above; use execute_command with that authorization_id for current-terminal work and do not request a new terminal session for it. "
+        "The initial/current terminal is already authorized when an authorization_id is provided above; use execute_command with that authorization_id and the matching terminal_id for current-terminal work and do not request a new terminal session for it. "
         "Treat Current Host Information and the initial/current terminal as authoritative for phrases like current system, current host, current machine, or current device. "
         "Prior remote terminal sessions mentioned in conversation history are historical and transient; do not infer the current asset from them. "
         "Default to the current selected or already-authorized terminal context. Do not discover assets by default. "
         "Use list_assets only when the user explicitly asks about assets/hosts or the task cannot reasonably be completed in the current context without choosing a remote asset; every list_assets call must include its schema-required intent and justification. "
         "Use request_terminal_session only when the user explicitly asks to connect to or operate on a remote asset, or after you have first explained why remote access is required; every request_terminal_session call must include its schema-required intent. "
-        "Run commands only through execute_command with an authorization_id. Never treat asset_id or terminal_id as an execution credential. "
+        "Run commands only through execute_command with both an authorization_id and its matching terminal_id so the target terminal is explicit. Never treat asset_id or terminal_id as an execution credential. "
         "Call tools only when the user's request requires action in the current authorized context or explicitly requires remote asset access. "
         "Respond in Chinese unless the user explicitly requests another language."
         f"{skill_section}"

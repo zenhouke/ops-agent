@@ -77,6 +77,35 @@ function mergeToolCallMessage(current: AgentMessage | undefined, incoming: Agent
 
 export function buildConversationGroups(events: EventItem[]): Group[] {
   const groups: Group[] = []
+  const shouldSuppressEmptyPartial = (eventIndex: number, event: EventItem): boolean => {
+    if (
+      !('type' in event)
+      || event.type !== 'say'
+      || event.say !== 'text'
+      || !event.partial
+      || event.text
+      || event.thinking
+      || event.toolCall
+    ) {
+      return false
+    }
+
+    for (let index = eventIndex - 1; index >= 0; index--) {
+      const candidate = events[index]
+      if (candidate.kind === 'user') break
+      if (candidate.kind === 'error' || candidate.kind === 'failed' || candidate.kind === 'completed' || candidate.kind === 'final' || (candidate.kind === 'plan' && candidate.status === 'waiting_plan_approval')) {
+        return true
+      }
+    }
+    for (let index = eventIndex + 1; index < events.length; index++) {
+      const candidate = events[index]
+      if (candidate.kind === 'user') break
+      if (candidate.kind === 'error' || candidate.kind === 'failed' || candidate.kind === 'completed' || candidate.kind === 'final' || (candidate.kind === 'plan' && candidate.status === 'waiting_plan_approval')) {
+        return true
+      }
+    }
+    return false
+  }
   const commandGroupMap = new Map<string, { index: number }>()
   const approvalGroupMap = new Map<string, { index: number }>()
   const toolCallGroupMap = new Map<string, { index: number }>()
@@ -92,7 +121,7 @@ export function buildConversationGroups(events: EventItem[]): Group[] {
     currentDeltaGroup = []
   }
 
-  for (const event of events) {
+  for (const [eventIndex, event] of events.entries()) {
     if (event.kind === 'terminal_status') continue
 
     if (event.kind === 'delta') {
@@ -179,6 +208,9 @@ export function buildConversationGroups(events: EventItem[]): Group[] {
     }
 
     if ('type' in event && (event.type === 'say' || event.type === 'ask')) {
+      if (shouldSuppressEmptyPartial(eventIndex, event)) {
+        continue
+      }
       if (event.toolCall) {
         const aliasKeys = commandApprovalAliasKeys(event)
         const key = aliasKeys[0] ?? null
