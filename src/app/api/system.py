@@ -2,8 +2,15 @@ from fastapi import APIRouter
 import serial.tools.list_ports
 
 from app.api.schemas import SerialPortView
+from app.services.observability_service import get_observability_service
 
 router = APIRouter()
+
+
+@router.get("/api/system/runtime-health")
+def get_runtime_health() -> dict:
+    return get_observability_service().runtime_snapshot()
+
 
 @router.get("/api/system/serial-ports", response_model=list[SerialPortView])
 def list_serial_ports() -> list[SerialPortView]:

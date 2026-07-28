@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import asyncio
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, HTTPException, Response
@@ -164,14 +163,6 @@ async def trigger_job(
     if job.id is None:
         raise HTTPException(status_code=500, detail="Job ID is not generated")
 
-    now = datetime.now(UTC)
-    job.last_run_at = now
-    job.updated_at = now
-    session.add(job)
-    session.commit()
-
-    # Run the job in the background thread pool
-    asyncio.create_task(
-        asyncio.to_thread(get_scheduler_service()._run_job_sync, job.id)
-    )
+    if not get_scheduler_service().submit_job(job.id):
+        raise HTTPException(status_code=409, detail="Job is already queued or running")
     return {"status": "triggered"}

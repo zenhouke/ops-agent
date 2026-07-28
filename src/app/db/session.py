@@ -1,18 +1,35 @@
 from collections.abc import Generator
 
-from sqlalchemy import inspect, text
+from sqlalchemy import event, inspect, text
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.shared.config import APP_DIR, DB_PATH
 
 
 APP_DIR.mkdir(parents=True, exist_ok=True)
-engine = create_engine(f"sqlite:///{DB_PATH}", connect_args={"check_same_thread": False})
+engine = create_engine(
+    f"sqlite:///{DB_PATH}",
+    connect_args={"check_same_thread": False, "timeout": 30},
+    pool_pre_ping=True,
+)
+
+
+@event.listens_for(engine, "connect")
+def _configure_sqlite_connection(dbapi_connection, _connection_record) -> None:
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA busy_timeout=30000")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.execute("PRAGMA foreign_keys=ON")
+    finally:
+        cursor.close()
 
 def init_db() -> None:
     SQLModel.metadata.create_all(engine)
     _ensure_asset_columns()
     _ensure_model_usage_columns()
+    _ensure_scheduler_columns()
 
 
 def _ensure_asset_columns() -> None:
@@ -57,6 +74,24 @@ def _ensure_model_usage_columns() -> None:
                 """))
                 connection.execute(text("DROP TABLE model_usages_legacy"))
                 return
+        for column_name, statement in statements.items():
+            if column_name not in existing:
+                connection.execute(text(statement))
+
+
+def _ensure_scheduler_columns() -> None:
+    inspector = inspect(engine)
+    if "scheduled_jobs" not in inspector.get_table_names():
+        return
+    existing = {column["name"] for column in inspector.get_columns("scheduled_jobs")}
+    statements = {
+        "run_status": "ALTER TABLE scheduled_jobs ADD COLUMN run_status VARCHAR NOT NULL DEFAULT 'idle'",
+        "lease_owner": "ALTER TABLE scheduled_jobs ADD COLUMN lease_owner VARCHAR NOT NULL DEFAULT ''",
+        "lease_expires_at": "ALTER TABLE scheduled_jobs ADD COLUMN lease_expires_at DATETIME",
+        "last_finished_at": "ALTER TABLE scheduled_jobs ADD COLUMN last_finished_at DATETIME",
+        "last_error": "ALTER TABLE scheduled_jobs ADD COLUMN last_error VARCHAR NOT NULL DEFAULT ''",
+    }
+    with engine.begin() as connection:
         for column_name, statement in statements.items():
             if column_name not in existing:
                 connection.execute(text(statement))

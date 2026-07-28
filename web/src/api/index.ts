@@ -1,12 +1,14 @@
 export { createAsset, deleteAsset, getAssetContext, getAssets, mapAsset, updateAsset } from './assets'
 export type { AssetPayload } from './assets'
 export {
+  cancelAgentRuntime,
   getConsoleBootstrap,
   getRuntimeEvents,
   streamDecideTerminalRequest,
   getRuntimeSnapshot,
   listConversationRuntimes,
   streamApproveAgent,
+  streamApprovePlan,
   streamRunAgent,
 } from './console'
 export { getApprovalPolicy, updateApprovalPolicy } from './approval'

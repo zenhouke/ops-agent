@@ -118,6 +118,11 @@ class ScheduledJob(SQLModel, table=True):
     interval_seconds: int = 3600
     enabled: bool = True
     last_run_at: datetime | None = None
+    run_status: str = "idle"
+    lease_owner: str = ""
+    lease_expires_at: datetime | None = None
+    last_finished_at: datetime | None = None
+    last_error: str = ""
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 

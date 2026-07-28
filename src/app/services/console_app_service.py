@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Iterator
 from typing import Any, cast
 
@@ -14,6 +15,7 @@ from app.core.connectors.execution_context import build_asset_summary, build_dev
 from app.core.llm.types import LLMMessage, LLMTokenUsage
 from app.core.loop.loop_state import LoopContext, LoopMode, LoopState
 from app.core.loop.runtime_manager import LoopRuntimeManager, new_runtime_id
+from app.core.runtime.control import get_runtime_control
 from app.core.tool.execute_command import ExecuteCommandHandler
 from app.core.tool.load_skill import LoadSkillHandler
 from app.core.tool.terminal_autonomy import ListAssetsHandler, RequestTerminalSessionHandler
@@ -22,111 +24,18 @@ from app.db.repositories.models import get_default_model_config
 from app.db.repositories.model_usage import create_model_usage, sum_conversation_usage
 from app.db.session import Session as DbSession, engine
 from app.services.approval_service import get_approval_service
+from app.services.console_orchestrator import TaskOrchestrator, TerminalSessionAdapter
 from app.services.context_manager import ContextManager, JsonObject
 from app.utils.local_terminal_asset import build_local_terminal_asset
 from app.services.mcp_service import McpService
 from app.services.model_service import ModelService
+from app.services.observability_service import trace_detached_operation
 from app.services.skill_service import SkillService
 from app.services.terminal_service import TerminalService
 
 
 logger = logging.getLogger(__name__)
 
-
-class _TerminalSessionAdapter:
-    def __init__(self, terminal_service: TerminalService, runtime_manager: LoopRuntimeManager) -> None:
-        self._terminal_service = terminal_service
-        self._runtime_manager = runtime_manager
-
-    def get_session(self, terminal_id: str) -> Any | None:
-        return self._terminal_service.get_session(terminal_id)
-
-    def resolve_terminal_authorization(self, runtime_id: str, authorization_id: str) -> Any:
-        return self._runtime_manager.resolve_terminal_authorization(runtime_id, authorization_id)
-
-    def session_belongs_to_asset(self, terminal_id: str, asset_id: int) -> bool:
-        return self._terminal_service.session_belongs_to_asset(terminal_id, asset_id)
-
-    def append_terminal_command_submitted(
-        self,
-        runtime_id: str,
-        *,
-        authorization_id: str,
-        asset_id: int,
-        asset_name: str,
-        terminal_id: str,
-        command: str,
-        approval_policy: str,
-    ) -> dict[str, Any]:
-        return self._runtime_manager.append_terminal_command_submitted(
-            runtime_id,
-            authorization_id=authorization_id,
-            asset_id=asset_id,
-            asset_name=asset_name,
-            terminal_id=terminal_id,
-            command=command,
-            approval_policy=approval_policy,
-        )
-
-    def acquire_terminal_slot(self, runtime_id: str, terminal_id: str) -> bool:
-        return self._runtime_manager.acquire_terminal_slot(runtime_id, terminal_id)
-
-    def release_terminal_slot(self, runtime_id: str, terminal_id: str) -> None:
-        self._runtime_manager.release_terminal_slot(runtime_id, terminal_id)
-
-
-class TaskOrchestrator:
-    def __init__(self, app_service: "ConsoleAppService", terminal_service: TerminalService) -> None:
-        self._app_service = app_service
-        self._terminal_service = terminal_service
-
-    def stream_run(
-        self,
-        *,
-        session: Session,
-        prompt: str,
-        asset_id: int,
-        terminal_id: str | None = None,
-        model_name: str | None = None,
-        selected_skill_name: str | None = None,
-        conversation_id: str = "console",
-        mode: LoopMode = "agent",
-    ) -> Iterator[dict]:
-        return self._app_service.stream_run(
-            session=session,
-            prompt=prompt,
-            asset_id=asset_id,
-            terminal_id=terminal_id,
-            model_name=model_name,
-            selected_skill_name=selected_skill_name,
-            conversation_id=conversation_id,
-            mode=mode,
-            terminal_service=self._terminal_service,
-        )
-
-    def stream_approve(self, *, session: Session, runtime_id: str, approved: bool, approval_token: str | None = None, allow_prefix: str | None = None) -> Iterator[dict]:
-        return self._app_service.stream_approve(
-            session=session,
-            runtime_id=runtime_id,
-            approved=approved,
-            approval_token=approval_token,
-            allow_prefix=allow_prefix,
-            terminal_service=self._terminal_service,
-        )
-
-    def stream_plan_approval(self, *, runtime_id: str) -> Iterator[dict]:
-        return self._app_service.stream_plan_approval(
-            runtime_id=runtime_id,
-            terminal_service=self._terminal_service,
-        )
-
-    def stream_after_terminal_request(self, *, runtime_id: str, resume_message: str, authorization_id: str | None = None) -> Iterator[dict]:
-        return self._app_service.stream_after_terminal_request(
-            runtime_id=runtime_id,
-            resume_message=resume_message,
-            terminal_service=self._terminal_service,
-            authorization_id=authorization_id,
-        )
 
 class ConsoleAppService:
     def __init__(
@@ -149,7 +58,7 @@ class ConsoleAppService:
             LoadSkillHandler(self._skill_service),
             ListAssetsHandler(),
             RequestTerminalSessionHandler(self.runtime_manager),
-            ExecuteCommandHandler(_TerminalSessionAdapter(ts, self.runtime_manager)),
+            ExecuteCommandHandler(TerminalSessionAdapter(ts, self.runtime_manager)),
             *self._mcp_service.build_tool_handlers(),
         ]
 
@@ -217,6 +126,9 @@ class ConsoleAppService:
 
     def build_orchestrator(self, terminal_service: TerminalService) -> TaskOrchestrator:
         return TaskOrchestrator(self, terminal_service)
+
+    def close(self) -> None:
+        self._mcp_service.close()
 
     def stream_run(
         self,
@@ -416,6 +328,9 @@ class ConsoleAppService:
     def update_plan(self, *, runtime_id: str, steps: list[dict]) -> dict:
         return self.runtime_manager.update_plan(runtime_id=runtime_id, steps=steps)
 
+    def cancel_runtime(self, runtime_id: str) -> dict[str, Any]:
+        return self.runtime_manager.cancel(runtime_id)
+
     def stream_plan_approval(self, *, runtime_id: str, terminal_service: TerminalService) -> Iterator[dict]:
         yield from self._stream_events_with_error_handling(
             runtime_id=runtime_id,
@@ -445,12 +360,30 @@ class ConsoleAppService:
         event_iter_factory,
         **log_context: Any,
     ) -> Iterator[dict]:
+        control = get_runtime_control()
+        started = time.monotonic()
+        status = "failed"
+        control.metrics.run_started(runtime_id)
         try:
-            for event in event_iter_factory():
+            iterator = iter(event_iter_factory())
+            while True:
+                try:
+                    with control.run_slot():
+                        with trace_detached_operation("agent.runtime.step", {"ops.runtime_id": runtime_id}):
+                            event = next(iterator)
+                except StopIteration:
+                    status = "completed"
+                    return
                 yield event
         except Exception as exc:
             logger.exception(log_message, *log_context.values())
             yield self._runtime_error_event(runtime_id, str(exc), recoverable=True)
+        finally:
+            control.metrics.run_finished(
+                runtime_id,
+                status=status,
+                duration_seconds=time.monotonic() - started,
+            )
 
     def _runtime_error_event(self, runtime_id: str, text: str, *, recoverable: bool) -> dict[str, Any]:
         return {

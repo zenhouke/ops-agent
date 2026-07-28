@@ -15,8 +15,13 @@ export function useConsolePageState({ events, activeRuntimeSnapshot }: UseConsol
   useEffect(() => {
     if (activeRuntimeSnapshot) {
       setRunMode(activeRuntimeSnapshot.mode)
+      return
     }
-  }, [activeRuntimeSnapshot])
+    const latestPlanEvent = [...events].reverse().find((event) => event.kind === 'plan')
+    if (latestPlanEvent?.mode) {
+      setRunMode(latestPlanEvent.mode)
+    }
+  }, [activeRuntimeSnapshot, events])
 
   const busyCommand = useMemo(() => {
     const commandsInOrder: Array<{ id: string; cmd: string }> = []

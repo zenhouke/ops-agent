@@ -46,8 +46,11 @@ type AssistantPanelProps = {
   onSelectConversation: (conversationId: string) => void
   onDeleteConversation: (conversationId: string) => void
   onRun: (prompt: string, selectedSkillName?: string | null) => Promise<void>
+  isRunActive: boolean
+  onCancelRun: () => Promise<void>
   onApprove: (allowPrefix?: string) => void
   onReject: () => void
+  onApprovePlan: (runtimeId: string) => void
   onTerminalRequestDecision?: (input: { runtimeId: string; requestId: string; approvalToken: string; approved: boolean }) => Promise<void>
   onLoadOlderEvents: () => Promise<void>
 }
@@ -89,8 +92,11 @@ export function AssistantPanel({
   onSelectConversation,
   onDeleteConversation,
   onRun,
+  isRunActive,
+  onCancelRun,
   onApprove,
   onReject,
+  onApprovePlan,
   onTerminalRequestDecision,
   onLoadOlderEvents,
 }: AssistantPanelProps) {
@@ -148,6 +154,7 @@ export function AssistantPanel({
             onLoadOlder={onLoadOlderEvents}
             onApprove={onApprove}
             onReject={onReject}
+            onApprovePlan={onApprovePlan}
             onTerminalRequestDecision={onTerminalRequestDecision}
           />
 
@@ -164,6 +171,8 @@ export function AssistantPanel({
             onModelChange={onModelChange}
             onRunModeChange={onRunModeChange}
             onRun={onRun}
+            isRunning={isRunActive}
+            onCancel={onCancelRun}
           />
         </div>
       </div>

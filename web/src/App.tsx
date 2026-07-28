@@ -110,8 +110,11 @@ export function App() {
     backgroundRun,
     activeBackgroundRun,
     clearBackgroundRunUnread,
+    isRunActive,
     runAgent,
+    cancelRun,
     approveRun,
+    approvePlan,
     rejectRun,
     decideTerminalAccess,
   } = useAgentRun({
@@ -310,11 +313,16 @@ export function App() {
                 onRun={(nextPrompt, selectedSkillName) => {
                   return runAgent(nextPrompt, selectedSkillName)
                 }}
+                isRunActive={isRunActive}
+                onCancelRun={cancelRun}
                 onApprove={(allowPrefix) => {
                   void approveRun(allowPrefix)
                 }}
                 onReject={() => {
                   void rejectRun()
+                }}
+                onApprovePlan={(runtimeId) => {
+                  void approvePlan(runtimeId)
                 }}
                 onTerminalRequestDecision={decideTerminalAccess}
                 onLoadOlderEvents={loadOlderConversationEvents}

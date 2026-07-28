@@ -4,11 +4,13 @@ import type { PlanEvent } from '../../../types/ops'
 
 type PlanSummaryCardProps = {
   event: PlanEvent
+  onApprovePlan?: (runtimeId: string) => void
 }
 
-export function PlanSummaryCard({ event }: PlanSummaryCardProps) {
+export function PlanSummaryCard({ event, onApprovePlan }: PlanSummaryCardProps) {
   const { t } = useAppearance()
   const isPlanMode = event.mode === 'plan'
+  const isWaitingApproval = isPlanMode && event.lockedPlan === false
   const [showSteps, setShowSteps] = useState(true)
   const visibleSteps = event.steps
   const totalSteps = visibleSteps.length
@@ -20,7 +22,9 @@ export function PlanSummaryCard({ event }: PlanSummaryCardProps) {
   const isPlanningEmpty = event.loading && totalSteps === 0
   const statusLabel = event.loading
     ? t('conversation.planning')
-    : isPlanMode
+    : isWaitingApproval
+      ? '等待操作员批准'
+      : isPlanMode
       ? t('conversation.autoExecuting')
       : t('assistant.plan')
 
@@ -46,7 +50,7 @@ export function PlanSummaryCard({ event }: PlanSummaryCardProps) {
                     <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M5 3v18l15-9-15-9z" />
                     </svg>
-                    {t('conversation.autoExecute')}
+                    {isWaitingApproval ? '手动批准' : t('conversation.autoExecute')}
                   </span>
                 ) : null}
               </div>
@@ -60,6 +64,15 @@ export function PlanSummaryCard({ event }: PlanSummaryCardProps) {
             </div>
           </div>
           <div className="flex shrink-0 items-center gap-2">
+            {showSteps && isWaitingApproval && event.runtimeId ? (
+              <button
+                type="button"
+                className="button-mini h-7 border-ops-cyan/35 bg-ops-cyan/10 px-2.5 text-[10px] font-black text-ops-cyan transition-all duration-200 hover:bg-ops-cyan/20 active:scale-95"
+                onClick={() => onApprovePlan?.(event.runtimeId!)}
+              >
+                批准并执行
+              </button>
+            ) : null}
             {showSteps && totalSteps > 0 ? (
               <>
                 <div className="h-1.5 w-16 overflow-hidden rounded-full bg-ops-border/30 ring-1 ring-ops-border/20">
@@ -98,7 +111,8 @@ export function PlanSummaryCard({ event }: PlanSummaryCardProps) {
         {showSteps && totalSteps > 0 ? (
           <ol className="mt-3 flex max-h-[min(52vh,420px)] flex-col gap-1.5 overflow-y-auto pr-1">
             {visibleSteps.map((step, index) => {
-              const isRunning = step.status === 'running' || (runningStep === undefined && index === completedSteps && step.status === 'pending')
+              const isRunning = step.status === 'running'
+                || (!isWaitingApproval && runningStep === undefined && index === completedSteps && step.status === 'pending')
               const itemClassName = step.status === 'completed'
                 ? 'border-ops-green/25 bg-ops-green/8 text-ops-green'
                 : isRunning

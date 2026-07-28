@@ -220,7 +220,11 @@ class KnowledgeSearchIndex:
             raise RuntimeError("Failed to initialize SQLite knowledge index database.") from exc
 
     def _connect(self) -> sqlite3.Connection:
-        return sqlite3.connect(self._index_path)
+        connection = sqlite3.connect(self._index_path, timeout=30)
+        connection.execute("PRAGMA journal_mode=WAL")
+        connection.execute("PRAGMA busy_timeout=30000")
+        connection.execute("PRAGMA synchronous=NORMAL")
+        return connection
 
 
 def _clamp_limit(limit: int) -> int:

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
+import time
 from typing import Any, Literal
 
 from app.shared.schemas import ModelConfig, PlanStep
@@ -128,6 +129,14 @@ class LoopState:
     summary: str | None = None
     error_message: str | None = None
     latest_usage: dict[str, int] | None = None
+    started_monotonic: float = field(default_factory=time.monotonic)
+    deadline_monotonic: float | None = None
+    max_llm_calls: int = 0
+    max_tool_calls: int = 0
+    llm_calls: int = 0
+    tool_calls: int = 0
+    cancel_requested: bool = False
+    cancellation_reason: str | None = None
 
     def is_terminal(self) -> bool:
         return self.phase in {"completed", "failed"}

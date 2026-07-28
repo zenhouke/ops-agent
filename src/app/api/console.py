@@ -178,6 +178,14 @@ def get_runtime_events(runtime_id: str, since: int = 0) -> RuntimeEventsResponse
     return RuntimeEventsResponse(latest_sequence=latest_sequence, events=[dict(event) for event in events])
 
 
+@router.post("/api/console/runtimes/{runtime_id}/cancel")
+def cancel_runtime(runtime_id: str) -> dict:
+    try:
+        return _console_app_service.cancel_runtime(runtime_id)
+    except ValueError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+
+
 @router.post("/api/console/terminal-requests/{request_id}/decision")
 async def decide_terminal_request(
     request_id: str,

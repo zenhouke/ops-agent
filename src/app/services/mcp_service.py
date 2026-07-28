@@ -3,6 +3,7 @@ from __future__ import annotations
 import json
 import os
 import re
+import threading
 from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeoutError
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
@@ -14,6 +15,7 @@ from mcp import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
+from app.core.runtime.control import get_runtime_control
 from app.services.mcp_config_store import (
     DiscoveredMCPTool,
     MCPConfigStore,
@@ -34,6 +36,14 @@ class MCPCallResult:
 class McpService:
     def __init__(self, store: MCPConfigStore | None = None) -> None:
         self._store = store or MCPConfigStore()
+        limits = get_runtime_control().limits
+        self._executor = ThreadPoolExecutor(max_workers=max(2, limits.max_concurrent_tools))
+        self._capacity_lock = threading.Lock()
+        self._server_capacity: dict[str, threading.BoundedSemaphore] = {}
+        self._per_server_limit = limits.max_mcp_calls_per_server
+
+    def close(self) -> None:
+        self._executor.shutdown(wait=False, cancel_futures=True)
 
     @property
     def store(self) -> MCPConfigStore:
@@ -74,14 +84,29 @@ class McpService:
         tool: MCPToolConfig,
         arguments: dict[str, Any],
     ) -> MCPCallResult:
-        if server.transport == "stdio":
-            return self._call_stdio_tool(server, tool.original_name, arguments)
-        if server.transport == "http_sse":
-            return self._call_http_sse_tool(server, tool.original_name, arguments)
-        return MCPCallResult(
-            ok=False,
-            error_message=f"Unsupported MCP transport: {server.transport}",
-        )
+        capacity = self._capacity_for(server.id)
+        if not capacity.acquire(timeout=get_runtime_control().limits.queue_wait_seconds):
+            return MCPCallResult(ok=False, error_message="MCP server concurrency limit reached.")
+        get_runtime_control().metrics.increment("mcp_calls")
+        try:
+            if server.transport == "stdio":
+                return self._call_stdio_tool(server, tool.original_name, arguments)
+            if server.transport == "http_sse":
+                return self._call_http_sse_tool(server, tool.original_name, arguments)
+            return MCPCallResult(
+                ok=False,
+                error_message=f"Unsupported MCP transport: {server.transport}",
+            )
+        finally:
+            capacity.release()
+
+    def _capacity_for(self, server_id: str) -> threading.BoundedSemaphore:
+        with self._capacity_lock:
+            capacity = self._server_capacity.get(server_id)
+            if capacity is None:
+                capacity = threading.BoundedSemaphore(self._per_server_limit)
+                self._server_capacity[server_id] = capacity
+            return capacity
 
     def normalize_output(self, result: MCPCallResult, *, max_chars: int = 12000) -> str:
         if not result.ok:
@@ -259,13 +284,12 @@ class McpService:
         async def runner() -> Any:
             return await coroutine
 
-        with ThreadPoolExecutor(max_workers=1) as executor:
-            future = executor.submit(anyio.run, runner)
-            try:
-                return future.result(timeout=timeout_seconds)
-            except FutureTimeoutError as exc:
-                future.cancel()
-                raise TimeoutError from exc
+        future = self._executor.submit(anyio.run, runner)
+        try:
+            return future.result(timeout=timeout_seconds)
+        except FutureTimeoutError as exc:
+            future.cancel()
+            raise TimeoutError from exc
 
     async def _discover_stdio_tools_async(self, server: MCPServerConfig) -> list[DiscoveredMCPTool]:
         async with self._stdio_session(server) as session:

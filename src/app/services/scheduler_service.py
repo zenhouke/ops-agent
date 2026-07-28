@@ -9,7 +9,9 @@ from sqlmodel import Session, select
 
 from app.db.models import ScheduledJob
 from app.db.session import engine
+from app.core.runtime.control import get_runtime_control
 from app.services.alert_service import get_alert_service
+from app.services.scheduler_lease import SchedulerLeaseStore
 
 logger = logging.getLogger(__name__)
 
@@ -18,6 +20,10 @@ class SchedulerService:
     def __init__(self) -> None:
         self._running = False
         self._task: asyncio.Task | None = None
+        limits = get_runtime_control().limits
+        self._capacity = asyncio.Semaphore(limits.max_scheduler_jobs)
+        self._leases = SchedulerLeaseStore(limits.scheduler_lease_seconds)
+        self._job_tasks: set[asyncio.Task] = set()
 
     def start_loop(self) -> None:
         if self._running:
@@ -31,10 +37,11 @@ class SchedulerService:
         if self._task:
             self._task.cancel()
             self._task = None
+        for task in list(self._job_tasks):
+            task.cancel()
         logger.info("Scheduler background loop stopped.")
 
     async def _scheduler_loop(self) -> None:
-        # Give the server a few seconds to start up completely
         await asyncio.sleep(5)
         while self._running:
             try:
@@ -49,12 +56,10 @@ class SchedulerService:
             statement = select(ScheduledJob).where(ScheduledJob.enabled == True)
             jobs = session.exec(statement).all()
             for job in jobs:
-                # Check if it is time to run
                 should_run = False
                 if job.last_run_at is None:
                     should_run = True
                 else:
-                    # last_run_at is stored in UTC or naive. Ensure UTC comparison.
                     last_run = job.last_run_at
                     if last_run.tzinfo is None:
                         last_run = last_run.replace(tzinfo=UTC)
@@ -64,23 +69,40 @@ class SchedulerService:
 
                 if should_run and job.id is not None:
                     logger.info("Scheduling job: %s (id=%s)", job.name, job.id)
-                    # Update last run time immediately to prevent double-triggering
-                    job.last_run_at = now
-                    job.updated_at = now
-                    session.add(job)
-                    session.commit()
-                    session.refresh(job)
+                    self.submit_job(job.id)
 
-                    # Trigger the job asynchronously in a separate thread so it doesn't block the loop
-                    asyncio.create_task(
-                        asyncio.to_thread(self._run_job_sync, job.id)
-                    )
+    def submit_job(self, job_id: int) -> bool:
+        owner = self._leases.claim(job_id)
+        if owner is None:
+            return False
+        task = asyncio.create_task(self._run_claimed_job(job_id, owner))
+        self._job_tasks.add(task)
+        task.add_done_callback(self._job_tasks.discard)
+        return True
 
-    def _run_job_sync(self, job_id: int) -> None:
+    async def _run_claimed_job(self, job_id: int, owner: str) -> None:
+        async with self._capacity:
+            await asyncio.to_thread(self._run_claimed_job_sync, job_id, owner)
+
+    def _run_claimed_job_sync(self, job_id: int, owner: str) -> None:
+        status = "failed"
+        error = ""
+        try:
+            self._leases.mark_running(job_id, owner)
+            status = self._run_job_sync(job_id)
+            get_runtime_control().metrics.increment("scheduler_runs")
+        except Exception as exc:
+            error = str(exc)
+            get_runtime_control().metrics.increment("scheduler_failures")
+            logger.exception("Unhandled scheduled job failure job_id=%s", job_id)
+        finally:
+            self._leases.finish(job_id, owner, status=status, error=error)
+
+    def _run_job_sync(self, job_id: int) -> str:
         with Session(engine) as session:
             job = session.get(ScheduledJob, job_id)
             if not job or not job.enabled:
-                return
+                return "skipped"
 
             from app.api.console import get_console_app_service
             from app.api.conversations import get_conversation_service
@@ -107,7 +129,6 @@ class SchedulerService:
                     async_title_generation=False,
                 )
 
-                # stream_run will automatically load assets, configure context, and run the agent loop
                 events_generator = console_app.stream_run(
                     session=session,
                     prompt=job.prompt,
@@ -117,7 +138,6 @@ class SchedulerService:
                     terminal_service=terminal_service,
                 )
 
-                # Iterate through all yielded events to run the loop generator to completion
                 runtime_id = None
                 has_ask_approval = False
                 
@@ -128,7 +148,7 @@ class SchedulerService:
                         has_ask_approval = True
                         logger.info("Job %s (runtime_id=%s) paused for command approval.", job.name, runtime_id)
 
-                # Fetch runtime state after completion
+                result_status = "succeeded"
                 if runtime_id:
                     rt = console_app.runtime_manager.get_runtime(runtime_id)
                     if rt:
@@ -137,7 +157,7 @@ class SchedulerService:
                         
                         alert_service = get_alert_service()
                         if phase == "approving" or has_ask_approval:
-                            # Create a critical approval-required alert
+                            result_status = "waiting_approval"
                             alert_service.create_alert(
                                 session,
                                 asset_id=job.asset_id,
@@ -150,7 +170,6 @@ class SchedulerService:
                             )
                         elif phase == "completed":
                             summary = rt.state.summary or ""
-                            # Parse summary for alerts
                             alert_pattern = re.compile(r"\[ALERT:\s*(.*?)\]\s*(.*)", re.IGNORECASE)
                             matches = alert_pattern.findall(summary)
                             
@@ -178,7 +197,7 @@ class SchedulerService:
                                     conversation_id=conversation_id,
                                 )
                         elif phase == "failed":
-                            # Create failure alert
+                            result_status = "failed"
                             alert_service.create_alert(
                                 session,
                                 asset_id=job.asset_id,
@@ -189,9 +208,9 @@ class SchedulerService:
                                 runtime_id=runtime_id,
                                 conversation_id=conversation_id,
                             )
+                return result_status
             except Exception as exc:
                 logger.exception("Failed executing scheduled job %s", job.name)
-                # Create systems alert
                 try:
                     get_alert_service().create_alert(
                         session,
@@ -204,6 +223,7 @@ class SchedulerService:
                     )
                 except Exception:
                     pass
+                return "failed"
 
 
 _scheduler_service: SchedulerService | None = None

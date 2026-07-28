@@ -18,6 +18,8 @@ type PromptInputProps = {
   onModelChange: (model: string) => void
   onRunModeChange: (mode: RunMode) => void
   onRun: (prompt: string, selectedSkillName?: string | null) => Promise<void>
+  isRunning: boolean
+  onCancel: () => Promise<void>
 }
 
 const MODE_DESCRIPTION_KEY: Record<RunMode, 'assistant.agentDescription' | 'assistant.planDescription'> = {
@@ -99,6 +101,8 @@ export function PromptInput({
   onModelChange,
   onRunModeChange,
   onRun,
+  isRunning,
+  onCancel,
 }: PromptInputProps) {
   const { t } = useAppearance()
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
@@ -225,18 +229,24 @@ export function PromptInput({
           />
 
           <button
-            className={`absolute bottom-3 right-3 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border transition-all duration-200 active:scale-95 ${prompt.trim() && !blockedRun
+            className={`absolute bottom-3 right-3 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border transition-all duration-200 active:scale-95 ${isRunning
+              ? 'border-ops-danger/45 bg-ops-danger text-white shadow-[0_0_28px_rgb(var(--ops-danger)/0.32)] hover:bg-ops-danger/85'
+              : prompt.trim() && !blockedRun
               ? 'border-ops-cyan/45 bg-ops-cyan text-ops-deep shadow-[0_0_28px_rgb(var(--ops-cyan)/0.38)] hover:-translate-y-0.5 hover:bg-cyan-300 hover:shadow-[0_0_36px_rgb(var(--ops-cyan)/0.55)]'
               : 'cursor-not-allowed border-ops-border/20 bg-ops-panel/70 text-ops-muted/25'
               }`}
             type="button"
             onClick={() => {
-              void submitPrompt()
+              void (isRunning ? onCancel() : submitPrompt())
             }}
-            disabled={!prompt.trim() || Boolean(blockedRun)}
-            aria-label={t('assistant.runMission')}
+            disabled={!isRunning && (!prompt.trim() || Boolean(blockedRun))}
+            aria-label={t(isRunning ? 'common.cancel' : 'assistant.runMission')}
           >
-            <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false" className="h-5 w-5 fill-current"><path d="M5 3.8 20.2 12 5 20.2v-6.1L13.4 12 5 9.9z" /></svg>
+            {isRunning ? (
+              <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false" className="h-4 w-4 fill-current"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>
+            ) : (
+              <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false" className="h-5 w-5 fill-current"><path d="M5 3.8 20.2 12 5 20.2v-6.1L13.4 12 5 9.9z" /></svg>
+            )}
           </button>
         </div>
 

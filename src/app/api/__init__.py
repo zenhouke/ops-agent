@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.middleware.observability import ObservabilityMiddleware
 from app.api.assets import router as assets_router
 from app.api.approval import router as approval_router
 from app.api.groups import router as groups_router
@@ -22,10 +23,13 @@ from app.api.alerts import router as alerts_router
 from app.db.session import Session, engine, init_db
 from app.services.asset_service import ensure_default_asset_group
 from app.services.scheduler_service import get_scheduler_service
+from app.api.console import get_console_app_service
+from app.services.observability_service import configure_telemetry, shutdown_telemetry
 
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+    configure_telemetry()
     init_db()
     with Session(engine) as session:
         ensure_default_asset_group(session)
@@ -34,9 +38,12 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         yield
     finally:
         get_scheduler_service().stop_loop()
+        get_console_app_service().close()
+        shutdown_telemetry()
 
 
 app = FastAPI(title="Ops Agent API", lifespan=lifespan)
+app.add_middleware(ObservabilityMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=[

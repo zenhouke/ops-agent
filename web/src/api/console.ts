@@ -187,9 +187,11 @@ export async function streamRunAgent(
   conversationId?: string,
   mode: RunMode = 'agent',
   selectedSkillName?: string | null,
+  signal?: AbortSignal,
 ): Promise<AsyncGenerator<EventItem, void, void>> {
   const response = await requestEventStream('/api/console/run', {
     method: 'POST',
+    signal,
     body: JSON.stringify(
       buildConsoleRunRequestDto({
         prompt,
@@ -202,6 +204,20 @@ export async function streamRunAgent(
       }),
     ),
   })
+  return readEventStream(response)
+}
+
+export async function cancelAgentRuntime(runtimeId: string): Promise<void> {
+  await requestJson(`/api/console/runtimes/${encodeURIComponent(runtimeId)}/cancel`, {
+    method: 'POST',
+  })
+}
+
+export async function streamApprovePlan(runtimeId: string): Promise<AsyncGenerator<EventItem, void, void>> {
+  const response = await requestEventStream(
+    `/api/console/runtimes/${encodeURIComponent(runtimeId)}/plan/approve`,
+    { method: 'POST' },
+  )
   return readEventStream(response)
 }
 

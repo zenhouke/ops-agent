@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 class AlertService:
     def __init__(self) -> None:
-        self._listeners: set[asyncio.Queue[dict]] = set()
+        self._listeners: set[tuple[asyncio.AbstractEventLoop, asyncio.Queue[dict]]] = set()
 
     def create_alert(
         self,
@@ -93,21 +93,24 @@ class AlertService:
         return alert
 
     def publish(self, event: dict) -> None:
-        for queue in list(self._listeners):
-            try:
-                queue.put_nowait(event)
-            except asyncio.QueueFull:
-                pass
+        for loop, queue in list(self._listeners):
+            def enqueue(target: asyncio.Queue[dict] = queue) -> None:
+                try:
+                    target.put_nowait(event)
+                except asyncio.QueueFull:
+                    pass
+            loop.call_soon_threadsafe(enqueue)
 
     async def subscribe(self) -> AsyncIterator[dict]:
         queue: asyncio.Queue[dict] = asyncio.Queue(maxsize=100)
-        self._listeners.add(queue)
+        listener = (asyncio.get_running_loop(), queue)
+        self._listeners.add(listener)
         try:
             while True:
                 event = await queue.get()
                 yield event
         finally:
-            self._listeners.remove(queue)
+            self._listeners.discard(listener)
 
 
 _alert_service: AlertService | None = None

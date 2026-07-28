@@ -2,91 +2,24 @@ from __future__ import annotations
 
 import hashlib
 import secrets
+import threading
 import uuid
-from collections import deque
-from collections.abc import Iterator
-from dataclasses import dataclass, field
 from datetime import UTC, datetime, timedelta
-from typing import Any, Literal
+from typing import Any
 
 from app.core.connectors.device_profiles import select_device_profile, select_execution_profile
 from app.core.connectors.execution_context import build_asset_summary, build_device_context, infer_os_type
-from app.core.loop.agent_loop import AgentLoop
-from app.core.loop.loop_events import LoopEvent
-from app.core.loop.loop_state import LoopContext, LoopRuntimeStep, LoopState
-from app.core.llm.types import LLMMessage
+from app.core.loop.loop_state import LoopContext
+from app.core.loop.runtime_execution import RuntimeExecutionMixin
+from app.core.loop.runtime_models import (
+    PendingTerminalRequest,
+    RuntimeState,
+    RuntimeTerminalAuthorization,
+    TerminalAuthorizationStatus,
+)
 
 
-TerminalRequestDecisionStatus = Literal["pending", "approved", "rejected", "expired"]
-TerminalCreationStatus = Literal["not_started", "opening", "opened", "failed"]
-TerminalAuthorizationStatus = Literal["active", "revoked", "closed", "expired", "replaced"]
-TerminalAuthorizationSource = Literal["initial_asset", "user_approved_request"]
-TerminalAuthorizationApprover = Literal["system", "user"]
-
-
-@dataclass
-class PendingTerminalRequest:
-    request_id: str
-    runtime_id: str
-    conversation_id: str
-    asset_id: int
-    asset_name: str
-    reason: str
-    token_hash: str
-    user_decision_status: TerminalRequestDecisionStatus
-    terminal_creation_status: TerminalCreationStatus
-    created_at: datetime
-    expires_at: datetime
-    decided_at: datetime | None = None
-    terminal_started_at: datetime | None = None
-    terminal_finished_at: datetime | None = None
-    failure_reason: str | None = None
-    approval_token: str | None = None
-
-
-@dataclass
-class RuntimeTerminalAuthorization:
-    authorization_id: str
-    runtime_id: str
-    conversation_id: str
-    asset_id: int
-    asset_name: str
-    terminal_id: str
-    source: TerminalAuthorizationSource
-    approved_by: TerminalAuthorizationApprover
-    request_id: str | None
-    status: TerminalAuthorizationStatus
-    output_cursor: int
-    created_at: datetime
-    updated_at: datetime
-    asset_type: str = ""
-    asset_summary: str = ""
-    shell_type: str = "unknown"
-    os_type: str = "unknown"
-    execution_profile: str = "posix-shell"
-    device_vendor: str | None = None
-    device_context: str = ""
-    revoked_at: datetime | None = None
-    revoke_reason: str | None = None
-    replaced_by_authorization_id: str | None = None
-
-
-@dataclass
-class RuntimeState:
-    runtime_id: str
-    conversation_id: str
-    asset_id: int
-    terminal_id: str | None
-    state: LoopState
-    events: deque[dict]
-    sequence: int
-    created_at: datetime
-    updated_at: datetime
-    terminal_requests: dict[str, PendingTerminalRequest] = field(default_factory=dict)
-    terminal_authorizations: dict[str, RuntimeTerminalAuthorization] = field(default_factory=dict)
-
-
-class LoopRuntimeManager:
+class LoopRuntimeManager(RuntimeExecutionMixin):
     COMPLETED_RUNTIME_TTL = timedelta(minutes=30)
 
     def __init__(self, *, tools_factory, usage_callback=None):
@@ -95,6 +28,7 @@ class LoopRuntimeManager:
         self._by_runtime: dict[str, RuntimeState] = {}
         self._by_conversation: dict[str, dict[str, RuntimeState]] = {}
         self._terminal_slots: dict[str, str] = {}
+        self._state_lock = threading.RLock()
 
     def _now(self) -> datetime:
         return datetime.now(UTC)
@@ -122,40 +56,6 @@ class LoopRuntimeManager:
             for terminal_id, owner_runtime_id in list(self._terminal_slots.items()):
                 if owner_runtime_id == runtime_id:
                     self._terminal_slots.pop(terminal_id, None)
-
-    def _request_view(self, request: PendingTerminalRequest, approval_token: str | None = None) -> dict[str, Any]:
-        return {
-            "requestId": request.request_id,
-            "runtimeId": request.runtime_id,
-            "assetId": request.asset_id,
-            "assetName": request.asset_name,
-            "reason": request.reason,
-            "userDecisionStatus": request.user_decision_status,
-            "terminalCreationStatus": request.terminal_creation_status,
-            "expiresAt": request.expires_at.isoformat(),
-            "approvalToken": approval_token,
-            "failureReason": request.failure_reason,
-        }
-
-    def _authorization_view(self, authorization: RuntimeTerminalAuthorization) -> dict[str, Any]:
-        return {
-            "authorizationId": authorization.authorization_id,
-            "runtimeId": authorization.runtime_id,
-            "assetId": authorization.asset_id,
-            "assetName": authorization.asset_name,
-            "terminalId": authorization.terminal_id,
-            "source": authorization.source,
-            "approvedBy": authorization.approved_by,
-            "requestId": authorization.request_id,
-            "status": authorization.status,
-            "assetType": authorization.asset_type,
-            "shellType": authorization.shell_type,
-            "osType": authorization.os_type,
-            "executionProfile": authorization.execution_profile,
-            "deviceVendor": authorization.device_vendor,
-            "replacedByAuthorizationId": authorization.replaced_by_authorization_id,
-            "revokeReason": authorization.revoke_reason,
-        }
 
     def _append_runtime_event(self, runtime: RuntimeState, kind: str, payload: dict[str, Any]) -> dict[str, Any]:
         runtime.sequence += 1
@@ -576,362 +476,16 @@ class LoopRuntimeManager:
         return revoked
 
     def acquire_terminal_slot(self, runtime_id: str, terminal_id: str) -> bool:
-        if terminal_id in self._terminal_slots and self._terminal_slots[terminal_id] != runtime_id:
-            return False
-        self._terminal_slots[terminal_id] = runtime_id
-        return True
+        with self._state_lock:
+            if terminal_id in self._terminal_slots and self._terminal_slots[terminal_id] != runtime_id:
+                return False
+            self._terminal_slots[terminal_id] = runtime_id
+            return True
 
     def release_terminal_slot(self, runtime_id: str, terminal_id: str) -> None:
-        if self._terminal_slots.get(terminal_id) == runtime_id:
-            self._terminal_slots.pop(terminal_id, None)
-
-    def create_runtime(self, *, conversation_id: str, asset_id: int, terminal_id: str | None, context: LoopContext) -> LoopState:
-        self._expire_completed_runtimes()
-        runtime_id = context.runtime_id
-        state = LoopState(phase="executing", context=context)
-        runtime = RuntimeState(
-            runtime_id=runtime_id,
-            conversation_id=conversation_id,
-            asset_id=asset_id,
-            terminal_id=terminal_id,
-            state=state,
-            events=deque(maxlen=2000),
-            sequence=0,
-            created_at=self._now(),
-            updated_at=self._now(),
-        )
-        self._by_runtime[runtime_id] = runtime
-        self._by_conversation.setdefault(conversation_id, {})[runtime_id] = runtime
-        return state
-
-    def get_runtime(self, runtime_id: str) -> RuntimeState | None:
-        self._expire_completed_runtimes()
-        return self._by_runtime.get(runtime_id)
-
-    def list_runtimes(self, conversation_id: str) -> list[RuntimeState]:
-        self._expire_completed_runtimes()
-        return list(self._by_conversation.get(conversation_id, {}).values())
-
-    def events_since(self, runtime_id: str, since: int) -> tuple[int, list[dict]]:
-        self._expire_completed_runtimes()
-        rt = self._by_runtime.get(runtime_id)
-        if rt is None:
-            raise ValueError("runtime not found")
-        self._expire_terminal_requests(rt)
-        events = [evt for evt in rt.events if int(evt.get("sequence", 0)) > since]
-        return rt.sequence, events
-
-    def get_snapshot(self, runtime_id: str) -> dict:
-        self._expire_completed_runtimes()
-        rt = self._by_runtime.get(runtime_id)
-        if rt is None:
-            raise ValueError("runtime not found")
-        self._expire_terminal_requests(rt)
-        state = rt.state
-        current_step = state.get_current_step()
-        return {
-            "runtime_id": rt.runtime_id,
-            "conversation_id": rt.conversation_id,
-            "asset_id": rt.asset_id,
-            "terminal_id": rt.terminal_id,
-            "status": state.phase,
-            "loaded_skill_name": state.context.loaded_skill_name,
-            "mode": state.context.mode,
-            "plan_version": state.plan_version,
-            "locked_plan": state.locked_plan,
-            "steps": [
-                {
-                    "step_id": s.step_id,
-                    "title": s.title,
-                    "command": "",
-                    "reason": s.reason,
-                    "risk_level": s.risk_level,
-                    "working_directory": s.working_directory,
-                    "expected_output": s.expected_output,
-                    "status": s.status,
-                    "output": s.output,
-                    "exit_code": s.exit_code,
-                }
-                for s in state.steps
-            ],
-            "current_step_id": current_step.step_id if current_step else None,
-            "pending_approval_step_id": state.pending_approval_step_id,
-            "last_output_excerpt": state.last_output_excerpt,
-            "summary": state.summary,
-            "error_message": state.error_message,
-            "terminal_requests": [
-                self._request_view(request, request.approval_token if request.user_decision_status == "pending" else None)
-                for request in rt.terminal_requests.values()
-            ],
-            "terminal_authorizations": [
-                self._authorization_view(authorization)
-                for authorization in rt.terminal_authorizations.values()
-                if authorization.status in {"active", "revoked", "closed", "expired", "replaced"}
-            ],
-            "created_at": rt.created_at,
-            "updated_at": rt.updated_at,
-            "last_sequence": rt.sequence,
-        }
-
-    def run(self, *, runtime_id: str, terminal_service) -> Iterator[dict]:
-        rt = self._by_runtime.get(runtime_id)
-        if rt is None:
-            raise ValueError("runtime not found")
-
-        loop = AgentLoop(tools=self._tools_factory(terminal_service), usage_callback=self._usage_callback)
-        for event in loop.run(rt.state):
-            yield self._to_ws_event(event, rt)
-            usage_event = self._build_usage_event(rt)
-            if usage_event is not None:
-                yield usage_event
-
-    def update_plan(self, *, runtime_id: str, steps: list[dict]) -> dict:
-        rt = self._by_runtime.get(runtime_id)
-        if rt is None:
-            raise ValueError("runtime not found")
-        state = rt.state
-        if state.context.mode != "plan":
-            raise ValueError("runtime is not in plan mode")
-        if state.phase != "waiting_plan_approval" or state.locked_plan:
-            raise ValueError("plan can only be edited before approval")
-        if not steps:
-            raise ValueError("plan must include at least one step")
-
-        state.steps = [
-            LoopRuntimeStep(
-                step_id=str(item.get("id") or item.get("step_id") or f"step-{uuid.uuid4().hex[:8]}"),
-                title=str(item.get("title") or "").strip() or f"Step {index}",
-                reason=str(item.get("reason") or "Executing plan step"),
-                risk_level=str(item.get("riskLevel") or item.get("risk_level") or "low"),
-                working_directory=str(item.get("workingDirectory") or item.get("working_directory") or "") or None,
-                expected_output=str(item.get("expectedOutput") or item.get("expected_output") or "") or None,
-                status="pending",
-            )
-            for index, item in enumerate(steps, start=1)
-        ]
-        state.cursor = 0
-        state.plan_version += 1
-        rt.updated_at = self._now()
-        return self._append_plan_event(rt)
-
-    def approve_plan(self, *, runtime_id: str, terminal_service) -> Iterator[dict]:
-        rt = self._by_runtime.get(runtime_id)
-        if rt is None:
-            raise ValueError("runtime not found")
-        state = rt.state
-        if state.context.mode != "plan":
-            raise ValueError("runtime is not in plan mode")
-        if state.phase != "waiting_plan_approval":
-            raise ValueError("plan is not waiting for approval")
-        if not state.steps:
-            raise ValueError("plan has no steps")
-
-        state.locked_plan = True
-        state.cursor = 0
-        state.phase = "executing"
-        yield self._append_plan_event(rt)
-        loop = AgentLoop(tools=self._tools_factory(terminal_service), usage_callback=self._usage_callback)
-        for event in loop.run(rt.state):
-            yield self._to_ws_event(event, rt)
-            usage_event = self._build_usage_event(rt)
-            if usage_event is not None:
-                yield usage_event
-
-    def _append_plan_event(self, rt: RuntimeState) -> dict:
-        state = rt.state
-        event = LoopEvent(
-            event_type="plan",
-            runtime_id=rt.runtime_id,
-            phase=state.phase,
-            payload={
-                "planId": rt.runtime_id,
-                "title": "Task Plan",
-                "mode": state.context.mode,
-                "version": state.plan_version,
-                "lockedPlan": state.locked_plan,
-                "status": state.phase,
-                "steps": [
-                    {
-                        "id": step.step_id,
-                        "title": step.title,
-                        "command": "",
-                        "reason": step.reason,
-                        "riskLevel": step.risk_level,
-                        "workingDirectory": step.working_directory,
-                        "expectedOutput": step.expected_output,
-                        "status": step.status,
-                    }
-                    for step in state.steps
-                ],
-            },
-        )
-        return self._to_ws_event(event, rt)
-
-    def resume(self, *, runtime_id: str, approved: bool, approval_token: str | None, terminal_service) -> Iterator[dict]:
-        rt = self._by_runtime.get(runtime_id)
-        if rt is None:
-            raise ValueError("runtime not found")
-
-        expected_token_hash = rt.state.pending_approval_token_hash
-        if expected_token_hash is None:
-            raise ValueError("approval token is not available")
-        if approval_token is None or not secrets.compare_digest(
-            expected_token_hash,
-            hashlib.sha256(approval_token.encode("utf-8")).hexdigest(),
-        ):
-            raise PermissionError("invalid approval token")
-
-        loop = AgentLoop(tools=self._tools_factory(terminal_service), usage_callback=self._usage_callback)
-        for event in loop.resume_with_approval(rt.state, approved=approved):
-            yield self._to_ws_event(event, rt)
-            usage_event = self._build_usage_event(rt)
-            if usage_event is not None:
-                yield usage_event
-
-    def resume_after_terminal_request(
-        self,
-        *,
-        runtime_id: str,
-        resume_message: str,
-        terminal_service,
-        authorization_id: str | None = None,
-    ) -> Iterator[dict]:
-        rt = self._by_runtime.get(runtime_id)
-        if rt is None:
-            raise ValueError("runtime not found")
-        rt.state.phase = "executing"
-        rt.state.context.default_authorization_id = authorization_id or self._latest_active_authorization_id(rt) or rt.state.context.default_authorization_id
-        rt.state.messages.append(LLMMessage(role="user", content=self._terminal_request_resume_prompt(rt, resume_message)))
-        loop = AgentLoop(tools=self._tools_factory(terminal_service), usage_callback=self._usage_callback)
-        for event in loop.run(rt.state):
-            yield self._to_ws_event(event, rt)
-            usage_event = self._build_usage_event(rt)
-            if usage_event is not None:
-                yield usage_event
-
-    def _terminal_request_resume_prompt(self, rt: RuntimeState, resume_message: str) -> str:
-        active_authorizations = [
-            authorization
-            for authorization in rt.terminal_authorizations.values()
-            if authorization.status == "active"
-        ]
-        authorization_lines = []
-        for authorization in active_authorizations:
-            authorization_lines.append(
-                "\n".join(
-                    [
-                        f"- {authorization.asset_name} (asset_id={authorization.asset_id}) authorization_id={authorization.authorization_id}",
-                        f"  Asset Type: {authorization.asset_type or 'unknown'}",
-                        f"  Shell: {authorization.shell_type}",
-                        f"  Operating System Type: {authorization.os_type}",
-                        f"  Execution Profile: {authorization.execution_profile}",
-                        f"  Device Vendor: {authorization.device_vendor or 'unknown'}",
-                        f"  Current Host Information: {authorization.asset_summary}",
-                        f"  Device Execution Rules:\n{authorization.device_context}" if authorization.device_context else "  Device Execution Rules: none",
-                    ]
-                )
-            )
-        authorization_summary = "\n".join(authorization_lines) if authorization_lines else "- None"
-        return (
-            f"Terminal request result: {resume_message}\n\n"
-            f"Original task: {rt.state.context.user_prompt}\n\n"
-            "Active terminal authorizations for this runtime:\n"
-            f"{authorization_summary}\n\n"
-            "Continue the original task. If the user requested additional assets that are not listed above, "
-            "request terminal access for those assets before executing commands or producing the final summary. "
-            "Use execute_command with the matching authorization_id for each authorized asset."
-        )
-
-    def _latest_active_authorization_id(self, rt: RuntimeState) -> str | None:
-        active_authorizations = [
-            authorization
-            for authorization in rt.terminal_authorizations.values()
-            if authorization.status == "active"
-        ]
-        if not active_authorizations:
-            return None
-        latest_authorization = max(active_authorizations, key=lambda authorization: authorization.created_at)
-        return latest_authorization.authorization_id
-
-    def _context_percent_for_tokens(self, token_count: int, model_config) -> int:
-        model_name = model_config.model_name.lower()
-        if "claude" in model_name:
-            context_window_tokens = 200_000
-        elif "gpt-4" in model_name or "gpt-5" in model_name:
-            context_window_tokens = 128_000
-        else:
-            context_window_tokens = 32_000
-        available_tokens = max(1, context_window_tokens - 4_000)
-        return min(100, max(0, round(token_count * 100 / available_tokens)))
-
-    def _context_status_for_percent(self, context_percent: int) -> Literal["normal", "warning", "critical"]:
-        if context_percent >= 90:
-            return "critical"
-        if context_percent >= 70:
-            return "warning"
-        return "normal"
-
-    def _build_usage_event(self, rt: RuntimeState) -> dict | None:
-        state = rt.state
-        if self._usage_callback is None:
-            return None
-        usage = getattr(state, "latest_usage", None)
-        if usage is None:
-            return None
-        context_percent = self._context_percent_for_tokens(int(usage.get("totalTokens") or 0), state.context.model_config)
-        state.latest_usage = None
-        rt.sequence += 1
-        rt.updated_at = self._now()
-        event = {
-            "id": f"evt-context-{uuid.uuid4().hex[:12]}",
-            "kind": "context_status",
-            "runtimeId": rt.runtime_id,
-            "sequence": rt.sequence,
-            "ts": self._now().isoformat(),
-            "contextPercent": context_percent,
-            "contextStatus": self._context_status_for_percent(context_percent),
-            "tokenUsage": usage,
-        }
-        rt.events.append(event)
-        return event
-
-    def _to_ws_event(self, event: LoopEvent, rt: RuntimeState) -> dict:
-        rt.sequence += 1
-        rt.updated_at = self._now()
-        kind = event.event_type.replace("loop_", "")
-        
-        if kind == "message_update":
-            # For message_update events, use the message's own id and spread
-            # all message fields at the top level for the frontend to consume.
-            ws_event = {
-                **event.payload,           # id, ts, type, text, partial, toolCall, etc.
-                "kind": kind,              # Override kind to "message_update" for transport
-                "runtimeId": event.runtime_id,
-                "sequence": rt.sequence,
-            }
-        else:
-            ws_event = {
-                "id": f"evt-{uuid.uuid4().hex[:12]}",
-                "kind": kind,
-                "runtimeId": event.runtime_id,
-                "sequence": rt.sequence,
-                "ts": self._now().isoformat(),
-                **event.payload,
-            }
-        
-        if event.message_id:
-            ws_event["messageId"] = event.message_id
-        if event.stage:
-            ws_event["stage"] = event.stage
-        if event.step_id:
-            ws_event["stepId"] = event.step_id
-
-        stored_event = dict(ws_event)
-        tool_call = stored_event.get("toolCall")
-        if isinstance(tool_call, dict) and "approvalToken" in tool_call:
-            stored_event["toolCall"] = {**tool_call, "approvalToken": None}
-        rt.events.append(stored_event)
-        return ws_event
+        with self._state_lock:
+            if self._terminal_slots.get(terminal_id) == runtime_id:
+                self._terminal_slots.pop(terminal_id, None)
 
 def new_runtime_id() -> str:
     return str(uuid.uuid4())

@@ -5,6 +5,7 @@ from functools import partial
 import json
 import re
 import logging
+import threading
 from typing import Any, Awaitable, Callable, TypeVar, cast
 
 import anyio
@@ -61,15 +62,16 @@ class TerminalService:
         self._filter_queues: dict[str, deque[str]] = {}
         self._command_event_buffers: dict[str, deque[tuple[int, dict[str, Any]]]] = {}
         self._command_event_sequences: dict[str, int] = {}
+        self._state_lock = threading.RLock()
 
     def _expire_detached_sessions(self) -> None:
         now = datetime.now(UTC)
         expired_ids: list[str] = []
-        for terminal_id, runtime in self._sessions.items():
-            if runtime.state != "detached" or runtime.last_detached_at is None:
-                continue
-            if now - runtime.last_detached_at >= self.SESSION_TTL:
-                expired_ids.append(terminal_id)
+        with self._state_lock:
+            for terminal_id, runtime in self._sessions.items():
+                if runtime.state == "detached" and runtime.last_detached_at is not None:
+                    if now - runtime.last_detached_at >= self.SESSION_TTL:
+                        expired_ids.append(terminal_id)
         for terminal_id in expired_ids:
             self.close_session(terminal_id)
 
@@ -93,16 +95,17 @@ class TerminalService:
             elif connector is not None:
                 connector.close()
             return {"terminal_id": None, "channel": None, "error": describe_ssh_proxy_error(exc)}
-        self._sessions[terminal_id] = TerminalSessionRuntime(session_manager=session_manager, state="created")
-        self._session_keys[terminal_id] = session_key
-        self._output_buffers[terminal_id] = deque(maxlen=4000)
-        self._output_buffer_sizes[terminal_id] = 0
-        self._output_sequences[terminal_id] = 0
-        self._output_filters[terminal_id] = {}
-        self._active_filter_ids[terminal_id] = None
-        self._filter_queues[terminal_id] = deque()
-        self._command_event_buffers[terminal_id] = deque(maxlen=8000)
-        self._command_event_sequences[terminal_id] = 0
+        with self._state_lock:
+            self._sessions[terminal_id] = TerminalSessionRuntime(session_manager=session_manager, state="created")
+            self._session_keys[terminal_id] = session_key
+            self._output_buffers[terminal_id] = deque(maxlen=4000)
+            self._output_buffer_sizes[terminal_id] = 0
+            self._output_sequences[terminal_id] = 0
+            self._output_filters[terminal_id] = {}
+            self._active_filter_ids[terminal_id] = None
+            self._filter_queues[terminal_id] = deque()
+            self._command_event_buffers[terminal_id] = deque(maxlen=8000)
+            self._command_event_sequences[terminal_id] = 0
         return {"terminal_id": terminal_id, "channel": "terminal connected", "error": ""}
 
     async def stream_session(self, terminal_id: str, websocket) -> None:
@@ -191,18 +194,16 @@ class TerminalService:
             await anyio.sleep(0.02)
 
     def close_session(self, terminal_id: str) -> bool:
-        runtime = self._sessions.pop(terminal_id, None)
-        if runtime is None:
-            return False
-        self._session_keys.pop(terminal_id, None)
-        self._output_buffers.pop(terminal_id, None)
-        self._output_buffer_sizes.pop(terminal_id, None)
-        self._output_sequences.pop(terminal_id, None)
-        self._output_filters.pop(terminal_id, None)
-        self._active_filter_ids.pop(terminal_id, None)
-        self._filter_queues.pop(terminal_id, None)
-        self._command_event_buffers.pop(terminal_id, None)
-        self._command_event_sequences.pop(terminal_id, None)
+        with self._state_lock:
+            runtime = self._sessions.pop(terminal_id, None)
+            if runtime is None:
+                return False
+            for store in (
+                self._session_keys, self._output_buffers, self._output_buffer_sizes,
+                self._output_sequences, self._output_filters, self._active_filter_ids,
+                self._filter_queues, self._command_event_buffers, self._command_event_sequences,
+            ):
+                store.pop(terminal_id, None)
         runtime.session_manager.close()
         return True
 
@@ -211,9 +212,10 @@ class TerminalService:
         return runtime.session_manager if runtime is not None else None
 
     def find_session_id(self, session_key: str) -> str | None:
-        for terminal_id, current_key in self._session_keys.items():
-            if current_key == session_key and terminal_id in self._sessions:
-                return terminal_id
+        with self._state_lock:
+            for terminal_id, current_key in self._session_keys.items():
+                if current_key == session_key and terminal_id in self._sessions:
+                    return terminal_id
         return None
 
     def session_belongs_to_asset(self, terminal_id: str, asset_id: int) -> bool:

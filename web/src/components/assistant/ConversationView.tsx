@@ -16,6 +16,7 @@ type ConversationViewProps = {
   onLoadOlder?: () => Promise<void>
   onApprove?: (allowPrefix?: string) => void
   onReject?: () => void
+  onApprovePlan?: (runtimeId: string) => void
   onTerminalRequestDecision?: (input: { runtimeId: string; requestId: string; approvalToken: string; approved: boolean }) => Promise<void>
 }
 
@@ -29,6 +30,7 @@ export function ConversationView({
   onLoadOlder,
   onApprove,
   onReject,
+  onApprovePlan,
   onTerminalRequestDecision,
 }: ConversationViewProps) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
@@ -87,7 +89,7 @@ export function ConversationView({
     <div className="relative flex flex-1 flex-col overflow-hidden" aria-label="Assistant Conversation">
       {latestPlanEvent?.mode === 'plan' ? (
         <div className="absolute right-4 top-3 z-30 w-[min(380px,calc(100%-2rem))]">
-          <PlanSummaryCard event={latestPlanEvent} />
+          <PlanSummaryCard event={latestPlanEvent} onApprovePlan={onApprovePlan} />
         </div>
       ) : null}
       <div ref={scrollContainerRef} className={`flex flex-1 flex-col gap-5 overflow-y-auto px-4 py-4 ${latestPlanEvent?.mode === 'plan' ? 'pt-20' : ''}`}>
@@ -168,7 +170,7 @@ export function ConversationView({
                           return null
                         }
 
-                        return <div key={entry.event.id} className="max-w-[560px]"><PlanSummaryCard event={entry.event} /></div>
+                        return <div key={entry.event.id} className="max-w-[560px]"><PlanSummaryCard event={entry.event} onApprovePlan={onApprovePlan} /></div>
                       }
 
                       return (
