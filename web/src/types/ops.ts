@@ -146,6 +146,7 @@ export type PlanEvent = {
   runtimeId?: string
   mode?: RunMode
   lockedPlan?: boolean
+  interrupted?: boolean
 }
 
 export type TerminalStreamKind = 'echo' | 'stdout' | 'stderr' | 'status'
@@ -253,6 +254,7 @@ export type RuntimeSummary = {
   assetId: number
   terminalId: string | null
   status: string
+  runState: string
   mode: RunMode
   planVersion: number
   lockedPlan: boolean
@@ -295,6 +297,7 @@ export type RuntimeSnapshot = {
   assetId: number
   terminalId: string | null
   status: string
+  runState: string
   mode: RunMode
   planVersion: number
   lockedPlan: boolean

@@ -98,6 +98,7 @@ class RuntimeExecutionMixin:
         with self._state_lock:
             self._by_runtime[context.runtime_id] = runtime
             self._by_conversation.setdefault(conversation_id, {})[context.runtime_id] = runtime
+        self._persist_runtime(runtime, run_state="queued")
         return state
 
     def get_runtime(self: Any, runtime_id: str) -> RuntimeState | None:
@@ -113,7 +114,7 @@ class RuntimeExecutionMixin:
     def events_since(self: Any, runtime_id: str, since: int) -> tuple[int, list[dict]]:
         runtime = self.get_runtime(runtime_id)
         if runtime is None:
-            raise ValueError("runtime not found")
+            return self._runtime_store.events_since(runtime_id, since)
         self._expire_terminal_requests(runtime)
         with self._state_lock:
             events = [event for event in runtime.events if int(event.get("sequence", 0)) > since]
@@ -122,41 +123,12 @@ class RuntimeExecutionMixin:
     def get_snapshot(self: Any, runtime_id: str) -> dict:
         runtime = self.get_runtime(runtime_id)
         if runtime is None:
-            raise ValueError("runtime not found")
+            snapshot = self._runtime_store.get_snapshot(runtime_id)
+            if snapshot is None:
+                raise ValueError("runtime not found")
+            return snapshot
         self._expire_terminal_requests(runtime)
-        state = runtime.state
-        current_step = state.get_current_step()
-        return {
-            "runtime_id": runtime.runtime_id,
-            "conversation_id": runtime.conversation_id,
-            "asset_id": runtime.asset_id,
-            "terminal_id": runtime.terminal_id,
-            "status": state.phase,
-            "loaded_skill_name": state.context.loaded_skill_name,
-            "mode": state.context.mode,
-            "plan_version": state.plan_version,
-            "locked_plan": state.locked_plan,
-            "steps": [self._step_view(step) for step in state.steps],
-            "current_step_id": current_step.step_id if current_step else None,
-            "pending_approval_step_id": state.pending_approval_step_id,
-            "last_output_excerpt": state.last_output_excerpt,
-            "summary": state.summary,
-            "error_message": state.error_message,
-            "terminal_requests": [
-                self._request_view(request, request.approval_token if request.user_decision_status == "pending" else None)
-                for request in runtime.terminal_requests.values()
-            ],
-            "terminal_authorizations": [
-                self._authorization_view(authorization)
-                for authorization in runtime.terminal_authorizations.values()
-            ],
-            "created_at": runtime.created_at,
-            "updated_at": runtime.updated_at,
-            "last_sequence": runtime.sequence,
-            "llm_calls": state.llm_calls,
-            "tool_calls": state.tool_calls,
-            "cancel_requested": state.cancel_requested,
-        }
+        return self._runtime_snapshot(runtime)
 
     def _step_view(self: Any, step: LoopRuntimeStep) -> dict[str, Any]:
         return {
@@ -197,9 +169,11 @@ class RuntimeExecutionMixin:
         if not runtime.execution_lock.acquire(blocking=False):
             raise RuntimeError("Runtime is already executing.")
         try:
+            self._persist_runtime(runtime, run_state="running")
             yield
         finally:
             runtime.execution_lock.release()
+            self._persist_runtime(runtime)
 
     def _iterate_loop(self: Any, runtime: RuntimeState, iterator: Iterator[LoopEvent]) -> Iterator[dict]:
         try:
@@ -410,43 +384,17 @@ class RuntimeExecutionMixin:
         if usage is None:
             return None
         state.latest_usage = None
-        runtime.sequence += 1
-        runtime.updated_at = self._now()
         percent = self._context_percent_for_tokens(int(usage.get("totalTokens") or 0), state.context.model_config)
-        event = {
-            "id": f"evt-context-{uuid.uuid4().hex[:12]}",
-            "kind": "context_status",
-            "runtimeId": runtime.runtime_id,
-            "sequence": runtime.sequence,
-            "ts": self._now().isoformat(),
+        return self._append_runtime_event(runtime, "context_status", {
             "contextPercent": percent,
             "contextStatus": self._context_status_for_percent(percent),
             "tokenUsage": usage,
-        }
-        runtime.events.append(event)
-        return event
+        })
 
     def _to_ws_event(self: Any, event: LoopEvent, runtime: RuntimeState) -> dict:
-        runtime.sequence += 1
-        runtime.updated_at = self._now()
         kind = event.event_type.replace("loop_", "")
-        if kind == "message_update":
-            payload = {**event.payload, "kind": kind, "runtimeId": event.runtime_id, "sequence": runtime.sequence}
-        else:
-            payload = {
-                "id": f"evt-{uuid.uuid4().hex[:12]}",
-                "kind": kind,
-                "runtimeId": event.runtime_id,
-                "sequence": runtime.sequence,
-                "ts": self._now().isoformat(),
-                **event.payload,
-            }
+        payload = dict(event.payload)
         for key, value in (("messageId", event.message_id), ("stage", event.stage), ("stepId", event.step_id)):
             if value:
                 payload[key] = value
-        stored = dict(payload)
-        tool_call = stored.get("toolCall")
-        if isinstance(tool_call, dict) and "approvalToken" in tool_call:
-            stored["toolCall"] = {**tool_call, "approvalToken": None}
-        runtime.events.append(stored)
-        return payload
+        return self._append_runtime_event(runtime, kind, payload)

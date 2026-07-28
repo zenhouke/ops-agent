@@ -25,6 +25,11 @@ type ConversationEventWindow = {
 function terminalSnapshotEvents(snapshot: RuntimeSnapshot | null): EventItem[] {
   if (!snapshot) return []
   return [
+    ...(snapshot.runState === 'interrupted' && snapshot.errorMessage ? [{
+      id: `snapshot:runtime-interrupted:${snapshot.runtimeId}`,
+      kind: 'error' as const,
+      text: snapshot.errorMessage,
+    }] : []),
     ...snapshot.terminalRequests.map((request): EventItem => ({
       id: `snapshot:terminal-request:${request.requestId}`,
       kind: 'terminal_session_request',
@@ -58,7 +63,19 @@ function terminalSnapshotEvents(snapshot: RuntimeSnapshot | null): EventItem[] {
 }
 
 function mergeSnapshotTerminalEvents(events: EventItem[], snapshot: RuntimeSnapshot | null): EventItem[] {
-  return terminalSnapshotEvents(snapshot).reduce((currentEvents, event) => upsertStreamEvent(currentEvents, event), normalizePlanEvents(events))
+  const snapshotEvents = terminalSnapshotEvents(snapshot)
+  const snapshotIds = new Set(snapshotEvents.map((event) => event.id))
+  const currentEvents = events
+    .filter((event) => !snapshotIds.has(event.id))
+    .map((event) => snapshot?.runState === 'interrupted'
+      && event.kind === 'plan'
+      && event.runtimeId === snapshot.runtimeId
+      ? { ...event, interrupted: true, lockedPlan: true, loading: false }
+      : event)
+  return snapshotEvents.reduce(
+    (nextEvents, event) => upsertStreamEvent(nextEvents, event),
+    normalizePlanEvents(currentEvents),
+  )
 }
 
 function mergePrependedEvents(olderEvents: EventItem[], currentEvents: EventItem[]): EventItem[] {

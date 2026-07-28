@@ -113,6 +113,7 @@ export type RuntimeSummaryDto = {
   asset_id: number
   terminal_id: string | null
   status: string
+  run_state: string
   mode: RunMode
   plan_version: number
   locked_plan: boolean
@@ -128,6 +129,7 @@ export type RuntimeSnapshotDto = {
   asset_id: number
   terminal_id: string | null
   status: string
+  run_state: string
   mode: RunMode
   plan_version: number
   locked_plan: boolean

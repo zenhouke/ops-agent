@@ -1,4 +1,4 @@
-import { type FormEvent, useCallback, useEffect, useState } from 'react'
+import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react'
 import {
   createModelConfig,
   deleteModelConfig,
@@ -52,6 +52,8 @@ export function useModelSettings({
   onModelOptionsChange,
   onSelectedModelChange,
 }: ModelSettingsOptions) {
+  const modelOptionsChangeRef = useRef(onModelOptionsChange)
+  modelOptionsChangeRef.current = onModelOptionsChange
   const [modelConfigs, setModelConfigs] = useState<ModelConfig[]>([])
   const [modelForm, setModelForm] = useState<ModelForm>(emptyModelForm)
   const [showModelForm, setShowModelForm] = useState(false)
@@ -68,11 +70,11 @@ export function useModelSettings({
     try {
       const models = await getModelConfigs()
       setModelConfigs(models)
-      onModelOptionsChange(models.map((config) => config.modelName))
+      modelOptionsChangeRef.current(models.map((config) => config.modelName))
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Failed to load models')
     }
-  }, [onModelOptionsChange])
+  }, [])
 
   useEffect(() => {
     void loadModels()

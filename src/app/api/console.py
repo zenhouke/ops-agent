@@ -143,27 +143,8 @@ async def run_console_agent(
 
 @router.get("/api/console/conversations/{conversation_id}/runtimes")
 def list_conversation_runtimes(conversation_id: str) -> list[RuntimeSummaryView]:
-    runtimes = _console_app_service.runtime_manager.list_runtimes(conversation_id)
-    summaries: list[RuntimeSummaryView] = []
-    for runtime in runtimes:
-        current_step = runtime.state.get_current_step()
-        summaries.append(
-            RuntimeSummaryView(
-                runtime_id=runtime.runtime_id,
-                conversation_id=runtime.conversation_id,
-                asset_id=runtime.asset_id,
-                terminal_id=runtime.terminal_id,
-                status=runtime.state.phase,
-                loaded_skill_name=runtime.state.context.loaded_skill_name,
-                mode=runtime.state.context.mode,
-                plan_version=runtime.state.plan_version,
-                locked_plan=runtime.state.locked_plan,
-                current_step_id=current_step.step_id if current_step else None,
-                pending_approval_step_id=runtime.state.pending_approval_step_id,
-                updated_at=runtime.updated_at,
-            )
-        )
-    return summaries
+    snapshots = _console_app_service.runtime_manager.list_runtime_snapshots(conversation_id)
+    return [RuntimeSummaryView.model_validate(snapshot) for snapshot in snapshots]
 
 
 @router.get("/api/console/runtimes/{runtime_id}/snapshot")

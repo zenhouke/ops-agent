@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 from typing import ClassVar
 
+from sqlalchemy import UniqueConstraint
 from sqlmodel import Field, SQLModel
 
 
@@ -140,3 +141,30 @@ class Alert(SQLModel, table=True):
     status: str = "unread"  # 'unread', 'resolved', 'ignored'
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class AgentRuntimeRecord(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "agent_runtimes"  # pyright: ignore[reportIncompatibleVariableOverride]
+    runtime_id: str = Field(primary_key=True)
+    conversation_id: str = Field(index=True)
+    asset_id: int
+    terminal_id: str | None = None
+    status: str
+    mode: str = "agent"
+    run_state: str = "queued"
+    sequence: int = 0
+    snapshot_json: str = "{}"
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC), index=True)
+
+
+class AgentRuntimeEventRecord(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "agent_runtime_events"  # pyright: ignore[reportIncompatibleVariableOverride]
+    __table_args__ = (UniqueConstraint("runtime_id", "sequence", name="uq_runtime_event_sequence"),)
+    id: int | None = Field(default=None, primary_key=True)
+    runtime_id: str = Field(index=True)
+    conversation_id: str = Field(index=True)
+    sequence: int = Field(index=True)
+    kind: str
+    payload_json: str
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), index=True)

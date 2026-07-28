@@ -130,6 +130,9 @@ class ConsoleAppService:
     def close(self) -> None:
         self._mcp_service.close()
 
+    def recover_persisted_runtimes(self) -> int:
+        return self.runtime_manager.recover_persisted_runtimes()
+
     def stream_run(
         self,
         *,

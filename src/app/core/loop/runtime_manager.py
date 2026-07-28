@@ -11,15 +11,17 @@ from app.core.connectors.device_profiles import select_device_profile, select_ex
 from app.core.connectors.execution_context import build_asset_summary, build_device_context, infer_os_type
 from app.core.loop.loop_state import LoopContext
 from app.core.loop.runtime_execution import RuntimeExecutionMixin
+from app.core.loop.runtime_persistence import RuntimePersistenceMixin
 from app.core.loop.runtime_models import (
     PendingTerminalRequest,
     RuntimeState,
     RuntimeTerminalAuthorization,
     TerminalAuthorizationStatus,
 )
+from app.services.runtime_store import RuntimeStore
 
 
-class LoopRuntimeManager(RuntimeExecutionMixin):
+class LoopRuntimeManager(RuntimeExecutionMixin, RuntimePersistenceMixin):
     COMPLETED_RUNTIME_TTL = timedelta(minutes=30)
 
     def __init__(self, *, tools_factory, usage_callback=None):
@@ -29,6 +31,7 @@ class LoopRuntimeManager(RuntimeExecutionMixin):
         self._by_conversation: dict[str, dict[str, RuntimeState]] = {}
         self._terminal_slots: dict[str, str] = {}
         self._state_lock = threading.RLock()
+        self._runtime_store = RuntimeStore()
 
     def _now(self) -> datetime:
         return datetime.now(UTC)
@@ -56,27 +59,6 @@ class LoopRuntimeManager(RuntimeExecutionMixin):
             for terminal_id, owner_runtime_id in list(self._terminal_slots.items()):
                 if owner_runtime_id == runtime_id:
                     self._terminal_slots.pop(terminal_id, None)
-
-    def _append_runtime_event(self, runtime: RuntimeState, kind: str, payload: dict[str, Any]) -> dict[str, Any]:
-        runtime.sequence += 1
-        runtime.updated_at = self._now()
-        event_id = str(uuid.uuid4())
-        occurred_at = runtime.updated_at.isoformat()
-        event = {
-            "id": event_id,
-            "kind": kind,
-            "eventId": event_id,
-            "runtimeId": runtime.runtime_id,
-            "sequence": runtime.sequence,
-            "ts": occurred_at,
-            "occurredAt": occurred_at,
-            **payload,
-        }
-        stored_event = dict(event)
-        if "approvalToken" in stored_event:
-            stored_event["approvalToken"] = None
-        runtime.events.append(stored_event)
-        return event
 
     def _authorization_context_from_asset(self, asset: Any, terminal_service: Any, terminal_id: str) -> dict[str, Any]:
         asset_type = str(getattr(asset, "asset_type", "") or "")

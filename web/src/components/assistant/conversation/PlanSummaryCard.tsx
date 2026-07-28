@@ -10,7 +10,7 @@ type PlanSummaryCardProps = {
 export function PlanSummaryCard({ event, onApprovePlan }: PlanSummaryCardProps) {
   const { t } = useAppearance()
   const isPlanMode = event.mode === 'plan'
-  const isWaitingApproval = isPlanMode && event.lockedPlan === false
+  const isWaitingApproval = isPlanMode && event.lockedPlan === false && !event.interrupted
   const [showSteps, setShowSteps] = useState(true)
   const visibleSteps = event.steps
   const totalSteps = visibleSteps.length
@@ -22,6 +22,8 @@ export function PlanSummaryCard({ event, onApprovePlan }: PlanSummaryCardProps) 
   const isPlanningEmpty = event.loading && totalSteps === 0
   const statusLabel = event.loading
     ? t('conversation.planning')
+    : event.interrupted
+      ? '运行已中断'
     : isWaitingApproval
       ? '等待操作员批准'
       : isPlanMode
@@ -50,7 +52,7 @@ export function PlanSummaryCard({ event, onApprovePlan }: PlanSummaryCardProps) 
                     <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
                       <path d="M5 3v18l15-9-15-9z" />
                     </svg>
-                    {isWaitingApproval ? '手动批准' : t('conversation.autoExecute')}
+                    {event.interrupted ? '已中断' : isWaitingApproval ? '手动批准' : t('conversation.autoExecute')}
                   </span>
                 ) : null}
               </div>
@@ -112,7 +114,7 @@ export function PlanSummaryCard({ event, onApprovePlan }: PlanSummaryCardProps) 
           <ol className="mt-3 flex max-h-[min(52vh,420px)] flex-col gap-1.5 overflow-y-auto pr-1">
             {visibleSteps.map((step, index) => {
               const isRunning = step.status === 'running'
-                || (!isWaitingApproval && runningStep === undefined && index === completedSteps && step.status === 'pending')
+                || (!event.interrupted && !isWaitingApproval && runningStep === undefined && index === completedSteps && step.status === 'pending')
               const itemClassName = step.status === 'completed'
                 ? 'border-ops-green/25 bg-ops-green/8 text-ops-green'
                 : isRunning

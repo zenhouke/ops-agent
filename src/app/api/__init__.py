@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
+import logging
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -26,6 +27,8 @@ from app.services.scheduler_service import get_scheduler_service
 from app.api.console import get_console_app_service
 from app.services.observability_service import configure_telemetry, shutdown_telemetry
 
+logger = logging.getLogger(__name__)
+
 
 @asynccontextmanager
 async def lifespan(_: FastAPI) -> AsyncIterator[None]:
@@ -33,6 +36,9 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     init_db()
     with Session(engine) as session:
         ensure_default_asset_group(session)
+    recovered = get_console_app_service().recover_persisted_runtimes()
+    if recovered:
+        logger.warning("Recovered %d interrupted agent runtimes after restart.", recovered)
     get_scheduler_service().start_loop()
     try:
         yield

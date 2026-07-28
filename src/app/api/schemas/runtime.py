@@ -132,6 +132,7 @@ class RuntimeSummaryView(BaseModel):
     asset_id: int
     terminal_id: str | None = None
     status: str
+    run_state: str = "queued"
     loaded_skill_name: str | None = None
     mode: str = "agent"
     plan_version: int = 1
@@ -149,6 +150,7 @@ class RuntimeSnapshotView(BaseModel):
     asset_id: int
     terminal_id: str | None = None
     status: str
+    run_state: str = "queued"
     loaded_skill_name: str | None = None
     mode: str = "agent"
     plan_version: int = 1
@@ -272,4 +274,3 @@ class SerialPortView(BaseModel):
     manufacturer: str | None = None
     product: str | None = None
     interface: str | None = None
-
