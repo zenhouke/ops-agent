@@ -324,7 +324,8 @@ class AgentLoop(PlanExecutionMixin, AgentLoopSupportMixin):
 
                 if action == "ask":
                     consistency: dict[str, Any] | None = None
-                    if tool_call.name == "execute_command":
+                    metadata = self._get_tool_display_metadata(handler, args)
+                    if metadata.extra.get("kind") == "command":
                         try:
                             consistency = self._build_approval_consistency(state, args, tool_call.id)
                         except ValueError as exc:

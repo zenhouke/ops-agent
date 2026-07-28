@@ -106,7 +106,15 @@ Startup scripts load `.env` from the repository root.
 | `OPS_AGENT_PROMPT_CACHE_ENABLED` | `true` | Enable prompt cache |
 | `OPS_AGENT_PROMPT_CACHE_TTL` | `ephemeral` | Prompt cache TTL |
 | `OPS_AGENT_PWSH_PATH` | auto-detect | Override PowerShell path on Windows |
+| `OPS_AGENT_INSTANCE_ID` | hostname | Stable unique worker ID used for runtime ownership |
+| `OPS_AGENT_RUNTIME_LEASE_SECONDS` | `300` | Runtime lease duration before another instance may recover it |
 | `VITE_API_BASE_URL` | empty | Frontend API base URL; dev mode uses Vite proxy by default |
+
+Operations plugins are declarative JSON manifests. Built-in manifests live in
+`src/app/plugins/builtin/`; local manifests can be placed at
+`.ops-agent/plugins/<plugin-id>/plugin.json`. Exposed tools are namespaced as
+`ops__<plugin>__<tool>` and all plugin commands go through the same terminal
+authorization and human approval flow as the built-in command tool.
 
 Local runtime data:
 

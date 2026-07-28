@@ -106,7 +106,14 @@ cd ..
 | `OPS_AGENT_PROMPT_CACHE_ENABLED` | `true` | 是否启用 prompt cache |
 | `OPS_AGENT_PROMPT_CACHE_TTL` | `ephemeral` | prompt cache TTL |
 | `OPS_AGENT_PWSH_PATH` | 自动探测 | Windows PowerShell 路径覆盖 |
+| `OPS_AGENT_INSTANCE_ID` | 主机名 | 运行所有权使用的稳定且唯一的工作实例 ID |
+| `OPS_AGENT_RUNTIME_LEASE_SECONDS` | `300` | 其他实例可以接管运行前的租约时长 |
 | `VITE_API_BASE_URL` | 空 | 前端 API 地址；开发模式默认通过 Vite 代理访问后端 |
+
+运维插件使用声明式 JSON manifest。内置插件位于
+`src/app/plugins/builtin/`，本地插件可以放在
+`.ops-agent/plugins/<plugin-id>/plugin.json`。工具以
+`ops__<plugin>__<tool>` 命名，插件命令和内置命令工具共用终端授权与人工审批流程。
 
 本地运行数据：
 

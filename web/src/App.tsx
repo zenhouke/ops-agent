@@ -1,12 +1,10 @@
-import { useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useEffect, useRef, useState } from 'react'
 import { Group as PanelGroup, Panel, Separator as PanelResizeHandle } from 'react-resizable-panels'
 import { AssetModals, type AssetModalsRef } from './components/assets/AssetModals'
 import { AssetSidebar } from './components/assets/AssetSidebar'
 import { AssistantPanel } from './components/assistant/AssistantPanel'
-import { KnowledgeDrawer } from './components/knowledge/KnowledgeDrawer'
 import { LoadingState } from './components/layout/LoadingState'
 import { TopBar } from './components/layout/TopBar'
-import { SettingsDialog } from './components/settings/SettingsDialog'
 import { TerminalPanel } from './components/terminal/TerminalPanel'
 import { useAgentRun } from './hooks/console/useAgentRun'
 import { useAssetCatalog } from './hooks/console/useAssetCatalog'
@@ -16,6 +14,13 @@ import { useConsolePageState } from './hooks/console/useConsolePageState'
 import { useTerminalSessions } from './hooks/console/useTerminalSessions'
 import { useAppearance } from './hooks/useAppearance'
 import { useKnowledgeBase } from './hooks/useKnowledgeBase'
+
+const KnowledgeDrawer = lazy(() => import('./components/knowledge/KnowledgeDrawer').then((module) => ({
+  default: module.KnowledgeDrawer,
+})))
+const SettingsDialog = lazy(() => import('./components/settings/SettingsDialog').then((module) => ({
+  default: module.SettingsDialog,
+})))
 
 export function App() {
   const { t } = useAppearance()
@@ -391,7 +396,7 @@ export function App() {
         onDeleteAsset={deleteAsset}
       />
 
-      <KnowledgeDrawer
+      {knowledgeDrawerOpen ? <Suspense fallback={null}><KnowledgeDrawer
         open={knowledgeDrawerOpen}
         conversationId={activeConversationId}
         selectedModel={selectedModel}
@@ -417,10 +422,10 @@ export function App() {
         onSaveDraft={saveKnowledgeDraft}
         onClearDraft={clearKnowledgeDraft}
         onDraftChange={setKnowledgeDraft}
-      />
+      /></Suspense> : null}
 
       {activeModal === 'settings' ? (
-        <SettingsDialog
+        <Suspense fallback={null}><SettingsDialog
           initialGroups={bootstrap.groups}
           sshKeys={bootstrap.sshKeys}
           assets={bootstrap.assets}
@@ -430,7 +435,7 @@ export function App() {
           onModelOptionsChange={replaceModelOptions}
           onSSHKeysChange={replaceSSHKeys}
           onClose={() => setActiveModal(null)}
-        />
+        /></Suspense>
       ) : null}
     </div>
   )

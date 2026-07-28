@@ -30,6 +30,7 @@ from app.utils.local_terminal_asset import build_local_terminal_asset
 from app.services.mcp_service import McpService
 from app.services.model_service import ModelService
 from app.services.observability_service import trace_detached_operation
+from app.services.ops_plugin_service import get_ops_plugin_service
 from app.services.skill_service import SkillService
 from app.services.terminal_service import TerminalService
 
@@ -48,17 +49,20 @@ class ConsoleAppService:
         self._model_service = model_service or ModelService()
         self._skill_service = skill_service or SkillService()
         self._mcp_service = mcp_service or McpService()
+        self._ops_plugin_service = get_ops_plugin_service()
         self.runtime_manager = LoopRuntimeManager(
             tools_factory=self._build_tool_handlers,
             usage_callback=self._record_model_usage,
         )
 
     def _build_tool_handlers(self, ts: TerminalService) -> list[Any]:
+        terminal = TerminalSessionAdapter(ts, self.runtime_manager)
         return [
             LoadSkillHandler(self._skill_service),
             ListAssetsHandler(),
             RequestTerminalSessionHandler(self.runtime_manager),
-            ExecuteCommandHandler(TerminalSessionAdapter(ts, self.runtime_manager)),
+            ExecuteCommandHandler(terminal),
+            *self._ops_plugin_service.build_tool_handlers(terminal),
             *self._mcp_service.build_tool_handlers(),
         ]
 

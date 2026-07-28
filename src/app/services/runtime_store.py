@@ -1,14 +1,17 @@
 from __future__ import annotations
 
 import json
+import os
 import uuid
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
-from sqlmodel import Session, select
+from sqlalchemy import or_
+from sqlmodel import Session, col, select
 
 from app.db.models import AgentRuntimeEventRecord, AgentRuntimeRecord
 from app.db.session import engine
+from app.services.instance_service import get_instance_info
 
 
 TERMINAL_RUN_STATES = {"terminal", "interrupted"}
@@ -34,6 +37,10 @@ def _decode(payload: str) -> dict[str, Any]:
 
 
 class RuntimeStore:
+    def __init__(self) -> None:
+        self._instance_id = get_instance_info().instance_id
+        self._lease_seconds = self._read_lease_seconds()
+
     def save_snapshot(self, snapshot: dict[str, Any], *, run_state: str) -> None:
         runtime_id = str(snapshot["runtime_id"])
         with Session(engine) as session:
@@ -47,6 +54,8 @@ class RuntimeStore:
                     status=str(snapshot["status"]),
                     mode=str(snapshot.get("mode") or "agent"),
                     run_state=run_state,
+                    owner_instance_id=self._instance_id,
+                    lease_expires_at=self._lease_expiry(run_state),
                     sequence=int(snapshot.get("last_sequence") or 0),
                     snapshot_json=_encode(snapshot),
                     created_at=self._as_datetime(snapshot.get("created_at")),
@@ -75,6 +84,8 @@ class RuntimeStore:
                     asset_id=int(snapshot["asset_id"]),
                     terminal_id=snapshot.get("terminal_id"),
                     status=str(snapshot["status"]),
+                    owner_instance_id=self._instance_id,
+                    lease_expires_at=self._lease_expiry(run_state),
                 )
             self._apply_snapshot(record, snapshot, run_state=run_state)
             session.add(record)
@@ -130,7 +141,13 @@ class RuntimeStore:
         with Session(engine) as session:
             records = session.exec(
                 select(AgentRuntimeRecord).where(
-                    AgentRuntimeRecord.run_state.not_in(TERMINAL_RUN_STATES)  # type: ignore[attr-defined]
+                    AgentRuntimeRecord.run_state.not_in(TERMINAL_RUN_STATES),  # type: ignore[attr-defined]
+                    or_(
+                        col(AgentRuntimeRecord.owner_instance_id) == self._instance_id,
+                        col(AgentRuntimeRecord.owner_instance_id) == "",
+                        col(AgentRuntimeRecord.lease_expires_at).is_(None),
+                        col(AgentRuntimeRecord.lease_expires_at) <= _now(),
+                    ),
                 )
             ).all()
             for record in records:
@@ -170,6 +187,7 @@ class RuntimeStore:
                 }
                 record.status = "failed"
                 record.run_state = "interrupted"
+                record.lease_expires_at = None
                 record.sequence = sequence
                 record.snapshot_json = _encode(snapshot)
                 record.updated_at = occurred_at
@@ -217,10 +235,24 @@ class RuntimeStore:
         record.status = str(snapshot["status"])
         record.mode = str(snapshot.get("mode") or "agent")
         record.run_state = run_state
+        record.owner_instance_id = self._instance_id
+        record.lease_expires_at = self._lease_expiry(run_state)
         record.sequence = int(snapshot.get("last_sequence") or 0)
         record.terminal_id = snapshot.get("terminal_id")
         record.snapshot_json = _encode(snapshot)
         record.updated_at = self._as_datetime(snapshot.get("updated_at"))
+
+    def _lease_expiry(self, run_state: str) -> datetime | None:
+        if run_state in TERMINAL_RUN_STATES:
+            return None
+        return _now() + timedelta(seconds=self._lease_seconds)
+
+    def _read_lease_seconds(self) -> int:
+        try:
+            configured = int(os.getenv("OPS_AGENT_RUNTIME_LEASE_SECONDS", "300"))
+        except ValueError:
+            configured = 300
+        return max(15, min(configured, 3600))
 
     def _as_datetime(self, value: object) -> datetime:
         if isinstance(value, datetime):

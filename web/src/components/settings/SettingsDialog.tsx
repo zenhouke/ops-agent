@@ -21,6 +21,7 @@ import { GroupsSection } from './GroupsSection'
 import { McpSection } from './McpSection'
 import { ModelsSection } from './ModelsSection'
 import { PermissionsSection } from './PermissionsSection'
+import { PluginsSection } from './PluginsSection'
 import { SchedulerSection } from './SchedulerSection'
 import type {
   GroupForm,
@@ -242,6 +243,7 @@ export function SettingsDialog({
     'sshKeys',
     'permissions',
     'skills',
+    'plugins',
     'mcp',
     'scheduler',
   ]
@@ -307,6 +309,8 @@ export function SettingsDialog({
               <PermissionsSection permissionsForm={permissionsForm} saving={saving.permissions} onFormChange={setPermissionsForm} onSave={savePermissions} />
             ) : activeSection === 'skills' ? (
               <SkillsSection skills={skills ?? []} loading={skillsLoading} error={skillsError} onRetry={() => void loadSkillPackages(true)} />
+            ) : activeSection === 'plugins' ? (
+              <PluginsSection />
             ) : activeSection === 'scheduler' ? (
               <SchedulerSection assets={assets} />
             ) : (

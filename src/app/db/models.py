@@ -152,6 +152,8 @@ class AgentRuntimeRecord(SQLModel, table=True):
     status: str
     mode: str = "agent"
     run_state: str = "queued"
+    owner_instance_id: str = Field(default="", index=True)
+    lease_expires_at: datetime | None = Field(default=None, index=True)
     sequence: int = 0
     snapshot_json: str = "{}"
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

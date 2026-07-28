@@ -42,6 +42,7 @@ export {
 } from './mcp'
 export type { MCPServerPayload, MCPServerUpdatePayload, MCPToolUpdatePayload } from './mcp'
 export { getSkills, mapSkillPackage } from './skills'
+export { getOpsPlugins } from './plugins'
 export { createSSHKey, deleteSSHKey, getSSHKeys, mapSSHKey, updateSSHKey } from './sshKeys'
 export type { SSHKeyPayload } from './sshKeys'
 export { getSerialPorts } from './system'

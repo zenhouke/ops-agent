@@ -109,6 +109,28 @@ export type SkillPackage = {
   bodySize: number
 }
 
+export type OpsPluginTool = {
+  name: string
+  exposedName: string
+  description: string
+  assetTypes: string[]
+  inputSchema: Record<string, unknown>
+}
+
+export type OpsPlugin = {
+  id: string
+  name: string
+  version: string
+  description: string
+  source: 'builtin' | 'local'
+  path: string
+  enabled: boolean
+  valid: boolean
+  error: string | null
+  updatedAt: string
+  tools: OpsPluginTool[]
+}
+
 export type { KnowledgeAssetRef, KnowledgeCommand, KnowledgeDraft, KnowledgeEntry, KnowledgeEntryPayload, KnowledgeGenerateDraftResponse, KnowledgeReindexResponse, KnowledgeSearchParams, KnowledgeSearchResponse, KnowledgeSourceConversation, KnowledgeSourceRef } from './knowledge'
 
 export type SessionRecord = {

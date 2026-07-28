@@ -13,6 +13,7 @@ from app.api.health import router as health_router
 from app.api.knowledge import router as knowledge_router
 from app.api.mcp import router as mcp_router
 from app.api.models import router as models_router
+from app.api.plugins import router as plugins_router
 from app.api.console import router as console_router
 from app.api.conversations import router as conversations_router
 from app.api.skills import router as skills_router
@@ -63,6 +64,7 @@ app.add_middleware(
 )
 app.include_router(health_router)
 app.include_router(models_router)
+app.include_router(plugins_router)
 app.include_router(mcp_router)
 app.include_router(assets_router)
 app.include_router(approval_router)
@@ -91,6 +93,7 @@ __all__ = [
     "lifespan",
     "mcp_router",
     "models_router",
+    "plugins_router",
     "skills_router",
     "ssh_keys_router",
     "system_router",

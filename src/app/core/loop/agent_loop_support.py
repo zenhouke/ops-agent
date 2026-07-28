@@ -115,7 +115,7 @@ class AgentLoopSupportMixin:
 
     def _approval_consistency_error(self: Any, state: LoopState) -> str | None:
         snapshot = state.pending_approval_consistency
-        if state.pending_tool_name != "execute_command" or not snapshot:
+        if not snapshot:
             return None
         args = state.pending_tool_args or {}
         handler = self._tools.get("execute_command")
@@ -171,7 +171,11 @@ class AgentLoopSupportMixin:
 
     def _is_missing_command(self: Any, handler: ToolHandler, args: dict[str, Any]) -> bool:
         metadata = self._get_tool_display_metadata(handler, args)
-        return metadata.extra.get("kind") == "command" and not str(args.get("command", "")).strip()
+        return (
+            metadata.extra.get("kind") == "command"
+            and handler.definition.name == "execute_command"
+            and not str(args.get("command", "")).strip()
+        )
 
     def _build_tool_call_payload(
         self: Any,

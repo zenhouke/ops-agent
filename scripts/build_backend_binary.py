@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import argparse
+import os
 import shutil
 import subprocess
 import sys
@@ -46,6 +47,8 @@ def main() -> None:
         "ops-agent-backend",
         "--paths",
         "src",
+        "--add-data",
+        f"{repo_root / 'src' / 'app' / 'plugins' / 'builtin'}{os.pathsep}app/plugins/builtin",
         "src/app/main.py",
     ]
     run(pyinstaller_cmd, repo_root)

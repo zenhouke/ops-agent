@@ -1,0 +1,39 @@
+{
+  "id": "linux-core",
+  "name": "Linux Core Diagnostics",
+  "version": "1.0.0",
+  "description": "Read-only host and service diagnostics for Linux operations.",
+  "enabled": true,
+  "tools": [
+    {
+      "name": "system-snapshot",
+      "description": "Collect kernel, uptime, memory and filesystem usage.",
+      "command": "uname -a; uptime; df -h; free -h",
+      "asset_types": ["local_terminal", "linux"],
+      "parameters": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      }
+    },
+    {
+      "name": "service-status",
+      "description": "Inspect a systemd service without changing its state.",
+      "command": "systemctl status --no-pager {service}",
+      "asset_types": ["local_terminal", "linux"],
+      "parameters": {
+        "type": "object",
+        "properties": {
+          "service": {
+            "type": "string",
+            "description": "systemd unit name",
+            "pattern": "[A-Za-z0-9_.@-]+",
+            "maxLength": 128
+          }
+        },
+        "required": ["service"],
+        "additionalProperties": false
+      }
+    }
+  ]
+}

@@ -3,13 +3,18 @@ import serial.tools.list_ports
 
 from app.api.schemas import SerialPortView
 from app.services.observability_service import get_observability_service
+from app.services.instance_service import get_instance_info
+from app.services.ops_plugin_service import get_ops_plugin_service
 
 router = APIRouter()
 
 
 @router.get("/api/system/runtime-health")
 def get_runtime_health() -> dict:
-    return get_observability_service().runtime_snapshot()
+    snapshot = get_observability_service().runtime_snapshot()
+    snapshot["instance"] = get_instance_info().as_payload()
+    snapshot["opsPlugins"] = get_ops_plugin_service().summary()
+    return snapshot
 
 
 @router.get("/api/system/serial-ports", response_model=list[SerialPortView])

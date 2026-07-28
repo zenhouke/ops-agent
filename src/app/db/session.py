@@ -30,6 +30,7 @@ def init_db() -> None:
     _ensure_asset_columns()
     _ensure_model_usage_columns()
     _ensure_scheduler_columns()
+    _ensure_runtime_columns()
 
 
 def _ensure_asset_columns() -> None:
@@ -95,6 +96,34 @@ def _ensure_scheduler_columns() -> None:
         for column_name, statement in statements.items():
             if column_name not in existing:
                 connection.execute(text(statement))
+
+
+def _ensure_runtime_columns() -> None:
+    inspector = inspect(engine)
+    if "agent_runtimes" not in inspector.get_table_names():
+        return
+    existing = {column["name"] for column in inspector.get_columns("agent_runtimes")}
+    statements = {
+        "owner_instance_id": (
+            "ALTER TABLE agent_runtimes "
+            "ADD COLUMN owner_instance_id VARCHAR NOT NULL DEFAULT ''"
+        ),
+        "lease_expires_at": (
+            "ALTER TABLE agent_runtimes ADD COLUMN lease_expires_at DATETIME"
+        ),
+    }
+    with engine.begin() as connection:
+        for column_name, statement in statements.items():
+            if column_name not in existing:
+                connection.execute(text(statement))
+        connection.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_agent_runtimes_owner_instance_id "
+            "ON agent_runtimes (owner_instance_id)"
+        ))
+        connection.execute(text(
+            "CREATE INDEX IF NOT EXISTS ix_agent_runtimes_lease_expires_at "
+            "ON agent_runtimes (lease_expires_at)"
+        ))
 
 
 def get_session() -> Generator[Session, None, None]:
