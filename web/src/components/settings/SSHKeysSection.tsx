@@ -4,8 +4,8 @@ import { useAppearance } from '../../hooks/useAppearance'
 export function SSHKeysSection({ sshKeys, sshKeyForm, showSSHKeyForm, editingSSHKey, saving, onStartCreate, onStartEdit, onStartDelete, onFormChange, onCancelForm, onSave }: SSHKeysSectionProps) {
   const { t } = useAppearance()
   return (
-    <section className="flex flex-col gap-8">
-      <div className="flex items-center justify-between pb-4 border-b border-ops-border/20">
+    <section className="flex flex-col gap-5">
+      <div className="flex items-center justify-between border-b border-ops-border/20 pb-3">
         <div>
           <h4 className="text-[14px] font-bold text-ops-text">{t('settings.sshKeysTitle')}</h4>
           <p className="text-[10px] font-medium text-ops-muted mt-1 tracking-wider opacity-60">{t('settings.sshKeysDescription')}</p>
@@ -14,7 +14,7 @@ export function SSHKeysSection({ sshKeys, sshKeyForm, showSSHKeyForm, editingSSH
       </div>
 
       {showSSHKeyForm ? (
-        <form className="bg-ops-deep/40 p-6 rounded-2xl border border-ops-border/20 flex flex-col gap-5 mt-2 animate-in slide-in-from-top-4 duration-300" onSubmit={onSave}>
+        <form className="flex flex-col gap-5 rounded-md border border-ops-border/30 bg-ops-deep/40 p-5" onSubmit={onSave}>
           <label className="flex flex-col gap-2 text-[11px] font-bold  tracking-widest text-ops-muted/70">
             {t('settings.keyIdentifier')}
             <input className="field-control" value={sshKeyForm.name} onChange={(event) => onFormChange({ ...sshKeyForm, name: event.target.value })} placeholder="e.g. ops-master-key" required />
@@ -38,19 +38,19 @@ export function SSHKeysSection({ sshKeys, sshKeyForm, showSSHKeyForm, editingSSH
         </form>
       ) : null}
 
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-1.5">
         {sshKeys.map((sshKey) => (
-          <article key={sshKey.id} className="flex items-center justify-between p-5 rounded-2xl bg-ops-panel/40 border border-ops-border/20 hover:border-ops-cyan/30 hover:bg-ops-panel/60 transition-all duration-300 group shadow-sm">
-            <div className="flex items-center gap-4">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-ops-deep border border-ops-border/20 text-ops-muted group-hover:text-ops-cyan group-hover:border-ops-cyan/30 transition-colors">
-                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><path d="M21 2l-2 2m-7.61 7.61a5.5 5.5 0 1 1-7.778 7.778 5.5 5.5 0 0 1 7.777-7.777zm0 0L15.5 7.5m0 0l3 3L22 7l-3-3L15.5 7.5z" /></svg>
+          <article key={sshKey.id} className="group flex items-center justify-between rounded-md border border-ops-border/25 bg-ops-panel/35 px-3 py-3 transition-all duration-200 hover:border-ops-text/20 hover:bg-ops-panel/60">
+            <div className="flex min-w-0 items-center gap-3">
+              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded border border-ops-border/30 bg-ops-deep text-ops-muted transition-colors group-hover:text-ops-text">
+                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round"><circle cx="8" cy="15" r="4" /><path d="m11 12 8-8M15 8l2 2M17 6l2 2" /></svg>
               </div>
-              <div className="flex flex-col gap-1">
-                <strong className="text-[13px] font-bold text-ops-text tracking-tight">{sshKey.name}</strong>
-                <span className="text-[10px] text-ops-muted font-mono opacity-60 truncate max-w-[400px]">{sshKey.publicKey.substring(0, 48)}...</span>
+              <div className="flex min-w-0 flex-col gap-1">
+                <strong className="truncate text-[12px] font-semibold text-ops-text">{sshKey.name}</strong>
+                <span className="max-w-[520px] truncate font-mono text-[9px] text-ops-muted/55">{sshKey.publicKey.substring(0, 64)}...</span>
               </div>
             </div>
-            <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all duration-200">
+            <div className="flex items-center gap-2 opacity-0 transition-all duration-200 group-hover:opacity-100 group-focus-within:opacity-100">
               <button type="button" className="button h-8 px-4 text-[10px]" onClick={() => onStartEdit(sshKey)}>{t('settings.update')}</button>
               <button type="button" className="button button-danger h-8 px-4 text-[10px]" onClick={() => onStartDelete(sshKey)}>{t('settings.revoke')}</button>
             </div>

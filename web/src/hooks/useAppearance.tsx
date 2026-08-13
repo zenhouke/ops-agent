@@ -13,8 +13,10 @@ export type ResolvedTheme = 'dark' | 'light'
 
 const LANGUAGE_STORAGE_KEY = 'ops-agent-language'
 const THEME_MODE_STORAGE_KEY = 'ops-agent-theme-mode'
+const APPEARANCE_VERSION_STORAGE_KEY = 'ops-agent-appearance-version'
+const CURRENT_APPEARANCE_VERSION = '2'
 const DEFAULT_LANGUAGE: Language = 'zh-CN'
-const DEFAULT_THEME_MODE: ThemeMode = 'system'
+const DEFAULT_THEME_MODE: ThemeMode = 'dark'
 
 interface AppearanceContextValue {
   language: Language
@@ -50,12 +52,20 @@ function getStoredThemeMode(): ThemeMode {
   }
 
   const storedThemeMode = window.localStorage.getItem(THEME_MODE_STORAGE_KEY)
+  const appearanceVersion = window.localStorage.getItem(APPEARANCE_VERSION_STORAGE_KEY)
+
+  // Version 1 defaulted to the host system theme. Migrate that inherited default to
+  // the desktop workbench's dark theme while preserving an explicit light choice.
+  if (appearanceVersion !== CURRENT_APPEARANCE_VERSION && storedThemeMode === 'system') {
+    return DEFAULT_THEME_MODE
+  }
+
   return isThemeMode(storedThemeMode) ? storedThemeMode : DEFAULT_THEME_MODE
 }
 
 function resolveSystemTheme(): ResolvedTheme {
   if (typeof window === 'undefined') {
-    return 'light'
+    return 'dark'
   }
 
   return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light'
@@ -93,6 +103,7 @@ export function AppearanceProvider({ children }: AppearanceProviderProps) {
 
   useEffect(() => {
     window.localStorage.setItem(THEME_MODE_STORAGE_KEY, themeMode)
+    window.localStorage.setItem(APPEARANCE_VERSION_STORAGE_KEY, CURRENT_APPEARANCE_VERSION)
   }, [themeMode])
 
   useEffect(() => {

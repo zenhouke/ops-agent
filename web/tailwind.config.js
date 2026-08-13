@@ -25,11 +25,11 @@ export default {
       },
       boxShadow: {
         glass: '0 8px 32px 0 rgba(0, 0, 0, 0.37), inset 0 1px 0 rgba(255, 255, 255, 0.05)',
-        glow: '0 0 20px rgba(6, 182, 212, 0.4)',
+        glow: '0 0 18px rgba(241, 245, 249, 0.16)',
         input: '0 4px 24px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.05)',
       },
       backgroundImage: {
-        'ops-landscape': "radial-gradient(circle at top, rgba(6, 182, 212, 0.05), transparent 30%), linear-gradient(to bottom, #151B28, #0B0F19)",
+        'ops-landscape': "radial-gradient(circle at top, rgba(255, 255, 255, 0.04), transparent 30%), linear-gradient(to bottom, #151515, #0A0A0A)",
       },
     },
   },

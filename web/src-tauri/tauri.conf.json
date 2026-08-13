@@ -29,9 +29,9 @@
       "icons/icon.icns",
       "icons/icon.ico"
     ],
-    "resources": [
-      "../bin"
-    ]
+    "resources": {
+      "../bin/ops-agent-backend": "bin/ops-agent-backend"
+    }
   },
   "plugins": {
     "updater": {

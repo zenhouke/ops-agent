@@ -21,48 +21,48 @@ function stripReplayControlSequences(value: string) {
 }
 
 const darkTerminalTheme: ITheme = {
-  background: 'rgb(11, 15, 25)',
-  foreground: 'rgb(241, 245, 249)',
+  background: 'rgb(5, 5, 5)',
+  foreground: 'rgb(238, 238, 238)',
   cursor: 'rgb(var(--ops-cyan))',
   selectionBackground: 'rgb(var(--ops-cyan) / 0.3)',
-  black: 'rgb(30, 41, 59)',
+  black: 'rgb(30, 30, 30)',
   red: 'rgb(var(--ops-danger))',
-  green: 'rgb(var(--ops-green))',
+  green: 'rgb(190, 190, 190)',
   yellow: 'rgb(var(--ops-warning))',
-  blue: 'rgb(59, 130, 246)',
-  magenta: 'rgb(139, 92, 246)',
+  blue: 'rgb(170, 170, 170)',
+  magenta: 'rgb(184, 184, 184)',
   cyan: 'rgb(var(--ops-cyan))',
   white: 'rgb(241, 245, 249)',
-  brightBlack: 'rgb(71, 85, 105)',
+  brightBlack: 'rgb(96, 96, 96)',
   brightRed: 'rgb(248, 113, 113)',
-  brightGreen: 'rgb(52, 211, 153)',
+  brightGreen: 'rgb(216, 216, 216)',
   brightYellow: 'rgb(251, 191, 36)',
-  brightBlue: 'rgb(96, 165, 250)',
-  brightMagenta: 'rgb(167, 139, 250)',
-  brightCyan: 'rgb(34, 211, 238)',
+  brightBlue: 'rgb(205, 205, 205)',
+  brightMagenta: 'rgb(220, 220, 220)',
+  brightCyan: 'rgb(232, 232, 232)',
   brightWhite: 'rgb(255, 255, 255)',
 }
 
 const lightTerminalTheme: ITheme = {
-  background: 'rgb(2, 6, 23)',
-  foreground: 'rgb(226, 232, 240)',
+  background: 'rgb(5, 5, 5)',
+  foreground: 'rgb(238, 238, 238)',
   cursor: 'rgb(var(--ops-cyan))',
   selectionBackground: 'rgb(var(--ops-cyan) / 0.22)',
   black: 'rgb(15, 23, 42)',
   red: 'rgb(var(--ops-danger))',
-  green: 'rgb(var(--ops-green))',
+  green: 'rgb(190, 190, 190)',
   yellow: 'rgb(var(--ops-warning))',
-  blue: 'rgb(37, 99, 235)',
-  magenta: 'rgb(124, 58, 237)',
+  blue: 'rgb(170, 170, 170)',
+  magenta: 'rgb(184, 184, 184)',
   cyan: 'rgb(var(--ops-cyan))',
   white: 'rgb(248, 250, 252)',
-  brightBlack: 'rgb(100, 116, 139)',
+  brightBlack: 'rgb(96, 96, 96)',
   brightRed: 'rgb(220, 38, 38)',
-  brightGreen: 'rgb(5, 150, 105)',
+  brightGreen: 'rgb(216, 216, 216)',
   brightYellow: 'rgb(217, 119, 6)',
-  brightBlue: 'rgb(29, 78, 216)',
-  brightMagenta: 'rgb(109, 40, 217)',
-  brightCyan: 'rgb(8, 145, 178)',
+  brightBlue: 'rgb(205, 205, 205)',
+  brightMagenta: 'rgb(220, 220, 220)',
+  brightCyan: 'rgb(232, 232, 232)',
   brightWhite: 'rgb(255, 255, 255)',
 }
 
@@ -263,7 +263,7 @@ export function TerminalOutput({ sessionKey, output, onInput, onResize }: Termin
   return (
     <div
       ref={containerRef}
-      className="relative flex-1 w-full overflow-hidden bg-slate-950 p-3 text-slate-100 shadow-[inset_0_1px_0_rgb(255_255_255/0.06)] focus:outline-none dark:bg-ops-deep dark:text-ops-text"
+      className="relative m-2 mt-0 flex-1 overflow-hidden border border-white/10 bg-black p-3 text-ops-text shadow-[inset_0_1px_0_rgb(255_255_255/0.035)] focus:outline-none"
       aria-label={t('terminal.session')}
       onMouseDown={() => {
         terminalRef.current?.focus()

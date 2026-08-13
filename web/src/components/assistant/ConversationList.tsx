@@ -1,6 +1,6 @@
+import { useMemo } from 'react'
 import { useAppearance } from '../../hooks/useAppearance'
 import type { ConversationSummary, EventItem } from '../../types/ops'
-import { formatDateTime } from '../../utils/dateTime'
 
 type ConversationRunBadge = {
   conversationId: string
@@ -16,17 +16,15 @@ type ConversationListProps = {
   onDelete: (conversationId: string) => void
 }
 
-const timeFormatter = new Intl.DateTimeFormat('en-US', {
-  month: '2-digit',
-  day: '2-digit',
-  hour: '2-digit',
-  minute: '2-digit',
-})
-
-type StatusMeta = { label: string; color: string }
+type StatusMeta = {
+  label: string
+  dotClassName: string
+  textClassName: string
+}
 
 type EventKind = EventItem['kind']
 type KnownEventKind = EventKind | 'approval' | 'output' | 'status'
+type GroupKey = 'today' | 'yesterday' | 'earlier'
 
 const KNOWN_EVENT_KIND_SET: ReadonlySet<KnownEventKind> = new Set<KnownEventKind>([
   'delta',
@@ -46,149 +44,164 @@ const KNOWN_EVENT_KIND_SET: ReadonlySet<KnownEventKind> = new Set<KnownEventKind
 ])
 
 function normalizeStatusKind(kind: string | null): KnownEventKind | null {
-  if (!kind) {
-    return null
-  }
+  if (!kind) return null
   return KNOWN_EVENT_KIND_SET.has(kind as KnownEventKind) ? (kind as KnownEventKind) : null
 }
 
-function getStatusMeta(kind: KnownEventKind | null): StatusMeta {
-  switch (kind) {
-    case 'approval_required':
-      return { label: 'Approving', color: 'text-ops-warning border-ops-warning/30 bg-ops-warning/10 shadow-glow' }
-    case 'approval_decision':
-      return { label: 'Decided', color: 'text-ops-cyan border-ops-cyan/30 bg-ops-cyan/10 shadow-glow' }
-    case 'error':
-      return { label: 'Error', color: 'text-ops-danger border-ops-danger/30 bg-ops-danger/10' }
-    case 'final':
-      return { label: 'Completed', color: 'text-ops-emerald border-ops-emerald/30 bg-ops-emerald/10 shadow-glow' }
-    case 'plan':
-      return { label: 'Planning', color: 'text-ops-cyan border-ops-cyan/30 bg-ops-cyan/10' }
-    case 'command_start':
-    case 'command_chunk':
-      return { label: 'Running', color: 'text-ops-cyan border-ops-cyan/40 bg-ops-cyan/10 shadow-glow' }
-    case 'command_end':
-      return { label: 'Executed', color: 'text-ops-muted border-ops-border/30 bg-ops-panel/50' }
-    case 'terminal_status':
-      return { label: 'Terminal', color: 'text-ops-muted border-ops-border/30 bg-ops-panel/50' }
-    case 'user':
-      return { label: 'User', color: 'text-ops-muted border-ops-border/30 bg-ops-panel/50' }
-    case 'delta':
-      return { label: 'Processing', color: 'text-ops-cyan border-ops-cyan/30 bg-ops-cyan/10' }
-    case 'approval':
-      return { label: 'Approving', color: 'text-ops-warning border-ops-warning/30 bg-ops-warning/10 shadow-glow' }
-    case 'output':
-      return { label: 'Result', color: 'text-ops-muted border-ops-border/30 bg-ops-panel/50' }
-    case 'status':
-      return { label: 'Updating', color: 'text-ops-cyan border-ops-cyan/30 bg-ops-cyan/10' }
-    default:
-      return { label: 'Empty', color: 'text-ops-muted border-ops-border/30 bg-ops-panel/40' }
-  }
+function startOfDay(value: Date) {
+  return new Date(value.getFullYear(), value.getMonth(), value.getDate()).getTime()
 }
 
-function getInitial(title: string) {
-  const trimmed = (title || '').trim()
-  if (!trimmed) return '·'
-  // Prioritize first character / letter / digit
-  const ch = Array.from(trimmed)[0]
-  return ch || '·'
-}
-
-function getRunBadgeMeta(run: ConversationRunBadge | null) {
-  if (!run) return null
-  if (run.status === 'needs_approval') return { label: '需审批', color: 'border-ops-warning/35 bg-ops-warning/10 text-ops-warning' }
-  if (run.status === 'completed') return { label: run.hasUnread ? '已完成' : '完成', color: 'border-ops-emerald/30 bg-ops-emerald/10 text-ops-emerald' }
-  if (run.status === 'failed') return { label: '失败', color: 'border-ops-danger/30 bg-ops-danger/10 text-ops-danger' }
-  return { label: run.hasUnread ? '有新输出' : '运行中', color: 'border-ops-cyan/35 bg-ops-cyan/10 text-ops-cyan' }
+function getGroupKey(value: string, todayStart: number): GroupKey {
+  const date = new Date(value)
+  if (Number.isNaN(date.getTime())) return 'earlier'
+  const dayDifference = Math.round((todayStart - startOfDay(date)) / 86_400_000)
+  if (dayDifference <= 0) return 'today'
+  if (dayDifference === 1) return 'yesterday'
+  return 'earlier'
 }
 
 export function ConversationList({ items, activeConversationId, backgroundRun, onSelect, onDelete }: ConversationListProps) {
-  const { t } = useAppearance()
+  const { language, t } = useAppearance()
+  const timeFormatter = useMemo(() => new Intl.DateTimeFormat(language, {
+    hour: '2-digit',
+    minute: '2-digit',
+  }), [language])
+  const dateTimeFormatter = useMemo(() => new Intl.DateTimeFormat(language, {
+    month: '2-digit',
+    day: '2-digit',
+    hour: '2-digit',
+    minute: '2-digit',
+  }), [language])
+  const todayStart = startOfDay(new Date())
+
+  const groupedItems = useMemo(() => {
+    const groups: Record<GroupKey, ConversationSummary[]> = { today: [], yesterday: [], earlier: [] }
+    items.forEach((item) => groups[getGroupKey(item.updatedAt, todayStart)].push(item))
+    return groups
+  }, [items, todayStart])
+
+  function getStatusMeta(item: ConversationSummary): StatusMeta {
+    const run = backgroundRun?.conversationId === item.id ? backgroundRun : null
+    if (run?.status === 'needs_approval') return { label: t('conversation.statusNeedsApproval'), dotClassName: 'bg-ops-warning', textClassName: 'text-ops-warning' }
+    if (run?.status === 'failed') return { label: t('conversation.statusFailed'), dotClassName: 'bg-ops-danger', textClassName: 'text-ops-danger' }
+    if (run?.status === 'running') return { label: run.hasUnread ? t('conversation.statusNewOutput') : t('conversation.statusRunning'), dotClassName: 'bg-ops-text', textClassName: 'text-ops-text' }
+    if (run?.status === 'completed') return { label: t('conversation.statusCompleted'), dotClassName: 'bg-ops-text/70', textClassName: 'text-ops-muted' }
+
+    switch (normalizeStatusKind(item.lastEventKind)) {
+      case 'approval_required':
+      case 'approval':
+        return { label: t('conversation.statusNeedsApproval'), dotClassName: 'bg-ops-warning', textClassName: 'text-ops-warning' }
+      case 'error':
+        return { label: t('conversation.statusFailed'), dotClassName: 'bg-ops-danger', textClassName: 'text-ops-danger' }
+      case 'final':
+        return { label: t('conversation.statusCompleted'), dotClassName: 'bg-ops-text/70', textClassName: 'text-ops-muted' }
+      case 'command_end':
+      case 'output':
+        return { label: t('conversation.statusExecuted'), dotClassName: 'bg-ops-text/70', textClassName: 'text-ops-muted' }
+      case 'command_start':
+      case 'command_chunk':
+      case 'delta':
+        return { label: t('conversation.statusRunning'), dotClassName: 'bg-ops-text', textClassName: 'text-ops-text' }
+      case 'plan':
+        return { label: t('conversation.statusPlanning'), dotClassName: 'bg-ops-text/70', textClassName: 'text-ops-muted' }
+      case 'user':
+        return { label: t('conversation.statusPending'), dotClassName: 'bg-ops-muted/55', textClassName: 'text-ops-muted/75' }
+      default:
+        return {
+          label: item.eventCount === 0 ? t('conversation.statusReady') : t('conversation.statusUpdated'),
+          dotClassName: 'bg-ops-muted/55',
+          textClassName: 'text-ops-muted/75',
+        }
+    }
+  }
+
+  const groupLabels: Record<GroupKey, string> = {
+    today: t('conversation.groupToday'),
+    yesterday: t('conversation.groupYesterday'),
+    earlier: t('conversation.groupEarlier'),
+  }
 
   return (
-    <div className="flex h-full flex-col bg-ops-bg" aria-label={t('conversation.list')}>
-      <div className="flex-1 overflow-y-auto p-2.5">
+    <div className="flex h-full flex-col bg-ops-bg" aria-label={t('conversation.taskHistory')}>
+      <div className="flex-1 overflow-y-auto px-2 pb-3 pt-1.5">
         {items.length > 0 ? (
-          <ul className="flex flex-col gap-1.5" role="list">
-            {items.map((item) => {
-              const isActive = item.id === activeConversationId
-              const status = getStatusMeta(normalizeStatusKind(item.lastEventKind))
-              const isUntitled = !item.title || item.title.trim() === '' || item.title.trim() === 'New'
-              const displayTitle = isUntitled ? t('conversation.untitledSession') : item.title
-              const runBadge = getRunBadgeMeta(backgroundRun?.conversationId === item.id ? backgroundRun : null)
+          (Object.keys(groupedItems) as GroupKey[]).map((groupKey) => {
+            const groupItems = groupedItems[groupKey]
+            if (groupItems.length === 0) return null
 
-              return (
-                <li key={item.id} className="group relative">
-                  <button
-                    type="button"
-                    className={`relative flex w-full items-start gap-3.5 overflow-hidden rounded-xl border px-4 py-4 text-left transition-all duration-300 active:scale-[0.98] ${isActive
-                        ? 'border-ops-cyan/40 bg-gradient-to-br from-ops-cyan/15 via-ops-cyan/5 to-transparent shadow-glow'
-                        : 'border-transparent bg-transparent hover:border-ops-border/30 hover:bg-ops-panel/40'
-                      }`}
-                    onClick={() => onSelect(item.id)}
-                    title={displayTitle}
-                  >
-                    {isActive ? (
-                      <span
-                        className="absolute inset-y-3 left-0 w-[4px] rounded-r-full bg-gradient-to-b from-ops-cyan via-ops-cyan/40 to-ops-cyan shadow-glow"
-                        aria-hidden="true"
-                      />
-                    ) : null}
+            return (
+              <section key={groupKey} className="mb-3" aria-labelledby={`conversation-group-${groupKey}`}>
+                <div className="flex h-7 items-center gap-2 px-2" id={`conversation-group-${groupKey}`}>
+                  <span className="text-[10px] font-semibold tracking-[0.08em] text-ops-muted/65">{groupLabels[groupKey]}</span>
+                  <span className="h-px flex-1 bg-ops-border/20" aria-hidden="true" />
+                </div>
+                <ul className="space-y-0.5" role="list">
+                  {groupItems.map((item) => {
+                    const isActive = item.id === activeConversationId
+                    const isUntitled = !item.title || item.title.trim() === '' || item.title.trim() === 'New'
+                    const displayTitle = isUntitled ? t('conversation.untitledTask') : item.title
+                    const status = getStatusMeta(item)
+                    const updatedDate = new Date(item.updatedAt)
+                    const formattedTime = Number.isNaN(updatedDate.getTime())
+                      ? item.updatedAt
+                      : (groupKey === 'earlier' ? dateTimeFormatter : timeFormatter).format(updatedDate)
 
-                    {/* Circle Initial Icon */}
-                    <div
-                      className={`mt-0.5 flex h-10 w-10 shrink-0 items-center justify-center rounded-xl text-sm font-bold tracking-tight shadow-sm transition-all duration-200 ${isActive
-                          ? 'border border-ops-cyan/50 bg-ops-cyan/20 text-ops-cyan shadow-glow'
-                          : 'border border-ops-border/30 bg-ops-deep text-ops-muted group-hover:border-ops-cyan/40 group-hover:text-ops-text'
-                        }`}
-                      aria-hidden="true"
-                    >
-                      {getInitial(displayTitle)}
-                    </div>
-
-                    <div className="min-w-0 flex-1">
-                      <div className="flex items-start justify-between gap-2">
-                        <h3
-                          className={`truncate text-[14px] font-bold leading-tight tracking-tight ${isActive ? 'text-ops-text shadow-sm' : 'text-ops-text/80'
-                            } ${isUntitled ? 'italic text-ops-text/40 font-medium' : ''}`}
+                    return (
+                      <li key={item.id} className="group relative">
+                        <button
+                          type="button"
+                          className={`relative w-full rounded-md border px-2.5 py-2.5 text-left transition-all duration-200 active:scale-[0.99] ${isActive
+                            ? 'border-ops-text/25 bg-ops-panel/80'
+                            : 'border-transparent hover:border-ops-border/30 hover:bg-ops-panel/45'
+                          }`}
+                          onClick={() => onSelect(item.id)}
+                          title={displayTitle}
                         >
-                          {displayTitle}
-                        </h3>
-                        {runBadge ? (
-                          <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[9px] font-black ${runBadge.color}`}>
-                            {runBadge.label}
-                          </span>
-                        ) : null}
-                      </div>
-
-                      <div className="mt-2 flex items-center gap-2 text-[10px] font-bold leading-none text-ops-muted">
-                        <span className="text-ops-border/40" aria-hidden="true">/</span>
-                        <span className="shrink-0 opacity-60">{formatDateTime(item.updatedAt, timeFormatter, item.updatedAt)}</span>
-          
-                      </div>
-                    </div>
-                  </button>
-                  <button
-                    type="button"
-                    className="absolute right-3 top-3 rounded-lg p-1.5 text-ops-muted opacity-0 transition-all duration-200 hover:bg-ops-danger/20 hover:text-ops-danger group-hover:opacity-100 focus:opacity-100 active:scale-90"
-                    onClick={(event) => {
-                      event.stopPropagation()
-                      onDelete(item.id)
-                    }}
-                    aria-label={t('conversation.deleteSession', { title: displayTitle })}
-                  >
-                    <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><path d="M18 6L6 18M6 6l12 12" /></svg>
-                  </button>
-                </li>
-              )
-            })}
-          </ul>
+                          <span className={`absolute bottom-2 left-0 top-2 w-0.5 rounded-r ${isActive ? 'bg-ops-text' : 'bg-transparent'}`} aria-hidden="true" />
+                          <div className="flex items-start gap-2 pr-5">
+                            <svg className={`mt-0.5 h-3.5 w-3.5 shrink-0 ${isActive ? 'text-ops-text' : 'text-ops-muted/55'}`} viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true">
+                              <path d="M6 3h9l3 3v15H6z" /><path d="M15 3v4h4M9 11h6M9 15h4" />
+                            </svg>
+                            <span className={`min-w-0 truncate text-[12px] leading-4 ${isActive ? 'font-semibold text-ops-text' : 'font-medium text-ops-text/82'}`}>
+                              {displayTitle}
+                            </span>
+                          </div>
+                          <div className="mt-2 flex min-w-0 items-center gap-1.5 pl-[22px] text-[9px] text-ops-muted/60">
+                            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${status.dotClassName}`} aria-hidden="true" />
+                            <span className={`shrink-0 font-medium ${status.textClassName}`}>{status.label}</span>
+                            <span aria-hidden="true">·</span>
+                            <time className="shrink-0" dateTime={item.updatedAt}>{formattedTime}</time>
+                            <span aria-hidden="true">·</span>
+                            <span className="truncate">{t('conversation.eventCount', { count: String(item.eventCount) })}</span>
+                          </div>
+                        </button>
+                        <button
+                          type="button"
+                          className="absolute right-1.5 top-1.5 rounded p-1 text-ops-muted opacity-0 transition-all duration-200 hover:bg-ops-danger/10 hover:text-ops-danger group-hover:opacity-100 focus:opacity-100 active:scale-95"
+                          onClick={(event) => {
+                            event.stopPropagation()
+                            onDelete(item.id)
+                          }}
+                          aria-label={t('conversation.deleteTask', { title: displayTitle })}
+                        >
+                          <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
+                        </button>
+                      </li>
+                    )
+                  })}
+                </ul>
+              </section>
+            )
+          })
         ) : (
-          <div className="rounded-2xl border border-dashed border-ops-border/20 bg-[linear-gradient(180deg,rgb(var(--ops-cyan)/0.06),rgb(var(--ops-panel)/0.46))] px-4 py-6 text-xs text-ops-muted">
-            <div className="flex flex-col gap-3">
-              <div className="inline-flex h-10 w-10 items-center justify-center rounded-xl border border-ops-cyan/15 bg-ops-cyan/10 text-ops-cyan text-lg font-black shadow-glow">+</div>
-              <div className="text-sm font-bold text-ops-text  tracking-widest">{t('conversation.noSessions')}</div>
-              <div className="leading-relaxed text-ops-muted font-medium">{t('conversation.noSessionsDescription')}</div>
+          <div className="flex h-full items-center justify-center px-5 text-center">
+            <div className="max-w-[190px]">
+              <div className="mx-auto mb-3 flex h-8 w-8 items-center justify-center rounded-md border border-ops-border/35 text-ops-muted" aria-hidden="true">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M6 3h9l3 3v15H6z" /><path d="M9 12h6" /></svg>
+              </div>
+              <div className="text-xs font-semibold text-ops-text">{t('conversation.noTasks')}</div>
+              <div className="mt-1.5 text-[10px] leading-5 text-ops-muted/70">{t('conversation.noTasksDescription')}</div>
             </div>
           </div>
         )}

@@ -79,25 +79,25 @@ export function ConversationView({
 
   if (events.length === 0) {
     return (
-      <div className="flex-1 overflow-y-auto p-4" aria-label="Assistant Conversation">
-        <EmptyState title="Ready to Start" description="Enter a task and execution logs, approval requests, and results will appear here." />
+      <div className="flex-1 overflow-y-auto p-3" aria-label="任务执行记录">
+        <EmptyState title="准备就绪" description="输入任务后，执行记录、审批请求和最终结果会显示在这里。" />
       </div>
     )
   }
 
   return (
-    <div className="relative flex flex-1 flex-col overflow-hidden" aria-label="Assistant Conversation">
-      {latestPlanEvent?.mode === 'plan' ? (
-        <div className="absolute right-4 top-3 z-30 w-[min(380px,calc(100%-2rem))]">
-          <PlanSummaryCard event={latestPlanEvent} onApprovePlan={onApprovePlan} />
-        </div>
-      ) : null}
-      <div ref={scrollContainerRef} className={`flex flex-1 flex-col gap-5 overflow-y-auto px-4 py-4 ${latestPlanEvent?.mode === 'plan' ? 'pt-20' : ''}`}>
+    <div className="relative flex flex-1 flex-col overflow-hidden" aria-label="任务执行记录">
+      <div ref={scrollContainerRef} className="mx-auto flex w-full max-w-[980px] flex-1 flex-col gap-2 overflow-y-auto px-5 py-4">
+        {latestPlanEvent?.mode === 'plan' ? (
+          <div className="mb-3 w-full border-b border-ops-border/20 pb-4">
+            <PlanSummaryCard event={latestPlanEvent} onApprovePlan={onApprovePlan} />
+          </div>
+        ) : null}
         {hasMoreBefore || hiddenTurnCount > 0 ? (
           <div className="flex justify-center">
             <button
               type="button"
-              className="rounded-xl border border-ops-border/30 bg-ops-panel/80 px-4 py-2 text-[11px] font-bold text-ops-muted transition hover:border-ops-cyan/40 hover:text-ops-cyan disabled:cursor-not-allowed disabled:opacity-50"
+              className="rounded-[4px] border border-ops-border/30 bg-ops-panel/80 px-3 py-1.5 text-[10px] font-semibold text-ops-muted transition hover:border-ops-cyan/40 hover:text-ops-cyan disabled:cursor-not-allowed disabled:opacity-50"
               disabled={isLoadingOlder || (!hasMoreBefore && hiddenTurnCount === 0)}
               onClick={() => {
                 if (hiddenTurnCount > 0) {
@@ -107,7 +107,7 @@ export function ConversationView({
                 void onLoadOlder?.()
               }}
             >
-              {isLoadingOlder ? 'Loading older content...' : hiddenTurnCount > 0 ? `Show older content (${hiddenTurnCount} turns hidden)` : 'Load older content'}
+              {isLoadingOlder ? '正在加载更早内容…' : hiddenTurnCount > 0 ? `显示更早内容（已隐藏 ${hiddenTurnCount} 轮）` : '加载更早内容'}
             </button>
           </div>
         ) : null}
@@ -116,7 +116,7 @@ export function ConversationView({
           const orderedAssistantGroups = sortAssistantGroups(turn.assistantGroups)
 
           return (
-            <div key={turn.id} className="flex flex-col gap-4">
+            <section key={turn.id} className="relative flex flex-col gap-2 border-l border-ops-border/25 pb-4 pl-5 before:absolute before:-left-[4px] before:top-2 before:h-[7px] before:w-[7px] before:rounded-full before:border before:border-ops-cyan/40 before:bg-ops-bg">
               {turn.userEvent ? (
                 <EventCard
                   event={turn.userEvent}
@@ -129,7 +129,7 @@ export function ConversationView({
               ) : null}
 
               {orderedAssistantGroups.length > 0 ? (
-                <div className="flex flex-col gap-4 w-full">
+                <div className="flex w-full flex-col gap-3">
                   {orderedAssistantGroups.map((entry, index) => {
                     const isLastGroupInTurn = index === orderedAssistantGroups.length - 1
 
@@ -190,7 +190,7 @@ export function ConversationView({
                   })}
                 </div>
               ) : null}
-            </div>
+            </section>
           )
         })}
       </div>

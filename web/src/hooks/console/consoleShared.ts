@@ -66,7 +66,7 @@ export function mergeEventsBySequence(events: EventItem[]): EventItem[] {
 export const defaultLocalTerminalAsset: Asset = {
   id: LOCAL_TERMINAL_ASSET_ID,
   groupId: null,
-  name: 'Local Terminal',
+  name: 'localhost',
   assetType: 'local_terminal',
   host: '',
   port: 0,

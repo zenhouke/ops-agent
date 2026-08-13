@@ -15,8 +15,8 @@ export function GroupsSection({
 }: GroupsSectionProps) {
   const { t } = useAppearance()
   return (
-    <div className="flex flex-col gap-8">
-      <div className="flex items-center justify-between pb-4 border-b border-ops-border/20">
+    <div className="flex flex-col gap-5">
+      <div className="flex items-center justify-between border-b border-ops-border/20 pb-3">
         <div>
           <h4 className="text-[14px] font-bold text-ops-text">{t('settings.groupsTitle')}</h4>
           <p className="text-[10px] font-medium text-ops-muted mt-1 tracking-wider opacity-60">{t('settings.groupsDescription')}</p>
@@ -25,7 +25,7 @@ export function GroupsSection({
       </div>
 
       {showGroupForm ? (
-        <form className="bg-ops-deep/40 p-6 rounded-2xl border border-ops-border/20 flex flex-col gap-5 mt-2 animate-in slide-in-from-top-4 duration-300" onSubmit={onSave}>
+        <form className="flex flex-col gap-5 rounded-md border border-ops-border/30 bg-ops-deep/40 p-5" onSubmit={onSave}>
           <label className="flex flex-col gap-2 text-[11px] font-bold  tracking-widest text-ops-muted/70">
             {t('settings.groupLabel')}
             <input className="field-control" value={groupForm.name} onChange={(event) => onFormChange({ ...groupForm, name: event.target.value })} placeholder={t('settings.groupLabelPlaceholder')} required />
@@ -42,9 +42,9 @@ export function GroupsSection({
       ) : null}
 
       {groups.length === 0 ? <div className="text-center py-10 text-ops-muted text-sm bg-ops-panel/20 rounded-lg border border-ops-border/10 border-dashed">{t('settings.noGroups')}</div> : null}
-      <div className="flex flex-col gap-3">
+      <div className="flex flex-col gap-1.5">
         {groups.map((group) => (
-          <article key={group.id} className="flex items-center justify-between p-5 rounded-2xl bg-ops-panel/40 border border-ops-border/20 hover:border-ops-cyan/30 hover:bg-ops-panel/60 transition-all duration-300 group shadow-sm">
+          <article key={group.id} className="group flex items-center justify-between rounded-md border border-ops-border/25 bg-ops-panel/35 px-3 py-3 transition-all duration-200 hover:border-ops-text/20 hover:bg-ops-panel/60">
             <div className="flex flex-col gap-1.5">
               <strong className="text-[13px] font-bold text-ops-text tracking-tight">{group.name}</strong>
               {group.description ? <span className="text-[10px] text-ops-muted font-bold  tracking-widest opacity-60">{group.description === '默认分组' ? t('settings.defaultGroup') : group.description}</span> : null}

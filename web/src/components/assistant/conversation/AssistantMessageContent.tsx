@@ -86,11 +86,10 @@ export function AssistantMessageContent({
   }
 
   return (
-    <article className="relative w-full overflow-hidden rounded-[24px] rounded-tl-md border border-ops-border/25 bg-[linear-gradient(145deg,rgb(var(--ops-panel)/0.82),rgb(var(--ops-deep)/0.74))] p-4 shadow-[0_18px_50px_rgb(var(--ops-bg)/0.22),inset_0_1px_0_rgb(var(--ops-text)/0.035)] backdrop-blur-md">
-      <div className="pointer-events-none absolute inset-y-4 left-0 w-px bg-gradient-to-b from-transparent via-ops-cyan/45 to-transparent" />
-      <div className="mb-3 flex items-center gap-2 text-[10px] font-black uppercase tracking-[0.16em] text-ops-muted/55">
-        <span className="flex h-5 w-5 items-center justify-center rounded-full border border-ops-cyan/18 bg-ops-cyan/8 text-[11px] text-ops-cyan">✦</span>
-        {t('conversation.agentResponse')}
+    <article className="relative w-full py-1">
+      <div className="mb-2 flex items-center gap-2 text-[10px] font-semibold text-ops-muted/65">
+        <span className="flex h-5 w-5 items-center justify-center rounded-[4px] border border-ops-cyan/20 bg-ops-cyan/8 text-[11px] text-ops-cyan">✦</span>
+        执行记录
         {isStreaming && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ops-cyan" />}
       </div>
 
@@ -99,7 +98,7 @@ export function AssistantMessageContent({
           <div className="flex flex-col gap-2">
             <button
               onClick={() => setIsThinkExpanded(!isThinkExpanded)}
-              className="flex w-fit items-center gap-2 rounded-full border border-ops-cyan/10 bg-ops-cyan/5 px-2.5 py-1 text-[10px] font-black uppercase tracking-[0.12em] text-ops-cyan/65 transition-colors hover:border-ops-cyan/25 hover:text-ops-cyan"
+              className="flex w-fit items-center gap-2 rounded-[4px] border border-ops-cyan/10 bg-ops-cyan/5 px-2.5 py-1 text-[10px] font-semibold text-ops-cyan/65 transition-colors hover:border-ops-cyan/25 hover:text-ops-cyan active:scale-95"
             >
               <div className={`flex h-4 w-4 items-center justify-center rounded-full border border-ops-cyan/25 bg-ops-deep/50 transition-transform duration-200 ${isThinkExpanded ? 'rotate-180' : ''}`}>
                 <svg width="8" height="8" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><path d="m6 9 6 6 6-6"/></svg>
@@ -109,7 +108,7 @@ export function AssistantMessageContent({
             </button>
 
             {isThinkExpanded && (
-              <div className="relative overflow-hidden rounded-2xl border border-ops-border/20 bg-ops-deep/45 px-4 py-3 text-[13px] leading-relaxed text-ops-muted/80 shadow-[inset_0_1px_0_rgba(255,255,255,0.025)] animate-in fade-in slide-in-from-top-1 duration-200">
+              <div className="relative overflow-hidden rounded-[4px] border border-ops-border/20 bg-ops-deep/45 px-4 py-3 text-[13px] leading-relaxed text-ops-muted/80 shadow-inner animate-in fade-in slide-in-from-top-1 duration-200">
                 <div className="absolute left-0 top-0 h-full w-0.5 bg-ops-cyan/30" />
                 <div className="prose prose-invert prose-sm max-w-none [&>*:first-child]:mt-0 [&>*:last-child]:mb-0 [&_p]:my-2 [&_code]:rounded [&_code]:bg-ops-deep [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:text-[11px] [&_pre]:my-3 [&_pre]:rounded-lg [&_pre]:bg-ops-deep [&_pre]:p-3 [&_pre>code]:text-[11px]">
                   <ReactMarkdown remarkPlugins={[remarkGfm]}>{parsed.thinking}</ReactMarkdown>

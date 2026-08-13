@@ -56,31 +56,43 @@ fn start_backend(app: &AppHandle) -> Option<Child> {
     }
 
     let cmd_path = backend_command_path(app);
+    eprintln!("starting backend from {}", cmd_path.display());
     let mut cmd = if cfg!(debug_assertions) {
         #[cfg(target_os = "windows")]
         {
             let mut c = Command::new("bash");
-            c.arg(cmd_path);
+            c.arg(&cmd_path);
             c
         }
         #[cfg(not(target_os = "windows"))]
         {
-            Command::new(cmd_path)
+            Command::new(&cmd_path)
         }
     } else {
-        Command::new(cmd_path)
+        Command::new(&cmd_path)
     };
 
     cmd.env("OPS_AGENT_BACKEND_PORT", port.to_string())
+        .env("OPS_AGENT_RELOAD", "false")
         .stdout(Stdio::null())
-        .stderr(Stdio::null());
+        .stderr(Stdio::inherit());
 
-    cmd.spawn().ok()
+    match cmd.spawn() {
+        Ok(child) => Some(child),
+        Err(error) => {
+            eprintln!("failed to start backend from {}: {error}", cmd_path.display());
+            None
+        }
+    }
 }
 
 #[tauri::command]
-fn backend_base_url() -> String {
-    format!("http://127.0.0.1:{}", backend_port())
+async fn backend_base_url() -> Result<String, String> {
+    let port = backend_port();
+    if !wait_backend_ready(port).await {
+        return Err(format!("backend did not become ready on port {port}"));
+    }
+    Ok(format!("http://127.0.0.1:{port}"))
 }
 
 #[tokio::main]
@@ -98,7 +110,9 @@ async fn main() {
 
             let port = backend_port();
             tauri::async_runtime::spawn(async move {
-                let _ = wait_backend_ready(port).await;
+                if !wait_backend_ready(port).await {
+                    eprintln!("backend did not become ready on port {port}");
+                }
             });
             Ok(())
         })

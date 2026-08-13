@@ -54,7 +54,7 @@ export function AssetList({ assets, groups, selectedAssetId, onSelectAsset, onEd
 
         return (
           <section key={groupKey} className="mb-1" aria-label={group.label}>
-            <h3 className="border-y border-ops-border/20 bg-ops-bg/30 px-5 py-2 text-[10px] font-bold  tracking-[0.15em] text-ops-muted/60">{group.label}</h3>
+            <h3 className="border-y border-ops-border/20 bg-ops-bg/35 px-3 py-1.5 text-[9px] font-bold tracking-[0.1em] text-ops-muted/65">{group.label}</h3>
             <ul className="flex flex-col list-none m-0 p-0">
               {groupAssets.map((asset) => {
                 const selected = asset.id === selectedAssetId
@@ -62,7 +62,7 @@ export function AssetList({ assets, groups, selectedAssetId, onSelectAsset, onEd
 
                 return (
                   <li key={asset.id} className="relative group">
-                    <div className={`relative flex items-center transition-all duration-200 ${selected ? 'bg-ops-cyan/5 shadow-[inset_4px_0_0_0_rgb(var(--ops-cyan))]' : 'hover:bg-ops-panel/40'} ${menuOpen ? 'bg-ops-panel/80' : ''}`}>
+                    <div className={`relative flex items-center transition-all duration-200 ${selected ? 'bg-ops-cyan/5 shadow-[inset_2px_0_0_0_rgb(var(--ops-cyan))]' : 'hover:bg-ops-panel/40'} ${menuOpen ? 'bg-ops-panel/80' : ''}`}>
                       <ListItemCard
                         title={asset.name}
                         meta={getAssetMeta(asset, t('assets.localSystem'))}
@@ -76,7 +76,7 @@ export function AssetList({ assets, groups, selectedAssetId, onSelectAsset, onEd
 
                       <button
                         type="button"
-                        className={`absolute right-3 p-1.5 rounded-md transition-all duration-200 z-10 active:scale-90 ${menuOpen ? 'opacity-100 bg-ops-cyan/20 text-ops-cyan shadow-glow' : 'opacity-0 group-hover:opacity-100 text-ops-muted hover:text-ops-cyan hover:bg-ops-cyan/10'
+                        className={`absolute right-2 rounded-[4px] p-1.5 transition-all duration-200 z-10 active:scale-90 ${menuOpen ? 'opacity-100 bg-ops-cyan/15 text-ops-cyan' : 'opacity-0 group-hover:opacity-100 text-ops-muted hover:text-ops-cyan hover:bg-ops-cyan/10'
                           }`}
                         aria-label={t('assets.operations', { name: asset.name })}
                         onClick={(event) => {
@@ -93,10 +93,10 @@ export function AssetList({ assets, groups, selectedAssetId, onSelectAsset, onEd
                     </div>
 
                     {menuOpen ? (
-                      <div className="absolute right-3 top-10 z-20 w-40 overflow-hidden rounded-xl border border-ops-border/40 bg-ops-panel shadow-2xl backdrop-blur-md animate-in fade-in zoom-in duration-200" role="menu" aria-label={t('assets.operations', { name: asset.name })}>
+                      <div className="absolute right-2 top-8 z-20 w-40 overflow-hidden rounded-[5px] border border-ops-border/45 bg-ops-panel shadow-xl backdrop-blur-md animate-in fade-in zoom-in duration-200" role="menu" aria-label={t('assets.operations', { name: asset.name })}>
                         <button
                           type="button"
-                          className="w-full text-left px-4 py-2.5 text-[11px] font-bold  tracking-wider text-ops-text hover:bg-ops-cyan hover:text-ops-bg transition-all flex items-center gap-3"
+                          className="flex w-full items-center gap-2.5 px-3 py-2 text-left text-[11px] font-bold tracking-wide text-ops-text transition-all duration-200 hover:bg-ops-cyan hover:text-ops-bg active:scale-95"
                           role="menuitem"
                           onClick={() => {
                             onEditAsset?.(asset)
@@ -108,7 +108,7 @@ export function AssetList({ assets, groups, selectedAssetId, onSelectAsset, onEd
                         </button>
                         <button
                           type="button"
-                          className="w-full text-left px-4 py-2.5 text-[11px] font-bold  tracking-wider text-ops-danger hover:bg-ops-danger hover:text-ops-deep transition-all flex items-center gap-3 border-t border-ops-border/20"
+                          className="flex w-full items-center gap-2.5 border-t border-ops-border/20 px-3 py-2 text-left text-[11px] font-bold tracking-wide text-ops-danger transition-all duration-200 hover:bg-ops-danger hover:text-ops-deep active:scale-95"
                           role="menuitem"
                           onClick={() => {
                             onDeleteAssetConfirm?.(asset)

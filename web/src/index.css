@@ -44,29 +44,29 @@
 
 :root,
 :root[data-theme='dark'] {
-  --ops-bg: 11 15 25;
-  --ops-panel: 21 27 40;
-  --ops-strong: 30 41 59;
-  --ops-deep: 5 8 15;
-  --ops-border: 51 65 85;
-  --ops-text: 241 245 249;
-  --ops-muted: 148 163 184;
-  --ops-green: 16 185 129;
-  --ops-cyan: 6 182 212;
+  --ops-bg: 10 10 10;
+  --ops-panel: 20 20 20;
+  --ops-strong: 38 38 38;
+  --ops-deep: 5 5 5;
+  --ops-border: 72 72 72;
+  --ops-text: 245 245 245;
+  --ops-muted: 156 156 156;
+  --ops-green: 214 214 214;
+  --ops-cyan: 232 232 232;
   --ops-warning: 245 158 11;
   --ops-danger: 239 68 68;
 }
 
 :root[data-theme='light'] {
-  --ops-bg: 241 245 249;
+  --ops-bg: 244 244 244;
   --ops-panel: 255 255 255;
-  --ops-strong: 226 232 240;
-  --ops-deep: 248 250 252;
-  --ops-border: 148 163 184;
-  --ops-text: 15 23 42;
-  --ops-muted: 71 85 105;
-  --ops-green: 5 150 105;
-  --ops-cyan: 8 145 178;
+  --ops-strong: 226 226 226;
+  --ops-deep: 250 250 250;
+  --ops-border: 148 148 148;
+  --ops-text: 18 18 18;
+  --ops-muted: 76 76 76;
+  --ops-green: 48 48 48;
+  --ops-cyan: 30 30 30;
   --ops-warning: 217 119 6;
   --ops-danger: 220 38 38;
 }
@@ -78,16 +78,124 @@
 }
 
 @layer components {
+  .desktop-app-shell {
+    @apply flex h-screen w-screen flex-col overflow-hidden bg-ops-bg text-ops-text;
+    background-image:
+      linear-gradient(rgb(var(--ops-text) / 0.012) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(var(--ops-text) / 0.01) 1px, transparent 1px);
+    background-size: 32px 32px;
+  }
+
+  .desktop-title-bar {
+    @apply relative z-50 flex h-9 shrink-0 select-none items-center justify-between border-b border-ops-border/35 bg-ops-deep px-3;
+    box-shadow: inset 0 -1px 0 rgb(0 0 0 / 0.32);
+  }
+
+  .desktop-title-button {
+    @apply inline-flex h-7 items-center gap-1.5 rounded-[5px] border border-transparent px-2 text-[10px] font-semibold text-ops-muted transition-all duration-200 hover:border-ops-border/40 hover:bg-ops-panel hover:text-ops-text active:scale-95;
+  }
+
+  .activity-rail {
+    @apply relative z-30 flex h-full w-12 shrink-0 flex-col border-r border-ops-border/35 bg-ops-deep;
+    box-shadow: inset -1px 0 0 rgb(0 0 0 / 0.22);
+  }
+
+  .activity-rail-button {
+    @apply relative flex h-10 w-10 items-center justify-center rounded-[4px] border border-transparent text-ops-muted/60 transition-all duration-200 hover:bg-ops-panel hover:text-ops-text active:scale-95;
+  }
+
+  .activity-rail-button svg {
+    @apply h-[18px] w-[18px] fill-none stroke-current;
+    stroke-width: 2;
+    stroke-linecap: round;
+    stroke-linejoin: round;
+  }
+
+  .activity-rail-button-active {
+    @apply bg-ops-cyan/10 text-ops-cyan;
+  }
+
+  .activity-rail-button-active::before {
+    content: '';
+    @apply absolute -left-1 h-6 w-0.5 rounded-r bg-ops-cyan;
+  }
+
+  .desktop-icon-button {
+    @apply inline-flex h-6 w-6 items-center justify-center rounded-[4px] border border-transparent text-ops-muted transition-all duration-200 hover:border-ops-border/40 hover:bg-ops-panel hover:text-ops-text active:scale-95;
+  }
+
+  .desktop-context-bar {
+    @apply flex h-9 shrink-0 items-center gap-3 border-b border-ops-border/30 bg-ops-panel/70 px-3 backdrop-blur-md;
+    box-shadow: inset 0 -1px 0 rgb(0 0 0 / 0.18);
+  }
+
+  .desktop-breadcrumb-muted {
+    @apply text-[10px] font-medium text-ops-muted/55;
+  }
+
+  .desktop-breadcrumb-strong {
+    @apply text-[10px] font-semibold text-ops-muted;
+  }
+
+  .desktop-breadcrumb-separator {
+    @apply text-[10px] text-ops-border;
+  }
+
+  .desktop-context-chip {
+    @apply inline-flex h-6 min-w-0 items-center gap-1.5 rounded-[4px] border border-ops-border/30 bg-ops-deep/55 px-2 text-[9px] font-medium text-ops-muted;
+  }
+
+  .desktop-toolbar-button {
+    @apply inline-flex h-6 items-center gap-1.5 rounded-[4px] border border-ops-border/35 bg-ops-deep/50 px-2 text-[9px] font-semibold text-ops-muted transition-all duration-200 hover:border-ops-cyan/40 hover:text-ops-text active:scale-95;
+  }
+
+  .desktop-toolbar-button-active {
+    @apply border-ops-cyan/35 bg-ops-cyan/10 text-ops-cyan;
+  }
+
+  .desktop-kbd {
+    @apply rounded-[3px] border border-ops-border/30 bg-ops-bg/60 px-1 font-mono text-[8px] font-normal text-ops-muted/65;
+  }
+
+  .desktop-status-bar {
+    @apply relative z-40 flex h-6 shrink-0 select-none items-center border-t border-ops-border/35 bg-ops-deep text-[9px] text-ops-muted;
+    box-shadow: inset 0 1px 0 rgb(255 255 255 / 0.015);
+  }
+
+  .desktop-status-primary {
+    @apply flex h-full items-center gap-1.5 border-r border-ops-border/25 bg-ops-cyan/10 px-2.5 font-medium text-ops-cyan;
+  }
+
+  .desktop-status-item {
+    @apply flex h-full min-w-0 items-center gap-1.5 border-r border-ops-border/20 px-2.5;
+  }
+
+  .desktop-resize-handle {
+    @apply relative z-10 flex w-1 cursor-col-resize items-center justify-center bg-ops-deep transition-colors duration-200 hover:bg-ops-cyan/30;
+  }
+
+  .desktop-resize-handle-horizontal {
+    @apply relative z-10 flex h-1 cursor-row-resize items-center justify-center bg-ops-deep transition-colors duration-200 hover:bg-ops-cyan/30;
+  }
+
+  .desktop-resize-handle-horizontal .desktop-resize-grip {
+    @apply h-px w-10;
+  }
+
+  .desktop-resize-grip {
+    @apply h-10 w-px bg-ops-border/50 transition-colors duration-200 group-hover:bg-ops-cyan;
+  }
+
   .field-control {
-    @apply rounded-xl border border-ops-border/40 bg-ops-deep text-ops-text px-4 py-2.5
+    @apply rounded-md border border-ops-border/40 bg-ops-deep text-ops-text px-3 py-2
       shadow-[inset_0_1px_0_rgba(255,255,255,0.02)] transition-all duration-200
       placeholder:text-ops-muted/40 text-[13px] font-medium
       focus:outline-none focus:border-ops-cyan/50 focus:ring-1 focus:ring-ops-cyan/20 focus:shadow-glow;
   }
 
   .button {
-    @apply inline-flex items-center justify-center rounded-xl border border-ops-border/40
-      bg-ops-panel px-5 py-2.5 text-[13px] font-bold  tracking-wider text-ops-text transition-all duration-200
+    @apply inline-flex items-center justify-center rounded-md border border-ops-border/40
+      bg-ops-panel px-3 py-2 text-[12px] font-semibold tracking-normal text-ops-text transition-all duration-200
       hover:border-ops-border/60 hover:bg-ops-panel/80 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40;
   }
 
@@ -110,7 +218,7 @@
   }
 
   .button-mini {
-    @apply inline-flex items-center justify-center rounded-lg border border-ops-border/30
+    @apply inline-flex items-center justify-center rounded-[4px] border border-ops-border/30
       bg-ops-deep/40 px-2.5 py-1 text-[10px] font-bold tracking-tight text-ops-text transition-all duration-200
       hover:border-ops-border/60 hover:bg-ops-panel/80 active:scale-95 disabled:cursor-not-allowed disabled:opacity-40;
   }
@@ -134,15 +242,15 @@
   }
 
   .chat-bubble {
-    @apply relative p-3 rounded-2xl text-sm shadow-sm transition-all duration-200 border;
+    @apply relative rounded-md border p-3 text-sm transition-all duration-200;
   }
 
   .chat-bubble-assistant {
-    @apply bg-ops-panel border-ops-border/20 text-ops-text self-start rounded-tl-none mr-12;
+    @apply self-start border-ops-border/20 bg-ops-panel text-ops-text mr-12;
   }
 
   .chat-bubble-agent {
-    @apply bg-ops-cyan/10 border-ops-cyan/30 text-ops-text self-start rounded-tl-none mr-12;
+    @apply self-start border-ops-cyan/25 bg-ops-cyan/5 text-ops-text mr-12;
   }
 
   .chat-bubble-status {
@@ -152,6 +260,42 @@
   .chat-bubble-error {
     @apply bg-ops-danger/10 border-ops-danger/30 text-ops-danger self-center max-w-[90%];
   }
+}
+
+.task-terminal-separator {
+  position: relative;
+  width: 7px;
+  flex: 0 0 7px;
+  background: rgb(var(--ops-bg));
+  cursor: col-resize;
+  outline: none;
+}
+
+.task-terminal-separator::before {
+  content: '';
+  position: absolute;
+  inset: 0 3px;
+  background: rgb(var(--ops-border) / 0.4);
+  transition: background-color 160ms ease, inset 160ms ease;
+}
+
+.task-terminal-separator:hover::before,
+.task-terminal-separator:focus-visible::before,
+.task-terminal-separator[data-resize-handle-active]::before {
+  inset: 0 2px;
+  background: rgb(var(--ops-text) / 0.45);
+}
+
+.task-terminal-separator-grip {
+  position: absolute;
+  left: 2px;
+  top: 50%;
+  z-index: 1;
+  height: 28px;
+  width: 3px;
+  transform: translateY(-50%);
+  border-radius: 999px;
+  background: rgb(var(--ops-muted) / 0.32);
 }
 
 /* Scrollbar styling */

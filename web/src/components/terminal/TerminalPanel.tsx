@@ -1,10 +1,8 @@
-import { PanelCard } from '../layout/PanelCard'
 import type { Asset } from '../../types/ops'
 import { TerminalHeader } from './TerminalHeader'
 import { TerminalOutput } from './TerminalOutput'
 
 type TerminalPanelProps = {
-  asset: Asset
   tabs: Asset[]
   activeAssetId: number
   output: string
@@ -16,10 +14,12 @@ type TerminalPanelProps = {
   onClear: () => void
   onCopy: () => void
   onReconnect: () => void
+  focused: boolean
+  onToggleFocus: () => void
+  onClose: () => void
 }
 
 export function TerminalPanel({
-  asset,
   tabs,
   activeAssetId,
   output,
@@ -31,11 +31,13 @@ export function TerminalPanel({
   onClear,
   onCopy,
   onReconnect,
+  focused,
+  onToggleFocus,
+  onClose,
 }: TerminalPanelProps) {
   return (
-    <div className="h-full w-full border-l border-ops-border/25 bg-slate-50/70 shadow-[inset_1px_0_0_rgb(255_255_255/0.65)] flex flex-col overflow-hidden dark:border-ops-border/40 dark:bg-ops-deep dark:shadow-inner">
+    <section className="flex h-full w-full flex-col overflow-hidden bg-black shadow-inner" aria-label="终端面板">
       <TerminalHeader
-        asset={asset}
         tabs={tabs}
         activeAssetId={activeAssetId}
         busyCommand={busyCommand}
@@ -44,8 +46,11 @@ export function TerminalPanel({
         onClear={onClear}
         onCopy={onCopy}
         onReconnect={onReconnect}
+        focused={focused}
+        onToggleFocus={onToggleFocus}
+        onClose={onClose}
       />
       <TerminalOutput sessionKey={String(activeAssetId)} output={output} onInput={onInput} onResize={onResize} />
-    </div>
+    </section>
   )
 }

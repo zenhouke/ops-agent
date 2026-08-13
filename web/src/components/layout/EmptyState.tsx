@@ -5,14 +5,14 @@ type EmptyStateProps = {
 
 export function EmptyState({ title, description }: EmptyStateProps) {
   return (
-    <div className="relative flex min-h-full flex-col items-center justify-center overflow-hidden rounded-[28px] border border-ops-border/15 bg-[radial-gradient(circle_at_50%_16%,rgb(var(--ops-cyan)/0.13),transparent_32%),linear-gradient(180deg,rgb(var(--ops-panel)/0.46),rgb(var(--ops-deep)/0.68))] p-8 text-center" role="status">
-      <div className="pointer-events-none absolute inset-8 rounded-full border border-ops-cyan/5" />
-      <div className="pointer-events-none absolute h-44 w-44 rounded-full bg-ops-cyan/5 blur-3xl" />
-      <div className="relative mb-5 flex h-16 w-16 items-center justify-center rounded-[22px] border border-ops-cyan/20 bg-[radial-gradient(circle_at_top,rgb(var(--ops-cyan)/0.24),rgb(var(--ops-panel)/0.64))] text-2xl text-ops-cyan shadow-[0_16px_45px_rgb(var(--ops-cyan)/0.16)]" aria-hidden="true">
-        ✦
+    <div className="flex min-h-full items-center justify-center p-8 text-center" role="status">
+      <div className="flex max-w-[340px] flex-col items-center">
+        <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-lg border border-ops-border/55 bg-ops-panel/40 text-sm text-ops-muted" aria-hidden="true">
+          _
+        </div>
+        <h3 className="mb-2 text-sm font-semibold tracking-wide text-ops-text">{title}</h3>
+        <p className="text-xs leading-6 text-ops-muted/78">{description}</p>
       </div>
-      <h3 className="relative mb-2 text-sm font-black uppercase tracking-[0.14em] text-ops-text">{title}</h3>
-      <p className="relative max-w-[320px] text-xs leading-6 text-ops-muted/78">{description}</p>
     </div>
   )
 }
