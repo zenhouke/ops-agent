@@ -58,17 +58,17 @@
 }
 
 :root[data-theme='light'] {
-  --ops-bg: 244 244 244;
-  --ops-panel: 255 255 255;
-  --ops-strong: 226 226 226;
-  --ops-deep: 250 250 250;
-  --ops-border: 148 148 148;
-  --ops-text: 18 18 18;
-  --ops-muted: 76 76 76;
-  --ops-green: 48 48 48;
-  --ops-cyan: 30 30 30;
-  --ops-warning: 217 119 6;
-  --ops-danger: 220 38 38;
+  --ops-bg: 243 242 239;
+  --ops-panel: 250 249 247;
+  --ops-strong: 232 230 225;
+  --ops-deep: 247 246 243;
+  --ops-border: 203 200 193;
+  --ops-text: 32 32 32;
+  --ops-muted: 115 113 108;
+  --ops-green: 74 106 82;
+  --ops-cyan: 52 52 50;
+  --ops-warning: 176 120 48;
+  --ops-danger: 178 68 68;
 }
 
 @layer base {

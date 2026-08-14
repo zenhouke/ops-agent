@@ -119,7 +119,7 @@ export function EventCard({ event, onTerminalRequestDecision, settledTerminalReq
           <svg aria-hidden="true" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><circle cx="12" cy="12" r="10" /><line x1="15" y1="9" x2="9" y2="15" /><line x1="9" y1="9" x2="15" y2="15" /></svg>
           <span className="text-[10px] font-bold tracking-[0.1em]">{t('conversation.accessDenied')}</span>
         </div>
-        <p className="m-0 whitespace-pre-wrap rounded-[4px] border border-ops-danger/20 bg-black/60 p-2.5 font-mono text-[12px] leading-relaxed text-ops-text/80 shadow-inner">{event.command || event.text}</p>
+        <p className="m-0 whitespace-pre-wrap rounded-[4px] border border-ops-danger/20 bg-ops-deep/80 p-2.5 font-mono text-[12px] leading-relaxed text-ops-text/80 shadow-inner">{event.command || event.text}</p>
       </div>
     )
   }

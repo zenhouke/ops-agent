@@ -234,7 +234,7 @@ export function CommandExecutionCard({
         <div className="mt-3 flex flex-col gap-3 border-t border-ops-border/20 pt-3 animate-in fade-in slide-in-from-top-1 duration-200">
           <div className="flex flex-col gap-1.5">
             <span className="text-[9px] font-black uppercase tracking-[0.16em] text-ops-muted/48">{isCommandTool ? t('conversation.commandPayload') : t('conversation.toolArgs')}</span>
-            <code className="block whitespace-pre-wrap break-all rounded-[4px] border border-ops-border/30 bg-black/60 px-3 py-2.5 font-mono text-[12px] leading-relaxed text-ops-text/90 shadow-inner">
+            <code className="block whitespace-pre-wrap break-all rounded-[4px] border border-ops-border/30 bg-ops-deep/80 px-3 py-2.5 font-mono text-[12px] leading-relaxed text-ops-text/90 shadow-inner">
               {isCommandTool ? displayCommand : argsJson}
             </code>
           </div>

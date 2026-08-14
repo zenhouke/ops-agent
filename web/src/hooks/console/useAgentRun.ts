@@ -5,6 +5,7 @@ import { flushDeltaBuffer, LOCAL_TERMINAL_ASSET_ID, mergeEventsBySequence, PENDI
 import {
   createDeltaBatcher,
   derivePendingApprovalState,
+  getRunErrorMessage,
   isAbortError,
   type BackgroundRunState,
   type UseAgentRunProps,
@@ -90,6 +91,7 @@ export function useAgentRun({
     setLoadError(null)
 
     let conversationId = activeConversationId
+    let deltaBatcher: ReturnType<typeof createDeltaBatcher> | null = null
 
     try {
       if (backgroundRun && backgroundRun.status !== 'completed' && backgroundRun.status !== 'failed' && backgroundRun.conversationId !== activeConversationId) {
@@ -146,7 +148,7 @@ export function useAgentRun({
       )
 
       const deltaBuffer = new Map<string, string>()
-      const deltaBatcher = createDeltaBatcher({
+      deltaBatcher = createDeltaBatcher({
         setEvents,
         isActive: () => activeConversationIdRef.current === conversationId,
       })
@@ -257,25 +259,32 @@ export function useAgentRun({
         setActiveRuntimeId(null)
       }
     } catch (error) {
+      deltaBatcher?.cancel()
+      setActiveRuntimeId(null)
+      setPendingApprovalRuntimeId(null)
+      setPendingApprovalToken(null)
       if (intentionalCancellationRef.current || isAbortError(error)) {
         setBackgroundRun((currentRun) => currentRun?.conversationId === conversationId
           ? { ...currentRun, status: 'failed' }
           : currentRun)
         return
       }
-      const errorMessage = error instanceof Error ? error.message : 'Failed to run agent.'
-      if (!conversationId || activeConversationIdRef.current === conversationId) {
+      const errorMessage = getRunErrorMessage(error)
+      if (!conversationId) {
         setLoadError(errorMessage)
       }
 
       if (conversationId) {
         setBackgroundRun((currentRun) => currentRun?.conversationId === conversationId ? { ...currentRun, status: 'failed', hasUnread: activeConversationIdRef.current !== conversationId } : currentRun)
+        const errorEvent: EventItem = {
+          id: `error-${Date.now()}`,
+          kind: 'error',
+          text: errorMessage,
+        }
+        if (activeConversationIdRef.current === conversationId) {
+          setEvents((currentEvents) => upsertStreamEvent(currentEvents, errorEvent))
+        }
         try {
-          const errorEvent: EventItem = {
-            id: `error-${Date.now()}`,
-            kind: 'error',
-            text: errorMessage,
-          }
           const response = await appendConversationEvents(conversationId, [errorEvent])
           upsertConversationSummary(response.conversation)
           await syncConversationRuntimes(conversationId)

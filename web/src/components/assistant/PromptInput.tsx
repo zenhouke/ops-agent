@@ -201,7 +201,7 @@ export function PromptInput({
             className={`absolute bottom-2 right-2 flex h-7 w-7 shrink-0 items-center justify-center rounded-[4px] border transition-all duration-200 active:scale-95 ${isRunning
               ? 'border-ops-danger/45 bg-ops-danger text-white hover:bg-ops-danger/85'
               : prompt.trim() && !blockedRun
-              ? 'border-ops-cyan/45 bg-ops-cyan text-ops-deep hover:bg-cyan-300'
+              ? 'border-ops-cyan/45 bg-ops-cyan text-ops-deep hover:bg-ops-cyan/85'
               : 'cursor-not-allowed border-ops-border/20 bg-ops-panel/70 text-ops-muted/25'
               }`}
             type="button"
@@ -260,7 +260,7 @@ export function PromptInput({
                       onClick={() => onRunModeChange(mode)}
                       className={`inline-flex items-center gap-1.5 rounded-[4px] border px-2.5 py-1 text-[9px] font-semibold tracking-[0.06em] transition-all duration-200 active:scale-95 ${isActive
                         ? mode === 'agent'
-                          ? 'border-ops-cyan/35 bg-ops-cyan/16 text-ops-cyan shadow-[0_0_18px_rgba(6,182,212,0.16)]'
+                          ? 'border-ops-cyan/35 bg-ops-cyan/16 text-ops-cyan shadow-[0_0_18px_rgb(var(--ops-cyan)/0.16)]'
                           : 'border-ops-green/35 bg-ops-green/15 text-ops-green shadow-[0_0_18px_rgba(16,185,129,0.14)]'
                         : 'border-transparent text-ops-muted/55 hover:bg-ops-panel/80 hover:text-ops-text'
                         }`}

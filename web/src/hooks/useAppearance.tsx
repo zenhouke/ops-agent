@@ -13,17 +13,25 @@ export type ResolvedTheme = 'dark' | 'light'
 
 const LANGUAGE_STORAGE_KEY = 'ops-agent-language'
 const THEME_MODE_STORAGE_KEY = 'ops-agent-theme-mode'
+const TERMINAL_BACKGROUND_STORAGE_KEY = 'ops-agent-terminal-background'
 const APPEARANCE_VERSION_STORAGE_KEY = 'ops-agent-appearance-version'
 const CURRENT_APPEARANCE_VERSION = '2'
 const DEFAULT_LANGUAGE: Language = 'zh-CN'
 const DEFAULT_THEME_MODE: ThemeMode = 'dark'
+export const DEFAULT_TERMINAL_BACKGROUND = '#111110'
+export const LIGHT_TERMINAL_BACKGROUND = '#F3F2EF'
+type TerminalBackgroundSetting = 'follow' | string
 
 interface AppearanceContextValue {
   language: Language
   themeMode: ThemeMode
   resolvedTheme: ResolvedTheme
+  terminalBackground: string
+  terminalBackgroundFollowsTheme: boolean
   setLanguage: (language: Language) => void
   setThemeMode: (themeMode: ThemeMode) => void
+  setTerminalBackground: (color: string) => void
+  resetTerminalBackground: () => void
   t: (key: TranslationKey, values?: Record<string, string>) => string
 }
 
@@ -35,6 +43,11 @@ function isLanguage(value: string | null): value is Language {
 
 function isThemeMode(value: string | null): value is ThemeMode {
   return value === 'system' || value === 'dark' || value === 'light'
+}
+
+export function normalizeHexColor(value: string | null) {
+  const normalized = value?.trim().toUpperCase() ?? ''
+  return /^#[0-9A-F]{6}$/.test(normalized) ? normalized : null
 }
 
 function getStoredLanguage(): Language {
@@ -63,6 +76,21 @@ function getStoredThemeMode(): ThemeMode {
   return isThemeMode(storedThemeMode) ? storedThemeMode : DEFAULT_THEME_MODE
 }
 
+function getStoredTerminalBackground(): TerminalBackgroundSetting {
+  if (typeof window === 'undefined') {
+    return 'follow'
+  }
+  const stored = window.localStorage.getItem(TERMINAL_BACKGROUND_STORAGE_KEY)
+  if (!stored || stored === 'follow') {
+    return 'follow'
+  }
+  if (stored.startsWith('custom:')) {
+    return normalizeHexColor(stored.slice(7)) ?? 'follow'
+  }
+  const legacyColor = normalizeHexColor(stored)
+  return legacyColor && legacyColor !== DEFAULT_TERMINAL_BACKGROUND ? legacyColor : 'follow'
+}
+
 function resolveSystemTheme(): ResolvedTheme {
   if (typeof window === 'undefined') {
     return 'dark'
@@ -78,6 +106,7 @@ interface AppearanceProviderProps {
 export function AppearanceProvider({ children }: AppearanceProviderProps) {
   const [language, setLanguageState] = useState<Language>(getStoredLanguage)
   const [themeMode, setThemeModeState] = useState<ThemeMode>(getStoredThemeMode)
+  const [terminalBackgroundSetting, setTerminalBackgroundSetting] = useState<TerminalBackgroundSetting>(getStoredTerminalBackground)
   const [systemTheme, setSystemTheme] = useState<ResolvedTheme>(resolveSystemTheme)
 
   useEffect(() => {
@@ -95,6 +124,10 @@ export function AppearanceProvider({ children }: AppearanceProviderProps) {
   }, [])
 
   const resolvedTheme: ResolvedTheme = themeMode === 'system' ? systemTheme : themeMode
+  const terminalBackgroundFollowsTheme = terminalBackgroundSetting === 'follow'
+  const terminalBackground = terminalBackgroundFollowsTheme
+    ? resolvedTheme === 'light' ? LIGHT_TERMINAL_BACKGROUND : DEFAULT_TERMINAL_BACKGROUND
+    : terminalBackgroundSetting
 
   useEffect(() => {
     window.localStorage.setItem(LANGUAGE_STORAGE_KEY, language)
@@ -110,12 +143,30 @@ export function AppearanceProvider({ children }: AppearanceProviderProps) {
     document.documentElement.dataset.theme = resolvedTheme
   }, [resolvedTheme])
 
+  useEffect(() => {
+    const storedValue = terminalBackgroundSetting === 'follow'
+      ? 'follow'
+      : `custom:${terminalBackgroundSetting}`
+    window.localStorage.setItem(TERMINAL_BACKGROUND_STORAGE_KEY, storedValue)
+  }, [terminalBackgroundSetting])
+
   const setLanguage = useCallback((nextLanguage: Language) => {
     setLanguageState(nextLanguage)
   }, [])
 
   const setThemeMode = useCallback((nextThemeMode: ThemeMode) => {
     setThemeModeState(nextThemeMode)
+  }, [])
+
+  const setTerminalBackground = useCallback((color: string) => {
+    const normalized = normalizeHexColor(color)
+    if (normalized) {
+      setTerminalBackgroundSetting(normalized)
+    }
+  }, [])
+
+  const resetTerminalBackground = useCallback(() => {
+    setTerminalBackgroundSetting('follow')
   }, [])
 
   const t = useCallback(
@@ -125,8 +176,19 @@ export function AppearanceProvider({ children }: AppearanceProviderProps) {
   )
 
   const value = useMemo(
-    () => ({ language, themeMode, resolvedTheme, setLanguage, setThemeMode, t }),
-    [language, themeMode, resolvedTheme, setLanguage, setThemeMode, t],
+    () => ({
+      language,
+      themeMode,
+      resolvedTheme,
+      terminalBackground,
+      terminalBackgroundFollowsTheme,
+      setLanguage,
+      setThemeMode,
+      setTerminalBackground,
+      resetTerminalBackground,
+      t,
+    }),
+    [language, themeMode, resolvedTheme, terminalBackground, terminalBackgroundFollowsTheme, setLanguage, setThemeMode, setTerminalBackground, resetTerminalBackground, t],
   )
 
   return <AppearanceContext.Provider value={value}>{children}</AppearanceContext.Provider>

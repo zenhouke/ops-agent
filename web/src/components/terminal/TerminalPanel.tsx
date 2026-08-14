@@ -1,4 +1,5 @@
 import type { Asset } from '../../types/ops'
+import { useAppearance } from '../../hooks/useAppearance'
 import { TerminalHeader } from './TerminalHeader'
 import { TerminalOutput } from './TerminalOutput'
 
@@ -35,8 +36,10 @@ export function TerminalPanel({
   onToggleFocus,
   onClose,
 }: TerminalPanelProps) {
+  const { terminalBackground } = useAppearance()
+
   return (
-    <section className="flex h-full w-full flex-col overflow-hidden bg-black shadow-inner" aria-label="终端面板">
+    <section className="flex h-full w-full flex-col overflow-hidden shadow-inner" style={{ backgroundColor: terminalBackground }} aria-label="终端面板">
       <TerminalHeader
         tabs={tabs}
         activeAssetId={activeAssetId}

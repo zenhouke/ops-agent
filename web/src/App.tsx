@@ -340,7 +340,7 @@ export function App() {
     )
   }
 
-  if (loadError && bootstrap.assets.length === 0) {
+  if (loadError && !isBootstrapLoaded) {
     return <LoadingState message={loadError} />
   }
 

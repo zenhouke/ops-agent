@@ -205,10 +205,20 @@ export function upsertStreamEvent(
   event: EventItem
 ): EventItem[] {
   if (event.kind === 'error') {
-    return normalizePlanEvents([
-      ...currentEvents.filter((currentEvent) => currentEvent.id !== PENDING_ASSISTANT_MESSAGE_ID),
-      event,
-    ])
+    const settledEvents = currentEvents
+      .filter((currentEvent) => currentEvent.id !== PENDING_ASSISTANT_MESSAGE_ID)
+      .map((currentEvent) => currentEvent.kind === 'message' && currentEvent.partial
+        ? { ...currentEvent, partial: false }
+        : currentEvent)
+    let lastUserIndex = -1
+    settledEvents.forEach((currentEvent, index) => {
+      if (currentEvent.kind === 'user') lastUserIndex = index
+    })
+    const alreadyShownForCurrentTurn = settledEvents
+      .slice(lastUserIndex + 1)
+      .some((currentEvent) => currentEvent.kind === 'error' && currentEvent.text === event.text)
+
+    return normalizePlanEvents(alreadyShownForCurrentTurn ? settledEvents : [...settledEvents, event])
   }
 
   if (isTerminalAutonomyEvent(event)) {

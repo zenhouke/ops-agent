@@ -1,8 +1,9 @@
 import { useEffect, useRef } from 'react'
 import { useAppearance } from '../../hooks/useAppearance'
 import { FitAddon } from '@xterm/addon-fit'
-import { Terminal, type ITheme } from '@xterm/xterm'
+import { Terminal } from '@xterm/xterm'
 import '@xterm/xterm/css/xterm.css'
+import { createTerminalTheme } from './terminalTheme'
 
 type TerminalOutputProps = {
   sessionKey: string
@@ -20,54 +21,8 @@ function stripReplayControlSequences(value: string) {
     .replace(/\u001b\[\?9001l/g, '')
 }
 
-const darkTerminalTheme: ITheme = {
-  background: 'rgb(5, 5, 5)',
-  foreground: 'rgb(238, 238, 238)',
-  cursor: 'rgb(var(--ops-cyan))',
-  selectionBackground: 'rgb(var(--ops-cyan) / 0.3)',
-  black: 'rgb(30, 30, 30)',
-  red: 'rgb(var(--ops-danger))',
-  green: 'rgb(190, 190, 190)',
-  yellow: 'rgb(var(--ops-warning))',
-  blue: 'rgb(170, 170, 170)',
-  magenta: 'rgb(184, 184, 184)',
-  cyan: 'rgb(var(--ops-cyan))',
-  white: 'rgb(241, 245, 249)',
-  brightBlack: 'rgb(96, 96, 96)',
-  brightRed: 'rgb(248, 113, 113)',
-  brightGreen: 'rgb(216, 216, 216)',
-  brightYellow: 'rgb(251, 191, 36)',
-  brightBlue: 'rgb(205, 205, 205)',
-  brightMagenta: 'rgb(220, 220, 220)',
-  brightCyan: 'rgb(232, 232, 232)',
-  brightWhite: 'rgb(255, 255, 255)',
-}
-
-const lightTerminalTheme: ITheme = {
-  background: 'rgb(5, 5, 5)',
-  foreground: 'rgb(238, 238, 238)',
-  cursor: 'rgb(var(--ops-cyan))',
-  selectionBackground: 'rgb(var(--ops-cyan) / 0.22)',
-  black: 'rgb(15, 23, 42)',
-  red: 'rgb(var(--ops-danger))',
-  green: 'rgb(190, 190, 190)',
-  yellow: 'rgb(var(--ops-warning))',
-  blue: 'rgb(170, 170, 170)',
-  magenta: 'rgb(184, 184, 184)',
-  cyan: 'rgb(var(--ops-cyan))',
-  white: 'rgb(248, 250, 252)',
-  brightBlack: 'rgb(96, 96, 96)',
-  brightRed: 'rgb(220, 38, 38)',
-  brightGreen: 'rgb(216, 216, 216)',
-  brightYellow: 'rgb(217, 119, 6)',
-  brightBlue: 'rgb(205, 205, 205)',
-  brightMagenta: 'rgb(220, 220, 220)',
-  brightCyan: 'rgb(232, 232, 232)',
-  brightWhite: 'rgb(255, 255, 255)',
-}
-
 export function TerminalOutput({ sessionKey, output, onInput, onResize }: TerminalOutputProps) {
-  const { t, resolvedTheme } = useAppearance()
+  const { t, terminalBackground } = useAppearance()
   const containerRef = useRef<HTMLDivElement | null>(null)
   const terminalHostRef = useRef<HTMLDivElement | null>(null)
   const terminalRef = useRef<Terminal | null>(null)
@@ -79,7 +34,7 @@ export function TerminalOutput({ sessionKey, output, onInput, onResize }: Termin
   const onResizeRef = useRef(onResize)
   const outputRef = useRef(output)
   const sessionKeyRef = useRef(sessionKey)
-  const resolvedThemeRef = useRef(resolvedTheme)
+  const terminalBackgroundRef = useRef(terminalBackground)
   const lastSentInputRef = useRef<{ value: string; timestamp: number } | null>(null)
 
   useEffect(() => {
@@ -87,8 +42,8 @@ export function TerminalOutput({ sessionKey, output, onInput, onResize }: Termin
     onResizeRef.current = onResize
     outputRef.current = output
     sessionKeyRef.current = sessionKey
-    resolvedThemeRef.current = resolvedTheme
-  }, [onInput, onResize, output, sessionKey, resolvedTheme])
+    terminalBackgroundRef.current = terminalBackground
+  }, [onInput, onResize, output, sessionKey, terminalBackground])
 
   const emitInput = (data: string) => {
     if (replayingRef.current || /^\u001b\[(I|O|\?1;2c)$/.test(data)) {
@@ -108,7 +63,7 @@ export function TerminalOutput({ sessionKey, output, onInput, onResize }: Termin
       cursorBlink: true,
       fontFamily: 'JetBrains Mono, Cascadia Code, Consolas, monospace',
       fontSize: 13,
-      theme: resolvedThemeRef.current === 'light' ? lightTerminalTheme : darkTerminalTheme,
+      theme: createTerminalTheme(terminalBackgroundRef.current),
     })
     const fitAddon = new FitAddon()
     terminal.loadAddon(fitAddon)
@@ -212,8 +167,8 @@ export function TerminalOutput({ sessionKey, output, onInput, onResize }: Termin
       return
     }
 
-    terminal.options.theme = resolvedTheme === 'light' ? lightTerminalTheme : darkTerminalTheme
-  }, [resolvedTheme])
+    terminal.options.theme = createTerminalTheme(terminalBackground)
+  }, [terminalBackground])
 
   // Handle session change and output updates
   useEffect(() => {
@@ -263,7 +218,8 @@ export function TerminalOutput({ sessionKey, output, onInput, onResize }: Termin
   return (
     <div
       ref={containerRef}
-      className="relative m-2 mt-0 flex-1 overflow-hidden border border-white/10 bg-black p-3 text-ops-text shadow-[inset_0_1px_0_rgb(255_255_255/0.035)] focus:outline-none"
+      className="relative m-2 mt-0 flex-1 overflow-hidden border border-white/10 p-3 text-ops-text shadow-[inset_0_1px_0_rgb(255_255_255/0.035)] focus:outline-none"
+      style={{ backgroundColor: terminalBackground }}
       aria-label={t('terminal.session')}
       onMouseDown={() => {
         terminalRef.current?.focus()

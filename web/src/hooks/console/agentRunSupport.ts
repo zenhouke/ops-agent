@@ -47,6 +47,14 @@ export function isAbortError(error: unknown): boolean {
     || error instanceof Error && error.message.toLowerCase().includes('signal is aborted')
 }
 
+export function getRunErrorMessage(error: unknown): string {
+  const message = error instanceof Error ? error.message : 'Failed to run agent.'
+  if (/quota_exceeded_error|\b429\b.*\b(exhausted|quota)\b/i.test(message)) {
+    return '模型供应商额度已用尽（HTTP 429）。请更换模型或检查供应商账户额度后重试。'
+  }
+  return message
+}
+
 type PendingApprovalState = {
   runtimeId: string
   approvalToken: string | null
@@ -96,6 +104,13 @@ export function createDeltaBatcher({
       if (timer === null) {
         timer = window.setTimeout(flush, DELTA_FLUSH_INTERVAL_MS)
       }
+    },
+    cancel() {
+      if (timer !== null) {
+        window.clearTimeout(timer)
+        timer = null
+      }
+      pending.clear()
     },
     flush,
   }

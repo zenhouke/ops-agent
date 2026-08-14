@@ -39,7 +39,7 @@ export const PROSE_CLASS =
   '[&_ol]:my-3 [&_ol]:space-y-1.5 [&_ol]:pl-5 ' +
   '[&_li]:pl-1 [&_li]:leading-7 [&_li]:text-ops-text/88 ' +
   '[&_li::marker]:text-ops-cyan/75 ' +
-  '[&_code]:rounded-md [&_code]:border [&_code]:border-ops-cyan/10 [&_code]:bg-ops-deep/90 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[12px] [&_code]:text-cyan-200 ' +
+  '[&_code]:rounded-md [&_code]:border [&_code]:border-ops-cyan/10 [&_code]:bg-ops-deep/90 [&_code]:px-1.5 [&_code]:py-0.5 [&_code]:font-mono [&_code]:text-[12px] [&_code]:text-ops-cyan ' +
   '[&_pre]:my-4 [&_pre]:overflow-x-auto [&_pre]:rounded-2xl [&_pre]:border [&_pre]:border-ops-border/30 [&_pre]:bg-ops-deep/95 [&_pre]:p-4 [&_pre]:shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] ' +
   '[&_pre>code]:border-0 [&_pre>code]:bg-transparent [&_pre>code]:p-0 [&_pre>code]:text-ops-text/85 ' +
   '[&_blockquote]:my-4 [&_blockquote]:rounded-r-2xl [&_blockquote]:border-l-2 [&_blockquote]:border-ops-cyan/55 [&_blockquote]:bg-ops-cyan/6 [&_blockquote]:py-2.5 [&_blockquote]:pl-4 [&_blockquote]:text-ops-text/72 ' +
@@ -49,4 +49,4 @@ export const PROSE_CLASS =
   '[&_td]:border-b [&_td]:border-ops-border/15 [&_td]:px-3 [&_td]:py-2.5 [&_td]:text-[13px] [&_td]:text-ops-text/86 ' +
   '[&_tbody_tr:last-child_td]:border-b-0 ' +
   '[&_strong]:font-bold [&_strong]:text-ops-text [&_em]:text-ops-text/78 ' +
-  '[&_a]:text-ops-cyan [&_a]:underline-offset-4 hover:[&_a]:text-cyan-200'
+  '[&_a]:text-ops-cyan [&_a]:underline-offset-4 hover:[&_a]:text-ops-text'
