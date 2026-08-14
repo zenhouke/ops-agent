@@ -59,9 +59,6 @@ class RuntimePersistenceMixin:
             "status": state.phase,
             "run_state": self._run_state(runtime),
             "loaded_skill_name": state.context.loaded_skill_name,
-            "mode": state.context.mode,
-            "plan_version": state.plan_version,
-            "locked_plan": state.locked_plan,
             "steps": [self._step_view(step) for step in state.steps],
             "current_step_id": current_step.step_id if current_step else None,
             "pending_approval_step_id": state.pending_approval_step_id,
@@ -95,7 +92,6 @@ class RuntimePersistenceMixin:
         if runtime.state.phase in {
             "approving",
             "waiting_terminal_approval",
-            "waiting_plan_approval",
         }:
             return "waiting"
         return "running" if runtime.execution_lock.locked() else "queued"

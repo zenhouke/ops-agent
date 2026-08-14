@@ -150,7 +150,7 @@ class AgentRuntimeRecord(SQLModel, table=True):
     asset_id: int
     terminal_id: str | None = None
     status: str
-    mode: str = "agent"
+    mode: str = "agent"  # Legacy NOT NULL column; plan mode is no longer supported.
     run_state: str = "queued"
     owner_instance_id: str = Field(default="", index=True)
     lease_expires_at: datetime | None = Field(default=None, index=True)

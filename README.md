@@ -23,14 +23,14 @@ An AI assistant console for controlled operations workflows.
 Operational work is often split across asset inventories, terminals, model chats, approval trails, and command output. Ops Agent brings those pieces into one console: the AI plans, explains, and iterates; the operator keeps final control over command execution.
 
 ```text
-Configure model -> Select asset -> Open terminal -> Ask AI -> Review plan -> Approve command -> Execute -> Feed output back
+Configure model -> Select asset -> Open terminal -> Ask AI -> Review proposed command -> Approve when required -> Execute -> Feed output back
 ```
 
 ## Features
 
 - Asset management for local terminals, Linux hosts, serial devices, and network devices.
 - Terminal workspace with local PTY, SSH, serial, and network CLI support.
-- AI operations assistant that uses asset, terminal, and conversation context for planning and troubleshooting.
+- AI operations assistant that uses asset, terminal, and conversation context for investigation and troubleshooting.
 - Human approval before command execution, with traceable decisions, commands, and output.
 - Multiple model providers, including Anthropic, OpenAI Compatible, OpenAI Responses, Google Gemini, Azure OpenAI, and common compatible providers.
 - MCP and skills support for extending assistant capabilities.

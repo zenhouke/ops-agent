@@ -12,7 +12,6 @@ import {
 } from './agentRunSupport'
 import { useTerminalRequestDecision } from './useTerminalRequestDecision'
 import { useAgentRunCancellation } from './useAgentRunCancellation'
-import { usePlanApproval } from './usePlanApproval'
 
 
 export function useAgentRun({
@@ -28,7 +27,6 @@ export function useAgentRun({
   selectedAsset,
   activeTerminalTab,
   selectedModel,
-  runMode,
   setLoadError,
   setContextStatus,
 }: UseAgentRunProps) {
@@ -142,7 +140,6 @@ export function useAgentRun({
         activeTerminalTab?.sessionId ?? null,
         selectedModel,
         conversationId,
-        runMode,
         selectedSkillName,
         abortController.signal,
       )
@@ -308,7 +305,6 @@ export function useAgentRun({
     selectedAsset,
     activeTerminalTab,
     selectedModel,
-    runMode,
     setLoadError,
     setContextStatus,
     upsertConversationSummary,
@@ -476,19 +472,6 @@ export function useAgentRun({
     setPendingApprovalToken,
     syncConversationRuntimes,
   })
-  const approvePlan = usePlanApproval({
-    activeConversationId,
-    activeConversationIdRef,
-    latestEventsRef,
-    refreshConversationList,
-    setActiveRuntimeId,
-    setBackgroundRun,
-    setEvents,
-    setLoadError,
-    syncConversationRuntimes,
-    upsertConversationSummary,
-  })
-
   return {
     pendingApprovalRuntimeId,
     backgroundRun,
@@ -498,7 +481,6 @@ export function useAgentRun({
     runAgent,
     cancelRun,
     approveRun: (allowPrefix?: string) => void submitApproval(true, allowPrefix),
-    approvePlan,
     rejectRun: () => void submitApproval(false),
     decideTerminalAccess,
   }

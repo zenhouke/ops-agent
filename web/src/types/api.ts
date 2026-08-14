@@ -1,6 +1,4 @@
-import type { Asset, AssetGroup, EventItem, KnowledgeAssetRef, KnowledgeCommand, KnowledgeDraft, KnowledgeEntry, KnowledgeGenerateDraftResponse, KnowledgeReindexResponse, KnowledgeSearchResponse, KnowledgeSourceConversation, KnowledgeSourceRef, RunMode, RuntimeSnapshot, RuntimeSummary, SessionRecord, SSHKey, SkillPackage } from './ops'
-
-export type { RunMode }
+import type { Asset, AssetGroup, EventItem, KnowledgeAssetRef, KnowledgeCommand, KnowledgeDraft, KnowledgeEntry, KnowledgeGenerateDraftResponse, KnowledgeReindexResponse, KnowledgeSearchResponse, KnowledgeSourceConversation, KnowledgeSourceRef, RuntimeSnapshot, RuntimeSummary, SessionRecord, SSHKey, SkillPackage } from './ops'
 
 export type ConversationSummaryDto = {
   id: string
@@ -71,7 +69,6 @@ export type SkillsResponseDto = {
 
 export type ConsoleRunRequest = {
   prompt: string
-  mode: RunMode
   assetId?: number
   terminalId?: string | null
   modelName?: string
@@ -81,7 +78,6 @@ export type ConsoleRunRequest = {
 
 export type ConsoleRunRequestDto = {
   prompt: string
-  mode: RunMode
   asset_id?: number
   terminal_id?: string | null
   model_name?: string
@@ -114,9 +110,6 @@ export type RuntimeSummaryDto = {
   terminal_id: string | null
   status: string
   run_state: string
-  mode: RunMode
-  plan_version: number
-  locked_plan: boolean
   loaded_skill_name: string | null
   current_step_id: string | null
   pending_approval_step_id: string | null
@@ -130,9 +123,6 @@ export type RuntimeSnapshotDto = {
   terminal_id: string | null
   status: string
   run_state: string
-  mode: RunMode
-  plan_version: number
-  locked_plan: boolean
   loaded_skill_name: string | null
   steps: Array<{
     step_id: string

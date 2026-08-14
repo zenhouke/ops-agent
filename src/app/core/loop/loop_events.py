@@ -4,12 +4,8 @@ import json
 from dataclasses import asdict, dataclass, field
 from typing import Any, Literal
 
-from app.core.loop.loop_state import LoopRuntimeStep
-
-
 LoopEventType = Literal[
     "message_update",  # The primary event for sync
-    "plan",
     "loop_final",
     "loop_failed",
     "context_status",
@@ -35,22 +31,6 @@ class AgentMessage:
     tool_output: str | None = None
     exit_code: int | None = None
     thinking: str = ""
-
-
-@dataclass(slots=True)
-class PlanEvent:
-    id: str
-    title: str
-    steps: list[dict[str, Any]]
-    kind: str = "plan"
-    plan_id: str | None = None
-    loading: bool = False
-    version: int = 1
-    is_latest: bool = True
-    updated: bool = False
-    runtime_id: str | None = None
-    mode: str = "plan"
-    locked_plan: bool = True
 
 
 @dataclass(slots=True)
@@ -82,38 +62,6 @@ def emit_message_update(*, runtime_id: str, message: AgentMessage) -> LoopEvent:
         event_type="message_update",
         runtime_id=runtime_id,
         phase=message.type,
-        payload=payload,
-    )
-
-
-def emit_plan_update(*, runtime_id: str, plan_id: str, title: str, steps: list[LoopRuntimeStep], version: int, locked_plan: bool = True, is_latest: bool = True, updated: bool = False, loading: bool = False, mode: str = "plan") -> LoopEvent:
-    payload = {
-        "id": plan_id,
-        "kind": "plan",
-        "planId": plan_id,
-        "title": title,
-        "loading": loading,
-        "version": version,
-        "isLatest": is_latest,
-        "updated": updated,
-        "steps": [
-            {
-                "id": step.step_id,
-                "title": step.title,
-                "command": "",
-                "summary": step.output or None,
-                "status": step.status,
-            }
-            for step in steps
-        ],
-        "runtimeId": runtime_id,
-        "mode": mode,
-        "lockedPlan": locked_plan,
-    }
-    return LoopEvent(
-        event_type="plan",
-        runtime_id=runtime_id,
-        phase="planning",
         payload=payload,
     )
 

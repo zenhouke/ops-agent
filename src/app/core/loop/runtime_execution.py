@@ -3,7 +3,6 @@ from __future__ import annotations
 import hashlib
 import secrets
 import time
-import uuid
 from collections import deque
 from collections.abc import Iterator
 from contextlib import contextmanager
@@ -154,7 +153,7 @@ class RuntimeExecutionMixin:
         state.cancel_requested = True
         state.cancellation_reason = reason
         get_runtime_control().metrics.run_finished(runtime_id, status="cancelled")
-        if state.phase in {"approving", "waiting_terminal_approval", "waiting_plan_approval"}:
+        if state.phase in {"approving", "waiting_terminal_approval"}:
             state.phase = "failed"
             state.error_message = reason
         event = self._append_runtime_event(runtime, "error", {
@@ -206,78 +205,6 @@ class RuntimeExecutionMixin:
         loop = AgentLoop(tools=self._tools_factory(terminal_service), usage_callback=self._usage_callback)
         with self._execution(runtime):
             yield from self._iterate_loop(runtime, loop.run(runtime.state))
-
-    def update_plan(self: Any, *, runtime_id: str, steps: list[dict]) -> dict:
-        runtime = self.get_runtime(runtime_id)
-        if runtime is None:
-            raise ValueError("runtime not found")
-        state = runtime.state
-        if state.context.mode != "plan":
-            raise ValueError("runtime is not in plan mode")
-        if state.phase != "waiting_plan_approval" or state.locked_plan:
-            raise ValueError("plan can only be edited before approval")
-        if not steps:
-            raise ValueError("plan must include at least one step")
-        state.steps = [
-            LoopRuntimeStep(
-                step_id=str(item.get("id") or item.get("step_id") or f"step-{uuid.uuid4().hex[:8]}"),
-                title=str(item.get("title") or "").strip() or f"Step {index}",
-                reason=str(item.get("reason") or "Executing plan step"),
-                risk_level=str(item.get("riskLevel") or item.get("risk_level") or "low"),
-                working_directory=str(item.get("workingDirectory") or item.get("working_directory") or "") or None,
-                expected_output=str(item.get("expectedOutput") or item.get("expected_output") or "") or None,
-                status="pending",
-            )
-            for index, item in enumerate(steps, start=1)
-        ]
-        state.cursor = 0
-        state.plan_version += 1
-        runtime.updated_at = self._now()
-        return self._append_plan_event(runtime)
-
-    def approve_plan(self: Any, *, runtime_id: str, terminal_service: Any) -> Iterator[dict]:
-        runtime = self.get_runtime(runtime_id)
-        if runtime is None:
-            raise ValueError("runtime not found")
-        state = runtime.state
-        if state.context.mode != "plan" or state.phase != "waiting_plan_approval" or not state.steps:
-            raise ValueError("plan is not ready for approval")
-        state.locked_plan = True
-        state.cursor = 0
-        state.phase = "executing"
-        yield self._append_plan_event(runtime)
-        loop = AgentLoop(tools=self._tools_factory(terminal_service), usage_callback=self._usage_callback)
-        with self._execution(runtime):
-            yield from self._iterate_loop(runtime, loop.run(state))
-
-    def _append_plan_event(self: Any, runtime: RuntimeState) -> dict:
-        state = runtime.state
-        steps = [{
-            "id": step.step_id,
-            "title": step.title,
-            "reason": step.reason,
-            "riskLevel": step.risk_level,
-            "workingDirectory": step.working_directory,
-            "expectedOutput": step.expected_output,
-            "status": step.status,
-            "output": step.output,
-            "exitCode": step.exit_code,
-        } for step in state.steps]
-        event = LoopEvent(
-            event_type="plan",
-            runtime_id=runtime.runtime_id,
-            phase=state.phase,
-            payload={
-                "planId": runtime.runtime_id,
-                "title": "Task Plan",
-                "mode": state.context.mode,
-                "version": state.plan_version,
-                "lockedPlan": state.locked_plan,
-                "status": state.phase,
-                "steps": steps,
-            },
-        )
-        return self._to_ws_event(event, runtime)
 
     def resume(
         self: Any,

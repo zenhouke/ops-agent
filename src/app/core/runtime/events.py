@@ -5,7 +5,6 @@ from typing import Any, Literal, TypedDict, cast
 
 
 RuntimeEventType = Literal[
-    "plan_updated",
     "approval_required",
     "approval_resolved",
     "execution_started",

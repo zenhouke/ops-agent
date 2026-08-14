@@ -19,7 +19,6 @@ from app.core.loop.loop_events import (
 )
 from app.core.loop.loop_state import LoopRuntimeStep, LoopState
 from app.core.loop.message_manager import MessageManager
-from app.core.loop.plan_execution import PlanExecutionMixin
 from app.core.loop.prompts import (
     build_manual_skill_system_prompt,
 )
@@ -34,7 +33,7 @@ from app.core.tool.handler import ToolHandler
 EventCallback = Any
 
 
-class AgentLoop(PlanExecutionMixin, AgentLoopSupportMixin):
+class AgentLoop(AgentLoopSupportMixin):
     def __init__(
         self,
         *,
@@ -72,9 +71,6 @@ class AgentLoop(PlanExecutionMixin, AgentLoopSupportMixin):
 
     def run(self, state: LoopState) -> Iterator[LoopEvent]:
         manager = MessageManager(runtime_id=state.context.runtime_id)
-        if state.context.mode == "plan":
-            yield from self._run_plan_mode(state, manager=manager)
-            return
         yield from self._tool_calling_loop(state, manager=manager)
 
     def resume_with_approval(self, state: LoopState, *, approved: bool) -> Iterator[LoopEvent]:
@@ -104,9 +100,6 @@ class AgentLoop(PlanExecutionMixin, AgentLoopSupportMixin):
             current_step.output = "Command execution rejected by user."
             self._append_pending_tool_result(state, content=current_step.output)
             self._clear_pending_approval(state)
-            if state.context.mode == "plan":
-                yield from self._run_plan_mode(state, manager=manager, continue_existing=True)
-                return
             yield from self._tool_calling_loop(state, manager=manager)
             return
 
@@ -122,9 +115,6 @@ class AgentLoop(PlanExecutionMixin, AgentLoopSupportMixin):
                 yield from manager.finalize(text=consistency_error)
             self._append_pending_tool_result(state, content=consistency_error)
             self._clear_pending_approval(state)
-            if state.context.mode == "plan":
-                yield from self._run_plan_mode(state, manager=manager, continue_existing=True)
-                return
             yield from self._tool_calling_loop(state, manager=manager)
             return
 
@@ -172,9 +162,6 @@ class AgentLoop(PlanExecutionMixin, AgentLoopSupportMixin):
         self._clear_pending_approval(state)
         yield from manager.finalize(exit_code=0 if ok else 1)
         
-        if state.context.mode == "plan":
-            yield from self._run_plan_mode(state, manager=manager, continue_existing=True)
-            return
         yield from self._tool_calling_loop(state, manager=manager)
 
     def _tool_calling_loop(
@@ -182,8 +169,6 @@ class AgentLoop(PlanExecutionMixin, AgentLoopSupportMixin):
         state: LoopState,
         *,
         manager: MessageManager,
-        plan_step: LoopRuntimeStep | None = None,
-        finalize_on_complete: bool = True,
     ) -> Iterator[LoopEvent]:
         provider = build_llm_provider(state.context.model_config)
         ctx = state.context
@@ -253,14 +238,13 @@ class AgentLoop(PlanExecutionMixin, AgentLoopSupportMixin):
 
             if not response.tool_calls:
                 summary = response.text or "Task execution completed."
-                if finalize_on_complete:
-                    if unresolved_tool_failure:
-                        state.phase = "failed"
-                        state.error_message = summary
-                        yield emit_failed(runtime_id=ctx.runtime_id, error=summary)
-                        return False, False, summary
-                    state.phase = "completed"
-                    state.summary = summary
+                if unresolved_tool_failure:
+                    state.phase = "failed"
+                    state.error_message = summary
+                    yield emit_failed(runtime_id=ctx.runtime_id, error=summary)
+                    return False, False, summary
+                state.phase = "completed"
+                state.summary = summary
                 return False, True, summary
 
             restart_tool_calling = False
@@ -292,20 +276,16 @@ class AgentLoop(PlanExecutionMixin, AgentLoopSupportMixin):
                     )
                     continue
 
-                if plan_step is None:
-                    step = LoopRuntimeStep(
-                        step_id=f"step-{uuid.uuid4().hex[:8]}",
-                        title=command or tool_call.name,
-                        reason="LLM requested tool execution",
-                        risk_level="low",
-                        working_directory=str(working_directory) if working_directory else None,
-                        status="pending",
-                    )
-                    state.steps.append(step)
-                    state.cursor = len(state.steps) - 1
-                else:
-                    step = plan_step
-                    step.working_directory = str(working_directory) if working_directory else None
+                step = LoopRuntimeStep(
+                    step_id=f"step-{uuid.uuid4().hex[:8]}",
+                    title=command or tool_call.name,
+                    reason="LLM requested tool execution",
+                    risk_level="low",
+                    working_directory=str(working_directory) if working_directory else None,
+                    status="pending",
+                )
+                state.steps.append(step)
+                state.cursor = len(state.steps) - 1
 
                 action, reason = handler.needs_approval(args)
                 args["approval_policy"] = action

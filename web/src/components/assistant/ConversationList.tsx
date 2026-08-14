@@ -28,7 +28,6 @@ type GroupKey = 'today' | 'yesterday' | 'earlier'
 
 const KNOWN_EVENT_KIND_SET: ReadonlySet<KnownEventKind> = new Set<KnownEventKind>([
   'delta',
-  'plan',
   'approval_required',
   'approval_decision',
   'command_start',
@@ -103,8 +102,6 @@ export function ConversationList({ items, activeConversationId, backgroundRun, o
       case 'command_chunk':
       case 'delta':
         return { label: t('conversation.statusRunning'), dotClassName: 'bg-ops-text', textClassName: 'text-ops-text' }
-      case 'plan':
-        return { label: t('conversation.statusPlanning'), dotClassName: 'bg-ops-text/70', textClassName: 'text-ops-muted' }
       case 'user':
         return { label: t('conversation.statusPending'), dotClassName: 'bg-ops-muted/55', textClassName: 'text-ops-muted/75' }
       default:

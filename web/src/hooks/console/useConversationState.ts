@@ -11,7 +11,7 @@ import {
   listConversationRuntimes,
 } from '../../api'
 import type { ConversationContextStatus, ConversationSummary, EventItem, RuntimeSnapshot, RuntimeSummary } from '../../types/ops'
-import { normalizePlanEvents, upsertConversationSummary, upsertStreamEvent } from './consoleShared'
+import { upsertConversationSummary, upsertStreamEvent } from './consoleShared'
 
 const CONVERSATION_EVENTS_PAGE_SIZE = 200
 
@@ -65,25 +65,19 @@ function terminalSnapshotEvents(snapshot: RuntimeSnapshot | null): EventItem[] {
 function mergeSnapshotTerminalEvents(events: EventItem[], snapshot: RuntimeSnapshot | null): EventItem[] {
   const snapshotEvents = terminalSnapshotEvents(snapshot)
   const snapshotIds = new Set(snapshotEvents.map((event) => event.id))
-  const currentEvents = events
-    .filter((event) => !snapshotIds.has(event.id))
-    .map((event) => snapshot?.runState === 'interrupted'
-      && event.kind === 'plan'
-      && event.runtimeId === snapshot.runtimeId
-      ? { ...event, interrupted: true, lockedPlan: true, loading: false }
-      : event)
+  const currentEvents = events.filter((event) => !snapshotIds.has(event.id))
   return snapshotEvents.reduce(
     (nextEvents, event) => upsertStreamEvent(nextEvents, event),
-    normalizePlanEvents(currentEvents),
+    currentEvents,
   )
 }
 
 function mergePrependedEvents(olderEvents: EventItem[], currentEvents: EventItem[]): EventItem[] {
   const currentIds = new Set(currentEvents.map((event) => event.id))
-  return normalizePlanEvents([
+  return [
     ...olderEvents.filter((event) => !currentIds.has(event.id)),
     ...currentEvents,
-  ])
+  ]
 }
 
 export function useConversationState(selectedModel: string) {
@@ -117,7 +111,7 @@ export function useConversationState(selectedModel: string) {
     }
     setActiveConversationId(page.conversation.id)
     setActiveConversationTitle(page.conversation.title)
-    setEvents(normalizePlanEvents(page.events))
+    setEvents(page.events)
     setEventWindow({
       offset: page.offset,
       total: page.total,
@@ -211,7 +205,7 @@ export function useConversationState(selectedModel: string) {
     activeConversationIdRef.current = created.conversation.id
     setActiveConversationId(created.conversation.id)
     setActiveConversationTitle(created.conversation.title)
-    setEvents(normalizePlanEvents(created.events))
+    setEvents(created.events)
     setEventWindow({ offset: 0, total: 0, hasMoreBefore: false, hasMoreAfter: false })
     setRuntimeSummaries([])
     setActiveRuntimeId(null)

@@ -5,7 +5,6 @@ import type {
   ConsoleBootstrap,
   ConsoleRunRequest,
   ConsoleRunRequestDto,
-  RunMode,
   RuntimeEventsResponseDto,
   RuntimeSnapshotDto,
   RuntimeSummaryDto,
@@ -34,9 +33,6 @@ function mapRuntimeSummary(dto: RuntimeSummaryDto): RuntimeSummary {
     terminalId: dto.terminal_id,
     status: dto.status,
     runState: dto.run_state,
-    mode: dto.mode,
-    planVersion: dto.plan_version,
-    lockedPlan: dto.locked_plan,
     loadedSkillName: dto.loaded_skill_name,
     currentStepId: dto.current_step_id,
     pendingApprovalStepId: dto.pending_approval_step_id,
@@ -52,9 +48,6 @@ function mapRuntimeSnapshot(dto: RuntimeSnapshotDto): RuntimeSnapshot {
     terminalId: dto.terminal_id,
     status: dto.status,
     runState: dto.run_state,
-    mode: dto.mode,
-    planVersion: dto.plan_version,
-    lockedPlan: dto.locked_plan,
     loadedSkillName: dto.loaded_skill_name,
     steps: dto.steps.map((step) => ({
       stepId: step.step_id,
@@ -163,7 +156,6 @@ async function* readEventStream(response: Response): AsyncGenerator<EventItem, v
 
 function buildConsoleRunRequestDto({
   prompt,
-  mode,
   assetId,
   terminalId,
   modelName,
@@ -172,7 +164,6 @@ function buildConsoleRunRequestDto({
 }: ConsoleRunRequest): ConsoleRunRequestDto {
   return {
     prompt,
-    mode,
     asset_id: assetId,
     terminal_id: terminalId,
     model_name: modelName,
@@ -187,7 +178,6 @@ export async function streamRunAgent(
   terminalId?: string | null,
   modelName?: string,
   conversationId?: string,
-  mode: RunMode = 'agent',
   selectedSkillName?: string | null,
   signal?: AbortSignal,
 ): Promise<AsyncGenerator<EventItem, void, void>> {
@@ -197,7 +187,6 @@ export async function streamRunAgent(
     body: JSON.stringify(
       buildConsoleRunRequestDto({
         prompt,
-        mode,
         assetId,
         terminalId,
         modelName,
@@ -213,14 +202,6 @@ export async function cancelAgentRuntime(runtimeId: string): Promise<void> {
   await requestJson(`/api/console/runtimes/${encodeURIComponent(runtimeId)}/cancel`, {
     method: 'POST',
   })
-}
-
-export async function streamApprovePlan(runtimeId: string): Promise<AsyncGenerator<EventItem, void, void>> {
-  const response = await requestEventStream(
-    `/api/console/runtimes/${encodeURIComponent(runtimeId)}/plan/approve`,
-    { method: 'POST' },
-  )
-  return readEventStream(response)
 }
 
 export async function streamApproveAgent(runtimeId: string, approved: boolean, approvalToken?: string, allowPrefix?: string): Promise<AsyncGenerator<EventItem, void, void>> {

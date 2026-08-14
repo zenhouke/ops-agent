@@ -1,7 +1,6 @@
 import { useAppearance } from '../../hooks/useAppearance'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSkillPackages } from '../../hooks/useSkillPackages'
-import type { RunMode } from '../../types/api'
 import type { Asset, ConversationContextStatus } from '../../types/ops'
 import { ModelSelector } from './ModelSelector'
 
@@ -9,27 +8,15 @@ type PromptInputProps = {
   prompt: string
   models: string[]
   selectedModel: string
-  runMode: RunMode
   selectedAsset: Asset
   contextStatus: ConversationContextStatus | null
   blockedRun: { message: string; actionLabel: string } | null
   onViewBlockedRun?: () => void
   onPromptChange: (prompt: string) => void
   onModelChange: (model: string) => void
-  onRunModeChange: (mode: RunMode) => void
   onRun: (prompt: string, selectedSkillName?: string | null) => Promise<void>
   isRunning: boolean
   onCancel: () => Promise<void>
-}
-
-const MODE_DESCRIPTION_KEY: Record<RunMode, 'assistant.agentDescription' | 'assistant.planDescription'> = {
-  agent: 'assistant.agentDescription',
-  plan: 'assistant.planDescription',
-}
-
-const MODE_LABEL_KEY: Record<RunMode, 'assistant.agent' | 'assistant.plan'> = {
-  agent: 'assistant.agent',
-  plan: 'assistant.plan',
 }
 
 function contextStatusColor(status: ConversationContextStatus | null) {
@@ -92,14 +79,12 @@ export function PromptInput({
   prompt,
   models,
   selectedModel,
-  runMode,
   selectedAsset,
   contextStatus,
   blockedRun,
   onViewBlockedRun,
   onPromptChange,
   onModelChange,
-  onRunModeChange,
   onRun,
   isRunning,
   onCancel,
@@ -176,8 +161,8 @@ export function PromptInput({
   }
 
   return (
-    <div className="relative mx-auto mb-2 mt-1 w-[calc(100%-2.5rem)] max-w-[980px] shrink-0 rounded-[5px] border border-ops-border/35 bg-ops-deep shadow-[0_8px_24px_rgb(var(--ops-bg)/0.3)] transition-all duration-200 focus-within:border-ops-cyan/45 focus-within:ring-1 focus-within:ring-ops-cyan/20">
-      <div className="relative overflow-visible rounded-[5px] bg-ops-panel/80">
+    <div className="relative mx-auto mb-2 mt-1 w-[calc(100%-2.5rem)] max-w-[980px] shrink-0 rounded-[18px] border border-ops-border/35 bg-ops-panel/80 shadow-[0_10px_32px_rgb(var(--ops-bg)/0.28)] transition-all duration-200 focus-within:border-ops-text/35 focus-within:ring-1 focus-within:ring-ops-text/10">
+      <div className="relative overflow-visible rounded-[17px]">
         <label className="sr-only" htmlFor="prompt-input">
           {t('assistant.commandInput')}
         </label>
@@ -185,7 +170,7 @@ export function PromptInput({
           <textarea
             id="prompt-input"
             ref={textareaRef}
-            className="min-h-[44px] w-full resize-none bg-transparent px-3 pb-2.5 pr-14 pt-2.5 text-[12px] font-medium leading-relaxed text-ops-text caret-ops-cyan outline-none placeholder:text-ops-muted/35 scrollbar-thin"
+            className="min-h-[58px] w-full resize-none bg-transparent px-4 pb-2 pr-14 pt-3.5 text-[13px] font-medium leading-relaxed text-ops-text caret-ops-text outline-none placeholder:text-ops-muted/35 scrollbar-thin"
             value={prompt}
             onChange={(event) => onPromptChange(event.target.value)}
             onKeyDown={(e) => {
@@ -198,10 +183,10 @@ export function PromptInput({
           />
 
           <button
-            className={`absolute bottom-2 right-2 flex h-7 w-7 shrink-0 items-center justify-center rounded-[4px] border transition-all duration-200 active:scale-95 ${isRunning
+            className={`absolute bottom-2 right-3 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all duration-200 active:scale-95 ${isRunning
               ? 'border-ops-danger/45 bg-ops-danger text-white hover:bg-ops-danger/85'
               : prompt.trim() && !blockedRun
-              ? 'border-ops-cyan/45 bg-ops-cyan text-ops-deep hover:bg-ops-cyan/85'
+              ? 'border-ops-text bg-ops-text text-ops-bg hover:bg-ops-text/85'
               : 'cursor-not-allowed border-ops-border/20 bg-ops-panel/70 text-ops-muted/25'
               }`}
             type="button"
@@ -214,7 +199,7 @@ export function PromptInput({
             {isRunning ? (
               <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false" className="h-4 w-4 fill-current"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>
             ) : (
-              <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false" className="h-5 w-5 fill-current"><path d="M5 3.8 20.2 12 5 20.2v-6.1L13.4 12 5 9.9z" /></svg>
+              <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false" className="h-4 w-4 fill-none stroke-current" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19V5" /><path d="m6.5 10.5 5.5-5.5 5.5 5.5" /></svg>
             )}
           </button>
         </div>
@@ -234,47 +219,12 @@ export function PromptInput({
           </div>
         ) : null}
 
-        <div className="relative z-20 flex items-center gap-2 border-t border-ops-border/20 bg-ops-deep/55 px-2.5 py-1.5">
+        <div className="relative z-20 flex items-center gap-2 px-3 pb-2.5 pt-0.5">
           <div className="flex min-w-0 flex-1 items-center gap-2 overflow-visible">
-            <div className="flex min-w-0 items-center gap-1.5 border-r border-ops-border/20 pr-2" aria-label={t('assistant.context')}>
+            <div className="flex min-w-0 items-center gap-1.5 rounded-full px-1.5 py-1" aria-label={t('assistant.context')}>
               <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-ops-green" />
               <span className="max-w-[150px] truncate text-[9px] font-semibold text-ops-text/75">{selectedAsset.name}</span>
               <span className="hidden max-w-[120px] truncate font-mono text-[9px] text-ops-muted/45 lg:inline">{selectedAsset.host || '本地'}</span>
-            </div>
-
-            <div className="flex min-w-fit items-center">
-              <div
-                className="inline-flex items-center rounded-[5px] border border-ops-border/25 bg-ops-deep/75 p-0.5"
-                role="radiogroup"
-                aria-label={t('assistant.mode')}
-              >
-                {(Object.keys(MODE_LABEL_KEY) as RunMode[]).map((mode) => {
-                  const isActive = runMode === mode
-                  return (
-                    <button
-                      key={mode}
-                      type="button"
-                      role="radio"
-                      aria-checked={isActive}
-                      title={t(MODE_DESCRIPTION_KEY[mode])}
-                      onClick={() => onRunModeChange(mode)}
-                      className={`inline-flex items-center gap-1.5 rounded-[4px] border px-2.5 py-1 text-[9px] font-semibold tracking-[0.06em] transition-all duration-200 active:scale-95 ${isActive
-                        ? mode === 'agent'
-                          ? 'border-ops-cyan/35 bg-ops-cyan/16 text-ops-cyan shadow-[0_0_18px_rgb(var(--ops-cyan)/0.16)]'
-                          : 'border-ops-green/35 bg-ops-green/15 text-ops-green shadow-[0_0_18px_rgba(16,185,129,0.14)]'
-                        : 'border-transparent text-ops-muted/55 hover:bg-ops-panel/80 hover:text-ops-text'
-                        }`}
-                    >
-                      {mode === 'plan' ? (
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><rect x="3" y="11" width="18" height="11" rx="2"></rect><path d="M7 11V7a5 5 0 0110 0v4"></path></svg>
-                      ) : (
-                        <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3"><circle cx="12" cy="12" r="3" /><path d="M12 1v6M12 17v6M4.22 4.22l4.24 4.24M15.54 15.54l4.24 4.24M1 12h6M17 12h6M4.22 19.78l4.24-4.24M15.54 8.46l4.24-4.24" /></svg>
-                      )}
-                      {mode === 'agent' ? '执行' : t(MODE_LABEL_KEY[mode])}
-                    </button>
-                  )
-                })}
-              </div>
             </div>
           </div>
 

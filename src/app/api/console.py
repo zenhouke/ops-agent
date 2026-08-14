@@ -9,7 +9,7 @@ from app.api.assets import to_asset_view
 from app.api.conversations import get_conversation_service
 from app.api.groups import to_asset_group_view
 from app.api.ssh_keys import to_ssh_key_view
-from app.api.schemas import ConsoleApprovalRequest, ConsoleBootstrapView, ConsolePlanUpdateRequest, ConsoleRunRequest, RuntimeEventsResponse, RuntimeSnapshotView, RuntimeSummaryView, TerminalRequestDecisionRequest
+from app.api.schemas import ConsoleApprovalRequest, ConsoleBootstrapView, ConsoleRunRequest, RuntimeEventsResponse, RuntimeSnapshotView, RuntimeSummaryView, TerminalRequestDecisionRequest
 from app.services.ssh_key_service import list_ssh_key_records
 from app.api.terminal import get_terminal_service
 from app.db.repositories.models import get_default_model_config, list_model_configs
@@ -120,7 +120,6 @@ async def run_console_agent(
             model_name=payload.model_name,
             selected_skill_name=payload.selected_skill_name,
             conversation_id=payload.conversation_id,
-            mode=payload.mode,
         )
         first_event = next(stream)
     except ValueError as exc:
@@ -234,35 +233,6 @@ async def decide_terminal_request(
                 yield _sse_event(event)
         except Exception as exc:
             yield _sse_event({"id": "error-terminal-decision", "kind": "error", "text": str(exc), "recoverable": True})
-
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
-
-
-@router.put("/api/console/runtimes/{runtime_id}/plan")
-async def update_runtime_plan(runtime_id: str, request: Request):
-    payload = await _parse_request_model(request, ConsolePlanUpdateRequest)
-    try:
-        return _console_app_service.update_plan(
-            runtime_id=runtime_id,
-            steps=[step.model_dump() for step in payload.steps],
-        )
-    except ValueError as exc:
-        raise HTTPException(status_code=400, detail=str(exc)) from exc
-
-
-@router.post("/api/console/runtimes/{runtime_id}/plan/approve")
-def approve_runtime_plan(
-    runtime_id: str,
-    orchestrator: TaskOrchestrator = Depends(get_task_orchestrator),
-):
-    stream = orchestrator.stream_plan_approval(runtime_id=runtime_id)
-
-    def event_stream():
-        try:
-            for event in stream:
-                yield _sse_event(event)
-        except Exception as exc:
-            yield _sse_event({"id": "error-plan-approve", "kind": "error", "text": str(exc), "recoverable": True})
 
     return StreamingResponse(event_stream(), media_type="text/event-stream")
 

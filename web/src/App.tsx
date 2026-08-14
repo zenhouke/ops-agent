@@ -132,10 +132,8 @@ export function App() {
     setActiveModal,
     sidebarCollapsed,
     setSidebarCollapsed,
-    runMode,
-    setRunMode,
     busyCommand,
-  } = useConsolePageState({ events, activeRuntimeSnapshot })
+  } = useConsolePageState({ events })
 
   const {
     pendingApprovalRuntimeId,
@@ -146,7 +144,6 @@ export function App() {
     runAgent,
     cancelRun,
     approveRun,
-    approvePlan,
     rejectRun,
     decideTerminalAccess,
   } = useAgentRun({
@@ -162,7 +159,6 @@ export function App() {
     selectedAsset,
     activeTerminalTab,
     selectedModel,
-    runMode,
     setLoadError,
     setContextStatus,
   })
@@ -308,7 +304,6 @@ export function App() {
         models={bootstrap.modelOptions}
         selectedModel={selectedModel}
         prompt={prompt}
-        runMode={runMode}
         selectedAsset={selectedAsset}
         contextStatus={contextStatus}
         loadError={loadError}
@@ -318,7 +313,6 @@ export function App() {
           setTerminalOpen((current) => !current)
         }}
         onModelChange={setSelectedModel}
-        onRunModeChange={setRunMode}
         onPromptChange={setPrompt}
         onViewBackgroundRun={(conversationId) => {
           void loadConversation(conversationId).then(() => clearBackgroundRunUnread(conversationId))
@@ -333,7 +327,6 @@ export function App() {
         onCancelRun={cancelRun}
         onApprove={(allowPrefix) => void approveRun(allowPrefix)}
         onReject={() => void rejectRun()}
-        onApprovePlan={(runtimeId) => void approvePlan(runtimeId)}
         onTerminalRequestDecision={decideTerminalAccess}
         onLoadOlderEvents={loadOlderConversationEvents}
       />

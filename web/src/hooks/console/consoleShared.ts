@@ -1,4 +1,4 @@
-import type { AgentMessage, Asset, ConversationSummary, EventItem, PlanStepStatus } from '../../types/ops'
+import type { AgentMessage, Asset, ConversationSummary, EventItem } from '../../types/ops'
 
 export const LOCAL_TERMINAL_ASSET_ID = 0
 export const PENDING_ASSISTANT_MESSAGE_ID = '__pending_assistant__'
@@ -79,50 +79,6 @@ export const defaultLocalTerminalAsset: Asset = {
   proxyAssetId: null,
 }
 
-export function normalizePlanEvents(rawEvents: EventItem[]): EventItem[] {
-  const latestPlanEventIndexByPlanId = new Map<string, number>()
-
-  rawEvents.forEach((event, index) => {
-    if (event.kind !== 'plan') {
-      return
-    }
-
-    const planId = event.planId ?? event.id
-    latestPlanEventIndexByPlanId.set(planId, index)
-  })
-
-  return rawEvents.map((event, index) => {
-    if (event.kind !== 'plan') {
-      return event
-    }
-
-    const normalizedSteps = event.steps.map((step, stepIndex, steps) => {
-      if (step.status) {
-        return step
-      }
-
-      const fallbackStatus: PlanStepStatus = stepIndex === steps.length - 1 ? 'running' : 'completed'
-      return {
-        ...step,
-        status: fallbackStatus,
-      }
-    })
-
-    const planId = event.planId ?? event.id
-    const latestIndex = latestPlanEventIndexByPlanId.get(planId) ?? index
-    return {
-      ...event,
-      planId,
-      title: event.title ?? 'Task Plan',
-      loading: event.loading ?? false,
-      version: event.version ?? latestIndex + 1,
-      isLatest: index === latestIndex,
-      updated: event.updated ?? index !== latestIndex,
-      steps: normalizedSteps,
-    }
-  })
-}
-
 export function buildTerminalWebSocketUrl(terminalSessionId: string, runtimeApiBaseUrl?: string | null): string {
   const apiBaseUrl = runtimeApiBaseUrl ?? import.meta.env.VITE_API_BASE_URL
 
@@ -170,10 +126,10 @@ export function mergeDeltaEvent(
   if (existingIndex >= 0) {
     const updated = [...filteredEvents]
     updated[existingIndex] = mergedEvent
-    return normalizePlanEvents(updated)
+    return updated
   }
   
-  return normalizePlanEvents([...filteredEvents, mergedEvent])
+  return [...filteredEvents, mergedEvent]
 }
 
 /**
@@ -218,7 +174,7 @@ export function upsertStreamEvent(
       .slice(lastUserIndex + 1)
       .some((currentEvent) => currentEvent.kind === 'error' && currentEvent.text === event.text)
 
-    return normalizePlanEvents(alreadyShownForCurrentTurn ? settledEvents : [...settledEvents, event])
+    return alreadyShownForCurrentTurn ? settledEvents : [...settledEvents, event]
   }
 
   if (isTerminalAutonomyEvent(event)) {
@@ -229,32 +185,10 @@ export function upsertStreamEvent(
       return currentEvent
     })
     const hasExistingEvent = currentEvents.some((currentEvent) => isSameTerminalAutonomyEvent(currentEvent, event))
-    return normalizePlanEvents(hasExistingEvent ? nextEvents : [...currentEvents, event])
+    return hasExistingEvent ? nextEvents : [...currentEvents, event]
   }
 
-  if (event.kind !== 'plan') {
-    return normalizePlanEvents([...currentEvents, event])
-  }
-
-  const incomingPlanId = event.planId ?? event.id
-  const nextEvents = currentEvents.map((currentEvent) => {
-    if (currentEvent.kind !== 'plan') {
-      return currentEvent
-    }
-
-    const currentPlanId = currentEvent.planId ?? currentEvent.id
-    return currentPlanId === incomingPlanId ? event : currentEvent
-  })
-
-  const hasExistingPlan = currentEvents.some((currentEvent) => {
-    if (currentEvent.kind !== 'plan') {
-      return false
-    }
-    const currentPlanId = currentEvent.planId ?? currentEvent.id
-    return currentPlanId === incomingPlanId
-  })
-
-  return normalizePlanEvents(hasExistingPlan ? nextEvents : [...currentEvents, event])
+  return [...currentEvents, event]
 }
 
 /**
@@ -268,10 +202,10 @@ export function upsertMessageEvent(
   if (existingIndex !== -1) {
     const newEvents = [...currentEvents]
     newEvents[existingIndex] = message
-    return normalizePlanEvents(newEvents)
+    return newEvents
   }
   
   // If not found, filter out deltas and append
   const filteredEvents = currentEvents.filter((e) => e.kind !== 'delta' && e.id !== PENDING_ASSISTANT_MESSAGE_ID)
-  return normalizePlanEvents([...filteredEvents, message])
+  return [...filteredEvents, message]
 }

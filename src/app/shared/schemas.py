@@ -2,7 +2,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel, Field, SecretStr, model_validator
 
-from app.shared.enums import AssetType, ModelProvider, TaskStatus
+from app.shared.enums import AssetType, ModelProvider
 
 
 class AssetCreate(BaseModel):
@@ -76,30 +76,3 @@ class TerminalContextAttachment(BaseModel):
     terminal_id: str
     selection_label: str
     selected_text: str
-
-
-class PlanStep(BaseModel):
-    title: str
-    command: str = ""
-    reason: str
-    risk_level: str = "low"
-    working_directory: str = ""
-    expected_output: str = ""
-
-
-class AgentTaskSummary(BaseModel):
-    task_id: int
-    status: TaskStatus
-    asset_type: AssetType
-    model_name: str
-    steps: list[PlanStep]
-
-
-class ApprovalView(BaseModel):
-    task_id: int
-    run_id: str
-    conversation_id: str
-    status: str
-    message: str
-    steps: list[PlanStep]
-    latest_decision: str | None = None

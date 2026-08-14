@@ -8,7 +8,6 @@ export {
   getRuntimeSnapshot,
   listConversationRuntimes,
   streamApproveAgent,
-  streamApprovePlan,
   streamRunAgent,
 } from './console'
 export { getApprovalPolicy, updateApprovalPolicy } from './approval'

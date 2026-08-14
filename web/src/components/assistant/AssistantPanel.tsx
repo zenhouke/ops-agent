@@ -1,4 +1,3 @@
-import type { RunMode } from '../../types/api'
 import type {
   Asset,
   ConversationContextStatus,
@@ -33,7 +32,6 @@ type AssistantPanelProps = {
   activeRuntimeSnapshot: RuntimeSnapshot | null
   models: string[]
   selectedModel: string
-  runMode: RunMode
   prompt: string
   selectedAsset: Asset
   contextStatus: ConversationContextStatus | null
@@ -41,7 +39,6 @@ type AssistantPanelProps = {
   terminalOpen: boolean
   onToggleTerminal: () => void
   onModelChange: (model: string) => void
-  onRunModeChange: (mode: RunMode) => void
   onPromptChange: (prompt: string) => void
   onViewBackgroundRun: (conversationId: string) => void
   onCreateConversation: () => void
@@ -52,7 +49,6 @@ type AssistantPanelProps = {
   onCancelRun: () => Promise<void>
   onApprove: (allowPrefix?: string) => void
   onReject: () => void
-  onApprovePlan: (runtimeId: string) => void
   onTerminalRequestDecision?: (input: { runtimeId: string; requestId: string; approvalToken: string; approved: boolean }) => Promise<void>
   onLoadOlderEvents: () => Promise<void>
 }
@@ -81,7 +77,6 @@ export function AssistantPanel({
   activeRuntimeSnapshot,
   models,
   selectedModel,
-  runMode,
   prompt,
   selectedAsset,
   contextStatus,
@@ -89,7 +84,6 @@ export function AssistantPanel({
   terminalOpen,
   onToggleTerminal,
   onModelChange,
-  onRunModeChange,
   onPromptChange,
   onViewBackgroundRun,
   onCreateConversation,
@@ -100,7 +94,6 @@ export function AssistantPanel({
   onCancelRun,
   onApprove,
   onReject,
-  onApprovePlan,
   onTerminalRequestDecision,
   onLoadOlderEvents,
 }: AssistantPanelProps) {
@@ -173,7 +166,6 @@ export function AssistantPanel({
             onLoadOlder={onLoadOlderEvents}
             onApprove={onApprove}
             onReject={onReject}
-            onApprovePlan={onApprovePlan}
             onTerminalRequestDecision={onTerminalRequestDecision}
           />
 
@@ -181,14 +173,12 @@ export function AssistantPanel({
             prompt={prompt}
             models={models}
             selectedModel={selectedModel}
-            runMode={runMode}
             selectedAsset={selectedAsset}
             contextStatus={contextStatus}
             blockedRun={backgroundRun && (backgroundRun.status === 'running' || backgroundRun.status === 'needs_approval') ? { message: '另一个会话正在运行，当前暂不支持并行执行', actionLabel: backgroundRun.status === 'needs_approval' ? '前往处理' : '查看运行会话' } : null}
             onViewBlockedRun={backgroundRun ? () => onViewBackgroundRun(backgroundRun.conversationId) : undefined}
             onPromptChange={onPromptChange}
             onModelChange={onModelChange}
-            onRunModeChange={onRunModeChange}
             onRun={onRun}
             isRunning={isRunActive}
             onCancel={onCancelRun}

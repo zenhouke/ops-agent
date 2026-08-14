@@ -4,30 +4,15 @@ from dataclasses import dataclass, field
 import time
 from typing import Any, Literal
 
-from app.shared.schemas import ModelConfig, PlanStep
+from app.shared.schemas import ModelConfig
 from app.core.llm.types import LLMMessage
 
-LoopMode = Literal["agent", "plan"]
-
-
 LoopPhase = Literal[
-    "planning",
-    "waiting_plan_approval",
     "approving",
     "waiting_terminal_approval",
     "executing",
     "completed",
     "failed",
-]
-
-
-LoopDecision = Literal[
-    "continue",
-    "retry",
-    "replan",
-    "complete",
-    "fail",
-    "wait_approval",
 ]
 
 
@@ -47,7 +32,6 @@ class LoopContext:
     default_authorization_id: str | None = None
     device_vendor: str | None = None
     device_context: str = ""
-    mode: LoopMode = "agent"
     recent_output: str = ""
     conversation_history: list[LLMMessage] = field(default_factory=list)
     available_skills: list[dict[str, str]] = field(default_factory=list)
@@ -84,28 +68,6 @@ class LoopRuntimeStep:
     output: str = ""
     exit_code: int | None = None
 
-    @classmethod
-    def from_plan_step(cls, *, step_id: str, step: PlanStep, status: str = "pending") -> "LoopRuntimeStep":
-        return cls(
-            step_id=step_id,
-            title=step.title,
-            reason=step.reason,
-            risk_level=step.risk_level,
-            working_directory=step.working_directory or None,
-            expected_output=step.expected_output or None,
-            status=status,  # type: ignore[arg-type]
-        )
-
-    def to_plan_step(self) -> PlanStep:
-        return PlanStep(
-            title=self.title,
-            reason=self.reason,
-            risk_level=self.risk_level,
-            working_directory=self.working_directory or "",
-            expected_output=self.expected_output or "",
-        )
-
-
 @dataclass(slots=True)
 class LoopState:
     phase: LoopPhase
@@ -120,10 +82,7 @@ class LoopState:
     pending_approval_consistency: dict[str, Any] | None = None
     steps: list[LoopRuntimeStep] = field(default_factory=list)
     cursor: int = 0
-    plan_version: int = 1
-    locked_plan: bool = False
     pending_approval_step_id: str | None = None
-    pending_patch: dict[str, Any] | None = None
     retry_counts: dict[str, int] = field(default_factory=dict)
     last_output_excerpt: str = ""
     summary: str | None = None
@@ -151,6 +110,3 @@ class LoopState:
 
     def get_step(self, step_id: str) -> LoopRuntimeStep | None:
         return next((step for step in self.steps if step.step_id == step_id), None)
-
-    def get_remaining_plan_steps(self) -> list[PlanStep]:
-        return [step.to_plan_step() for step in self.steps[self.cursor + 1:]]

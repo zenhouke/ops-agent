@@ -2,7 +2,6 @@ import { useEffect, useMemo, useRef, useState } from 'react'
 import { EmptyState } from '../layout/EmptyState'
 import type { EventItem } from '../../types/ops'
 import { CommandExecutionCard } from './conversation/CommandExecutionCard'
-import { PlanSummaryCard } from './conversation/PlanSummaryCard'
 import { AssistantMessageContent } from './conversation/AssistantMessageContent'
 import { EventCard } from './conversation/EventCard'
 import { sortAssistantGroups } from './conversation/utils'
@@ -16,7 +15,6 @@ type ConversationViewProps = {
   onLoadOlder?: () => Promise<void>
   onApprove?: (allowPrefix?: string) => void
   onReject?: () => void
-  onApprovePlan?: (runtimeId: string) => void
   onTerminalRequestDecision?: (input: { runtimeId: string; requestId: string; approvalToken: string; approved: boolean }) => Promise<void>
 }
 
@@ -30,7 +28,6 @@ export function ConversationView({
   onLoadOlder,
   onApprove,
   onReject,
-  onApprovePlan,
   onTerminalRequestDecision,
 }: ConversationViewProps) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
@@ -39,10 +36,6 @@ export function ConversationView({
 
   const lastEvent = events[events.length - 1]
   const isStreamingNow = lastEvent?.kind === 'delta'
-  const latestPlanEvent = useMemo(
-    () => [...events].reverse().find((event) => event.kind === 'plan'),
-    [events]
-  )
   const settledTerminalRequestIds = useMemo(
     () => collectSettledTerminalRequestIds(events),
     [events]
@@ -88,11 +81,6 @@ export function ConversationView({
   return (
     <div className="relative flex flex-1 flex-col overflow-hidden" aria-label="任务执行记录">
       <div ref={scrollContainerRef} className="mx-auto flex w-full max-w-[980px] flex-1 flex-col gap-2 overflow-y-auto px-5 py-4">
-        {latestPlanEvent?.mode === 'plan' ? (
-          <div className="mb-3 w-full border-b border-ops-border/20 pb-4">
-            <PlanSummaryCard event={latestPlanEvent} onApprovePlan={onApprovePlan} />
-          </div>
-        ) : null}
         {hasMoreBefore || hiddenTurnCount > 0 ? (
           <div className="flex justify-center">
             <button
@@ -165,14 +153,6 @@ export function ConversationView({
                     }
 
                     if (entry.type === 'event') {
-                      if (entry.event.kind === 'plan') {
-                        if (entry.event !== latestPlanEvent || entry.event.mode === 'plan') {
-                          return null
-                        }
-
-                        return <div key={entry.event.id} className="max-w-[560px]"><PlanSummaryCard event={entry.event} onApprovePlan={onApprovePlan} /></div>
-                      }
-
                       return (
                         <EventCard
                           key={entry.event.id}

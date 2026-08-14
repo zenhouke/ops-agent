@@ -139,38 +139,6 @@ export type SessionRecord = {
   model: string
 }
 
-export type PlanStepStatus = 'pending' | 'running' | 'completed' | 'failed'
-
-export type PlanStep = {
-  id?: string
-  title: string
-  command?: string
-  reason?: string
-  riskLevel?: string
-  workingDirectory?: string | null
-  expectedOutput?: string | null
-  summary?: string
-  status?: PlanStepStatus
-}
-
-export type RunMode = 'agent' | 'plan'
-
-export type PlanEvent = {
-  id: string
-  kind: 'plan'
-  planId?: string
-  title?: string
-  loading?: boolean
-  version?: number
-  isLatest?: boolean
-  updated?: boolean
-  steps: PlanStep[]
-  runtimeId?: string
-  mode?: RunMode
-  lockedPlan?: boolean
-  interrupted?: boolean
-}
-
 export type TerminalStreamKind = 'echo' | 'stdout' | 'stderr' | 'status'
 
 export type CommandStartEvent = {
@@ -277,9 +245,6 @@ export type RuntimeSummary = {
   terminalId: string | null
   status: string
   runState: string
-  mode: RunMode
-  planVersion: number
-  lockedPlan: boolean
   loadedSkillName: string | null
   currentStepId: string | null
   pendingApprovalStepId: string | null
@@ -320,9 +285,6 @@ export type RuntimeSnapshot = {
   terminalId: string | null
   status: string
   runState: string
-  mode: RunMode
-  planVersion: number
-  lockedPlan: boolean
   loadedSkillName: string | null
   steps: RuntimeStep[]
   currentStepId: string | null
@@ -428,7 +390,6 @@ export type AgentMessage = {
 
 export type EventItem =
   | { id: string; kind: 'delta'; text: string; messageId: string; stage?: string }
-  | PlanEvent
   | ApprovalEvent
   | CommandStartEvent
   | CommandChunkEvent

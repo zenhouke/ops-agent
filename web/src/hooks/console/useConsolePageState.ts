@@ -1,27 +1,13 @@
-import { useEffect, useMemo, useState } from 'react'
-import type { RunMode } from '../../types/api'
-import type { EventItem, RuntimeSnapshot } from '../../types/ops'
+import { useMemo, useState } from 'react'
+import type { EventItem } from '../../types/ops'
 
 type UseConsolePageStateProps = {
   events: EventItem[]
-  activeRuntimeSnapshot: RuntimeSnapshot | null
 }
 
-export function useConsolePageState({ events, activeRuntimeSnapshot }: UseConsolePageStateProps) {
+export function useConsolePageState({ events }: UseConsolePageStateProps) {
   const [activeModal, setActiveModal] = useState<'settings' | null>(null)
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false)
-  const [runMode, setRunMode] = useState<RunMode>('agent')
-
-  useEffect(() => {
-    if (activeRuntimeSnapshot) {
-      setRunMode(activeRuntimeSnapshot.mode)
-      return
-    }
-    const latestPlanEvent = [...events].reverse().find((event) => event.kind === 'plan')
-    if (latestPlanEvent?.mode) {
-      setRunMode(latestPlanEvent.mode)
-    }
-  }, [activeRuntimeSnapshot, events])
 
   const busyCommand = useMemo(() => {
     const commandsInOrder: Array<{ id: string; cmd: string }> = []
@@ -45,8 +31,6 @@ export function useConsolePageState({ events, activeRuntimeSnapshot }: UseConsol
     setActiveModal,
     sidebarCollapsed,
     setSidebarCollapsed,
-    runMode,
-    setRunMode,
     busyCommand,
   }
 }

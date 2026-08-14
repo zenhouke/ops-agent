@@ -1,5 +1,4 @@
 import type { RefObject } from 'react'
-import type { RunMode } from '../../types/api'
 import type {
   AgentMessage,
   Asset,
@@ -23,7 +22,6 @@ export interface UseAgentRunProps {
   selectedAsset: Asset
   activeTerminalTab: { sessionId: string | null } | null
   selectedModel: string
-  runMode: RunMode
   setLoadError: (error: string | null) => void
   setContextStatus: (
     status:

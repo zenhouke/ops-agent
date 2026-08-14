@@ -52,7 +52,7 @@ class RuntimeStore:
                     asset_id=int(snapshot["asset_id"]),
                     terminal_id=snapshot.get("terminal_id"),
                     status=str(snapshot["status"]),
-                    mode=str(snapshot.get("mode") or "agent"),
+                    mode="agent",
                     run_state=run_state,
                     owner_instance_id=self._instance_id,
                     lease_expires_at=self._lease_expiry(run_state),
@@ -233,7 +233,7 @@ class RuntimeStore:
         run_state: str,
     ) -> None:
         record.status = str(snapshot["status"])
-        record.mode = str(snapshot.get("mode") or "agent")
+        record.mode = "agent"
         record.run_state = run_state
         record.owner_instance_id = self._instance_id
         record.lease_expires_at = self._lease_expiry(run_state)

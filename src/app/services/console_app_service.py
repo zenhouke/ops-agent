@@ -13,7 +13,7 @@ from app.core.connectors.device_profiles import (
 )
 from app.core.connectors.execution_context import build_asset_summary, build_device_context, infer_os_type
 from app.core.llm.types import LLMMessage, LLMTokenUsage
-from app.core.loop.loop_state import LoopContext, LoopMode, LoopState
+from app.core.loop.loop_state import LoopContext, LoopState
 from app.core.loop.runtime_manager import LoopRuntimeManager, new_runtime_id
 from app.core.runtime.control import get_runtime_control
 from app.core.tool.execute_command import ExecuteCommandHandler
@@ -147,7 +147,6 @@ class ConsoleAppService:
         model_name: str | None = None,
         selected_skill_name: str | None = None,
         conversation_id: str = "console",
-        mode: LoopMode = "agent",
         terminal_service: TerminalService,
     ) -> Iterator[dict]:
         asset = self._resolve_asset(session, asset_id)
@@ -241,7 +240,6 @@ class ConsoleAppService:
             device_context=device_context,
             user_prompt=prompt,
             model_config=model_config,
-            mode=mode,
             conversation_history=conversation_history,
             available_skills=available_skills,
             loaded_skill_name=loaded_skill_name,
@@ -332,19 +330,8 @@ class ConsoleAppService:
             runtime_id_log=runtime_id,
         )
 
-    def update_plan(self, *, runtime_id: str, steps: list[dict]) -> dict:
-        return self.runtime_manager.update_plan(runtime_id=runtime_id, steps=steps)
-
     def cancel_runtime(self, runtime_id: str) -> dict[str, Any]:
         return self.runtime_manager.cancel(runtime_id)
-
-    def stream_plan_approval(self, *, runtime_id: str, terminal_service: TerminalService) -> Iterator[dict]:
-        yield from self._stream_events_with_error_handling(
-            runtime_id=runtime_id,
-            log_message="stream_plan_approval failed runtime_id=%s",
-            event_iter_factory=lambda: self.runtime_manager.approve_plan(runtime_id=runtime_id, terminal_service=terminal_service),
-            runtime_id_log=runtime_id,
-        )
 
     def stream_after_terminal_request(self, *, runtime_id: str, resume_message: str, terminal_service: TerminalService, authorization_id: str | None = None) -> Iterator[dict]:
         yield from self._stream_events_with_error_handling(

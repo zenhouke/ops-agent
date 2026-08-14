@@ -5,7 +5,6 @@ from typing import TYPE_CHECKING, Any
 
 from sqlmodel import Session
 
-from app.core.loop.loop_state import LoopMode
 from app.core.loop.runtime_manager import LoopRuntimeManager
 from app.services.terminal_service import TerminalService
 
@@ -78,7 +77,6 @@ class TaskOrchestrator:
         model_name: str | None = None,
         selected_skill_name: str | None = None,
         conversation_id: str = "console",
-        mode: LoopMode = "agent",
     ) -> Iterator[dict]:
         return self._app_service.stream_run(
             session=session,
@@ -88,7 +86,6 @@ class TaskOrchestrator:
             model_name=model_name,
             selected_skill_name=selected_skill_name,
             conversation_id=conversation_id,
-            mode=mode,
             terminal_service=self._terminal_service,
         )
 
@@ -107,12 +104,6 @@ class TaskOrchestrator:
             approved=approved,
             approval_token=approval_token,
             allow_prefix=allow_prefix,
-            terminal_service=self._terminal_service,
-        )
-
-    def stream_plan_approval(self, *, runtime_id: str) -> Iterator[dict]:
-        return self._app_service.stream_plan_approval(
-            runtime_id=runtime_id,
             terminal_service=self._terminal_service,
         )
 

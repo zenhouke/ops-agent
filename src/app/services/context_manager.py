@@ -16,7 +16,7 @@ JsonObject: TypeAlias = dict[str, JsonValue]
 
 ContextStatus = Literal["normal", "warning", "critical"]
 FitStatus = Literal["fits", "compacted_to_fit", "overflow"]
-SegmentKind = Literal["user", "assistant", "command", "approval", "error", "plan"]
+SegmentKind = Literal["user", "assistant", "command", "approval", "error"]
 
 
 @dataclass(slots=True)
@@ -31,7 +31,6 @@ class MessageSegment:
 class ContextSummary:
     user_goal: list[str] = field(default_factory=list)
     current_state: list[str] = field(default_factory=list)
-    plan_status: list[str] = field(default_factory=list)
     key_decisions: list[str] = field(default_factory=list)
     commands_and_results: list[str] = field(default_factory=list)
     failures_and_risks: list[str] = field(default_factory=list)
@@ -170,10 +169,6 @@ class ContextManager:
                 self._normalize_message_event(segments, event, event_index)
                 continue
 
-            if kind == "plan":
-                self._normalize_plan_event(segments, event, event_index)
-                continue
-
             if kind in {"approval_required", "approval_decision", "approval_granted", "approval_rejected"}:
                 self._normalize_approval_event(segments, event, event_index)
                 continue
@@ -225,8 +220,6 @@ class ContextManager:
             if segment.kind == "user":
                 self._append_limited(summary.user_goal, content)
                 self._append_limited(summary.open_tasks, content)
-            elif segment.kind == "plan":
-                self._append_limited(summary.plan_status, content)
             elif segment.kind == "command":
                 self._append_limited(summary.commands_and_results, content)
             elif segment.kind == "approval":
@@ -242,7 +235,6 @@ class ContextManager:
         sections = [
             ("User goal", summary.user_goal),
             ("Current state", summary.current_state),
-            ("Plan status", summary.plan_status),
             ("Key decisions", summary.key_decisions),
             ("Commands and results", summary.commands_and_results),
             ("Failures and risks", summary.failures_and_risks),
@@ -319,27 +311,6 @@ class ContextManager:
         if exit_code is not None:
             parts.append(f"Exit code: {exit_code}")
         self._append_segment(segments, "command", "assistant", "\n".join(parts), event_index)
-
-    def _normalize_plan_event(self, segments: list[MessageSegment], event: JsonObject, event_index: int) -> None:
-        title = self._string_value(event.get("title")) or "Task Plan"
-        steps = event.get("steps")
-        if not isinstance(steps, list):
-            return
-        lines: list[str] = []
-        for index, step in enumerate(steps, start=1):
-            if not isinstance(step, dict):
-                continue
-            step_title = self._string_value(step.get("title")) or f"Step {index}"
-            command = self._string_value(step.get("command"))
-            reason = self._string_value(step.get("summary") or step.get("reason"))
-            line = f"{index}. {step_title}"
-            if command:
-                line += f" | Command: {command}"
-            if reason:
-                line += f" | Reason: {reason}"
-            lines.append(line)
-        if lines:
-            self._append_segment(segments, "plan", "assistant", f"{title}\n" + "\n".join(lines), event_index)
 
     def _normalize_approval_event(self, segments: list[MessageSegment], event: JsonObject, event_index: int) -> None:
         kind = self._string_value(event.get("kind"))

@@ -72,7 +72,7 @@ cd web/src-tauri && cargo check
 - `web/src/App.tsx` 是控制台 Shell，负责 bootstrap、资产选择、terminal tabs、conversation state、assistant run 和 settings dialog。
 - `web/src/api/` 按后端领域拆分；`web/src/api/client.ts` 会优先读 Tauri 提供的 base URL，否则走 `VITE_API_BASE_URL` 或同源 dev proxy。
 - `web/src/hooks/console/` 拆分了 bootstrap、资产目录、会话持久化、终端会话和 agent run / approval 流。
-- `web/src/components/assistant/` 和 `web/src/components/assistant/conversation/` 消费后端 SSE 事件，渲染 message、command、plan、approval、error 卡片。
+- `web/src/components/assistant/` 和 `web/src/components/assistant/conversation/` 消费后端 SSE 事件，渲染 message、command、approval、error 卡片。
 - `web/src/components/terminal/` 用 xterm.js + 后端 WebSocket 会话。
 - `web/src/components/layout/` 放通用布局组件；设计 token 和 Tailwind 约定在 `web/src/index.css`、`web/tailwind.config.js`。
 
