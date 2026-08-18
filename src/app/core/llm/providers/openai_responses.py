@@ -23,13 +23,26 @@ class OpenAIResponsesLLMProvider:
         usage: LLMTokenUsage | None = None
         tool_fragments: dict[str, dict[str, Any]] = {}
         current_tool_item_id: str | None = None
+        output_text_parts: list[str] = []
+        thinking_parts: list[str] = []
 
         for event in stream:
             event_type = getattr(event, "type", "")
             if event_type == "response.output_text.delta":
                 delta = getattr(event, "delta", "")
                 if isinstance(delta, str) and delta:
+                    output_text_parts.append(delta)
                     yield LLMCompletionChunk(delta=delta)
+                continue
+            if event_type in {
+                "response.reasoning.delta",
+                "response.reasoning_text.delta",
+                "response.reasoning_summary_text.delta",
+            }:
+                delta = getattr(event, "delta", "")
+                if isinstance(delta, str) and delta:
+                    thinking_parts.append(delta)
+                    yield LLMCompletionChunk(thinking_delta=delta)
                 continue
             if event_type == "response.function_call_arguments.delta":
                 item_id = self._event_item_id(event) or current_tool_item_id or "tool-call-0"
@@ -55,6 +68,20 @@ class OpenAIResponsesLLMProvider:
                 finish_reason = getattr(response, "status", None) or finish_reason
                 usage = self._extract_usage(response) or usage
                 self._merge_response_output(tool_fragments, response)
+                completed_text = getattr(response, "output_text", "") or ""
+                streamed_text = "".join(output_text_parts)
+                if isinstance(completed_text, str) and completed_text.startswith(streamed_text):
+                    remaining_text = completed_text[len(streamed_text):]
+                    if remaining_text:
+                        output_text_parts.append(remaining_text)
+                        yield LLMCompletionChunk(delta=remaining_text)
+                completed_thinking = self._extract_reasoning_text(response)
+                streamed_thinking = "".join(thinking_parts)
+                if completed_thinking.startswith(streamed_thinking):
+                    remaining_thinking = completed_thinking[len(streamed_thinking):]
+                    if remaining_thinking:
+                        thinking_parts.append(remaining_thinking)
+                        yield LLMCompletionChunk(thinking_delta=remaining_thinking)
                 continue
             if event_type == "response.failed":
                 response = getattr(event, "response", None)

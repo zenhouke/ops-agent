@@ -14,6 +14,7 @@ from app.api.schemas import (
     ConversationCreateResponse,
     ConversationDetailView,
     ConversationSummaryView,
+    ConversationUpdateRequest,
 )
 from app.db.repositories.model_usage import sum_conversation_usage
 from app.db.session import Session, engine
@@ -39,11 +40,24 @@ def list_conversations() -> list[ConversationSummaryView]:
 @router.post("/api/conversations", response_model=ConversationCreateResponse)
 def create_conversation(payload: ConversationCreateRequest) -> ConversationCreateResponse:
     service = get_conversation_service()
-    summary = service.create_conversation(selected_model=payload.selected_model)
+    summary = service.create_conversation(
+        selected_model=payload.selected_model,
+        asset_id=payload.asset_id,
+    )
     return ConversationCreateResponse(
         conversation=ConversationSummaryView.model_validate(summary.__dict__),
         events=[],
     )
+
+
+@router.patch("/api/conversations/{conversation_id}", response_model=ConversationSummaryView)
+def update_conversation(conversation_id: str, payload: ConversationUpdateRequest) -> ConversationSummaryView:
+    service = get_conversation_service()
+    try:
+        detail = service.update_selected_model(conversation_id, payload.selected_model)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Conversation not found") from exc
+    return ConversationSummaryView.model_validate(service.to_summary(detail).__dict__)
 
 
 @router.get("/api/conversations/{conversation_id}", response_model=ConversationDetailView)

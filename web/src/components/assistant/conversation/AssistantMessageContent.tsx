@@ -4,7 +4,7 @@ import { useAppearance } from '../../../hooks/useAppearance'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { PROSE_CLASS } from './types'
-import { stripJsonBlocks } from './utils'
+import { stripInvisibleMarkers, stripJsonBlocks } from './utils'
 import { CommandExecutionCard } from './CommandExecutionCard'
 
 type AssistantMessageContentProps = {
@@ -36,8 +36,8 @@ export function AssistantMessageContent({
   const parsed = useMemo(() => {
     // Priority 1: Use message.thinking if available (from reasoning models)
     if (message?.thinking) {
-      const thinking = message.thinking
-      const isStillThinking = message.partial && thinking.length > 0
+      const thinking = stripInvisibleMarkers(message.thinking)
+      const isStillThinking = message.partial && thinking.length > 0 && !processedContent
       return {
         thinking,
         output: processedContent,
@@ -97,6 +97,8 @@ export function AssistantMessageContent({
         {parsed.thinking && (
           <div className="flex flex-col gap-2">
             <button
+              type="button"
+              aria-expanded={isThinkExpanded}
               onClick={() => setIsThinkExpanded(!isThinkExpanded)}
               className="flex w-fit items-center gap-2 rounded-[4px] border border-ops-cyan/10 bg-ops-cyan/5 px-2.5 py-1 text-[10px] font-semibold text-ops-cyan/65 transition-colors hover:border-ops-cyan/25 hover:text-ops-cyan active:scale-95"
             >

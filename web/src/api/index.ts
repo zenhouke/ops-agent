@@ -12,7 +12,7 @@ export {
 } from './console'
 export { getApprovalPolicy, updateApprovalPolicy } from './approval'
 export type { ApprovalPolicy } from './approval'
-export { appendConversationEvents, createConversation, deleteConversation, getConversation, getConversationContext, getConversationEventsPage, getConversationEventsTail, getConversations } from './conversations'
+export { appendConversationEvents, createConversation, deleteConversation, getConversation, getConversationContext, getConversationEventsPage, getConversationEventsTail, getConversations, updateConversationModel } from './conversations'
 export { closeTerminalSession, createTerminalSession, reconnectTerminalSession } from './terminal'
 export { createGroup, deleteGroup, getGroups, mapAssetGroup, updateGroup } from './groups'
 export type { AssetGroupDto, AssetGroupPayload } from './groups'

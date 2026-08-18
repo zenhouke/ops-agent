@@ -112,7 +112,10 @@ class SchedulerService:
             console_app = get_console_app_service()
             terminal_service = get_terminal_service()
             default_model = console_app._resolve_model_config(session, None)
-            conversation = conversation_service.create_conversation(selected_model=default_model.model_name)
+            conversation = conversation_service.create_conversation(
+                selected_model=default_model.model_name,
+                asset_id=job.asset_id,
+            )
             conversation_id = conversation.id
             logger.info("Starting background job execution conversation_id=%s for job_id=%s", conversation_id, job.id)
 

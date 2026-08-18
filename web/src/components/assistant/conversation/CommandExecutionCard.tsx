@@ -96,6 +96,7 @@ type CommandExecutionCardProps = {
   chunkEvents?: CommandChunk[]
   endEvent?: CommandEnd
   pendingApprovalRuntimeId: string | null
+  terminalRuntimeIds?: ReadonlySet<string>
   onApprove?: (allowPrefix?: string) => void
   onReject?: () => void
 }
@@ -107,6 +108,7 @@ export function CommandExecutionCard({
   chunkEvents = [],
   endEvent,
   pendingApprovalRuntimeId,
+  terminalRuntimeIds = new Set(),
   onApprove,
   onReject
 }: CommandExecutionCardProps) {
@@ -159,16 +161,21 @@ export function CommandExecutionCard({
   const allowPrefixOptions = Array.from(new Set([displayCommand.trim(), commandTokens[0]].filter(Boolean)))
   
   const isMessageAsk = message?.type === 'ask'
-  const approvalStatus = isMessageAsk ? 'pending' : (message?.type === 'say' && message?.say === 'tool_use' && !message.partial ? 'approved' : (approvalEvent?.status ?? (approvalEvent ? 'pending' : undefined)))
+  const runtimeId = (message as (AgentMessage & { runtimeId?: string }) | undefined)?.runtimeId || approvalEvent?.runtimeId || startEvent?.runtimeId
+  const runtimeIsTerminal = Boolean(runtimeId && terminalRuntimeIds.has(runtimeId))
+  const rawApprovalStatus = isMessageAsk
+      ? 'pending'
+      : (message?.type === 'say' && message?.say === 'tool_use' && !message.partial ? 'approved' : (approvalEvent?.status ?? (approvalEvent ? 'pending' : undefined)))
+  const approvalStatus = runtimeIsTerminal && rawApprovalStatus === 'pending' ? 'expired' : rawApprovalStatus
   
   // For ask-type messages: show buttons when pendingApprovalRuntimeId is set (stream guarantees correctness)
   // For legacy approval events: match on runtimeId
-  const showApprovalActions = pendingApprovalRuntimeId !== null && (
+  const showApprovalActions = !runtimeIsTerminal && pendingApprovalRuntimeId !== null && (
     isMessageAsk || 
     (approvalStatus === 'pending' && approvalEvent?.runtimeId === pendingApprovalRuntimeId)
   )
 
-  const isRunning = message ? message.partial : (!endEvent && !approvalStatus)
+  const isRunning = runtimeIsTerminal ? false : message ? message.partial : (!endEvent && !approvalStatus)
 
   useEffect(() => {
     if (showApprovalActions && approvalStatus === 'pending') {
@@ -194,15 +201,15 @@ export function CommandExecutionCard({
         </div>
 
         <div className="flex items-center gap-3">
-          {(message ? !message.partial : !!endEvent) ? (
+          {hasExecutionResult ? (
             <div className={`flex items-center gap-1.5 rounded-[4px] border px-2 py-0.5 text-[9px] font-bold tracking-[0.08em] ${exitCode === null || exitCode === 0 ? 'border-ops-green/25 bg-ops-green/8 text-ops-green' : 'border-ops-danger/30 bg-ops-danger/8 text-ops-danger'}`}>
               <div className={`h-1.5 w-1.5 rounded-full ${exitCode === null || exitCode === 0 ? 'bg-ops-green' : 'bg-ops-danger'}`} />
               {exitCode === null || exitCode === 0 ? t('conversation.success') : t('conversation.errorCode', { code: String(exitCode) })}
             </div>
           ) : approvalStatus ? (
-            <div className={`flex items-center gap-1.5 rounded-[4px] border px-2 py-0.5 text-[9px] font-bold tracking-[0.08em] ${approvalStatus === 'approved' ? 'border-ops-green/25 bg-ops-green/8 text-ops-green' : approvalStatus === 'rejected' ? 'border-ops-danger/30 bg-ops-danger/8 text-ops-danger' : 'border-ops-warning/35 bg-ops-warning/10 text-ops-warning'}`}>
-              <span className={`h-1.5 w-1.5 rounded-full ${approvalStatus === 'approved' ? 'bg-ops-green' : approvalStatus === 'rejected' ? 'bg-ops-danger' : 'animate-pulse bg-ops-warning'}`} />
-              {approvalStatus === 'approved' ? t('conversation.authorized') : approvalStatus === 'rejected' ? t('conversation.denied') : t('conversation.needsApproval')}
+            <div className={`flex items-center gap-1.5 rounded-[4px] border px-2 py-0.5 text-[9px] font-bold tracking-[0.08em] ${approvalStatus === 'approved' ? 'border-ops-green/25 bg-ops-green/8 text-ops-green' : approvalStatus === 'rejected' || approvalStatus === 'expired' ? 'border-ops-danger/30 bg-ops-danger/8 text-ops-danger' : 'border-ops-warning/35 bg-ops-warning/10 text-ops-warning'}`}>
+              <span className={`h-1.5 w-1.5 rounded-full ${approvalStatus === 'approved' ? 'bg-ops-green' : approvalStatus === 'rejected' || approvalStatus === 'expired' ? 'bg-ops-danger' : 'animate-pulse bg-ops-warning'}`} />
+              {approvalStatus === 'approved' ? t('conversation.authorized') : approvalStatus === 'rejected' ? t('conversation.denied') : approvalStatus === 'expired' ? '已失效' : t('conversation.needsApproval')}
             </div>
           ) : (
             <div className="flex items-center gap-1.5 rounded-[4px] border border-ops-cyan/30 bg-ops-cyan/8 px-2 py-0.5 text-[9px] font-bold tracking-[0.08em] text-ops-cyan">

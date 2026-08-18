@@ -8,6 +8,7 @@ export type ConversationSummaryDto = {
   updated_at: string
   event_count: number
   last_event_kind: string | null
+  asset_id: number | null
 }
 
 export type ConversationDetailDto = {
@@ -16,6 +17,7 @@ export type ConversationDetailDto = {
   selected_model: string | null
   created_at: string
   updated_at: string
+  asset_id: number | null
   events: EventItem[]
 }
 
@@ -108,6 +110,8 @@ export type RuntimeSummaryDto = {
   conversation_id: string
   asset_id: number
   terminal_id: string | null
+  model_name: string
+  model_provider: string
   status: string
   run_state: string
   loaded_skill_name: string | null
@@ -121,6 +125,8 @@ export type RuntimeSnapshotDto = {
   conversation_id: string
   asset_id: number
   terminal_id: string | null
+  model_name: string
+  model_provider: string
   status: string
   run_state: string
   loaded_skill_name: string | null

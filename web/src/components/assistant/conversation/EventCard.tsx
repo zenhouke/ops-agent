@@ -17,6 +17,28 @@ function eventValue(event: EventItem, key: string): string | undefined {
   return typeof value === 'string' ? value : undefined
 }
 
+function presentError(message: string): string {
+  if (/model is not found|model_not_found/i.test(message)) {
+    return '模型供应商未找到当前模型。请在模型设置中重新发现模型后重试。'
+  }
+  if (/insufficient_quota|quota exceeded|quota_exceeded|workspace allocated quota/i.test(message)) {
+    return '模型供应商额度已用尽。请更换模型或补充供应商账户额度后重试。'
+  }
+  if (/concurrency limit|too many concurrent/i.test(message)) {
+    return '模型供应商并发额度已满。请等待当前请求结束后重试，或检查供应商账户的并发限制。'
+  }
+  if (/only allows clients matched by the configured tls router/i.test(message)) {
+    return '当前 API Key 限制了客户端类型，不能用于 Ops Agent。请调整供应商限制或更换 Key。'
+  }
+  if (/request timed out|\btimeout\b|timed out/i.test(message)) {
+    return '模型供应商响应超时。请检查连接或增加模型超时时间后重试。'
+  }
+  if (/response\.failed|upstream_error/i.test(message)) {
+    return '模型供应商请求失败。请在模型设置中测试当前配置后重试。'
+  }
+  return message
+}
+
 export function EventCard({ event, onTerminalRequestDecision, settledTerminalRequestIds }: EventCardProps) {
   const { t } = useAppearance()
   const [submittingTerminalDecision, setSubmittingTerminalDecision] = useState(false)
@@ -28,7 +50,7 @@ export function EventCard({ event, onTerminalRequestDecision, settledTerminalReq
           <span className="h-1.5 w-1.5 rounded-full bg-ops-danger" />
           {t('conversation.systemError')}
         </div>
-        <p className="m-0 whitespace-pre-wrap font-mono text-xs leading-relaxed text-ops-text/90">{event.text}</p>
+        <p className="m-0 whitespace-pre-wrap text-xs leading-relaxed text-ops-text/90">{presentError(event.text)}</p>
       </div>
     )
   }

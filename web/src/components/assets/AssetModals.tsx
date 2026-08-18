@@ -108,6 +108,8 @@ function AssetFormModal({ mode, form, assets, targetAsset, groups, sshKeys, seri
   const isUsedAsProxy = targetAsset ? assets.some((a) => a.proxyAssetId === targetAsset.id) : false
   const proxyCandidates = assets.filter((asset) => isProxyCandidate(asset, targetAsset?.id ?? null))
   const proxySelectorDisabled = !supportsSshProxyTarget(form.assetKind) || isUsedAsProxy
+  const usesPassword = ['password', 'password_and_key'].includes(form.authType)
+  const usesSshKey = ['key', 'password_and_key'].includes(form.authType)
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-ops-bg/60 backdrop-blur-md animate-in fade-in duration-300" role="presentation">
@@ -194,7 +196,7 @@ function AssetFormModal({ mode, form, assets, targetAsset, groups, sshKeys, seri
                   </span>
                 ) : null}
               </label>
-              {['key', 'password_and_key'].includes(form.authType) ? (
+              {usesSshKey ? (
                 <label className="flex flex-col gap-2 text-[11px] font-bold  tracking-widest text-ops-muted/70 col-span-2 sm:col-span-1">
                   {t('assets.selectSshKey')}
                   <select className="field-control" value={form.sshKeyId} onChange={(event) => onChange('sshKeyId', event.target.value)} required>
@@ -205,10 +207,12 @@ function AssetFormModal({ mode, form, assets, targetAsset, groups, sshKeys, seri
                   </select>
                 </label>
               ) : null}
-              <label className="flex flex-col gap-2 text-[11px] font-bold  tracking-widest text-ops-muted/70 col-span-2">
-                {t('assets.credentialPassphrase')}
-                <input className="field-control font-mono" type="password" value={form.credentialSecret} onChange={(event) => onChange('credentialSecret', event.target.value)} placeholder="••••••••••••" required={mode !== 'edit-asset'} />
-              </label>
+              {usesPassword ? (
+                <label className="flex flex-col gap-2 text-[11px] font-bold tracking-widest text-ops-muted/70 col-span-2">
+                  {t('assets.password')}
+                  <input className="field-control font-mono" type="password" value={form.credentialSecret} onChange={(event) => onChange('credentialSecret', event.target.value)} placeholder="••••••••••••" required={mode !== 'edit-asset'} />
+                </label>
+              ) : null}
             </>
           ) : null}
           {form.mode === 'serial' ? (
@@ -328,6 +332,13 @@ export const AssetModals = forwardRef<AssetModalsRef, AssetModalsProps>(
         if (field === 'assetKind' && !supportsSshProxyTarget(value as AssetKind)) {
           nextForm.proxyAssetId = ''
         }
+        if (field === 'authType') {
+          if (value === 'key') {
+            nextForm.credentialSecret = ''
+          } else if (value === 'password') {
+            nextForm.sshKeyId = ''
+          }
+        }
         return nextForm
       })
     }
@@ -415,7 +426,9 @@ export const AssetModals = forwardRef<AssetModalsRef, AssetModalsProps>(
             auth_type: addAssetForm.authType,
             ssh_key_id: ['key', 'password_and_key'].includes(addAssetForm.authType) ? (addAssetForm.sshKeyId ? Number(addAssetForm.sshKeyId) : null) : null,
             proxy_asset_id: supportsSshProxyTarget(addAssetForm.assetKind) && addAssetForm.proxyAssetId ? Number(addAssetForm.proxyAssetId) : null,
-            credential_secret: addAssetForm.credentialSecret.trim() || undefined,
+            credential_secret: ['password', 'password_and_key'].includes(addAssetForm.authType)
+              ? addAssetForm.credentialSecret.trim() || undefined
+              : undefined,
             tags: buildConnectionTags(addAssetForm),
             vendor: targetAsset?.vendor || '',
             description: targetAsset?.description || '',

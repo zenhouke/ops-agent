@@ -13,6 +13,7 @@ from app.core.connectors.device_profiles import (
 )
 from app.core.connectors.execution_context import build_asset_summary, build_device_context, infer_os_type
 from app.core.llm.types import LLMMessage, LLMTokenUsage
+from app.core.llm.errors import user_facing_llm_error
 from app.core.loop.loop_state import LoopContext, LoopState
 from app.core.loop.runtime_manager import LoopRuntimeManager, new_runtime_id
 from app.core.runtime.control import get_runtime_control
@@ -20,7 +21,7 @@ from app.core.tool.execute_command import ExecuteCommandHandler
 from app.core.tool.load_skill import LoadSkillHandler
 from app.core.tool.terminal_autonomy import ListAssetsHandler, RequestTerminalSessionHandler
 from app.db.repositories.assets import get_asset
-from app.db.repositories.models import get_default_model_config
+from app.db.repositories.models import get_default_model_config, get_model_config_by_model_name
 from app.db.repositories.model_usage import create_model_usage, sum_conversation_usage
 from app.db.session import Session as DbSession, engine
 from app.services.approval_service import get_approval_service
@@ -366,12 +367,18 @@ class ConsoleAppService:
                         with trace_detached_operation("agent.runtime.step", {"ops.runtime_id": runtime_id}):
                             event = next(iterator)
                 except StopIteration:
-                    status = "completed"
+                    try:
+                        snapshot = self.runtime_manager.get_snapshot(runtime_id)
+                        status = "failed" if snapshot.get("status") == "failed" else "completed"
+                    except ValueError:
+                        status = "completed"
                     return
                 yield event
         except Exception as exc:
             logger.exception(log_message, *log_context.values())
-            yield self._runtime_error_event(runtime_id, str(exc), recoverable=True)
+            message = user_facing_llm_error(exc)
+            runtime_error = self.runtime_manager.fail_runtime(runtime_id, message)
+            yield runtime_error or self._runtime_error_event(runtime_id, message, recoverable=True)
         finally:
             control.metrics.run_finished(
                 runtime_id,
@@ -400,6 +407,12 @@ class ConsoleAppService:
 
     def _resolve_model_config(self, session: Session, model_name: str | None):
         default_record = get_default_model_config(session)
+        if model_name:
+            selected_record = get_model_config_by_model_name(session, model_name)
+            if selected_record is not None:
+                return self._model_service.from_record(selected_record)
+            if default_record is not None:
+                raise ValueError(f"Model is not configured: {model_name}")
         default_config = (
             self._model_service.from_record(default_record)
             if default_record is not None

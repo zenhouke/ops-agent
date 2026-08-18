@@ -10,6 +10,7 @@ from sqlmodel import Session
 from app.core.llm.provider_presets import get_default_base_url, get_default_model, is_openai_compatible_provider
 from app.core.llm.types import LLMCompletionRequest, LLMMessage
 from app.core.llm.factory import build_llm_provider
+from app.core.llm.errors import user_facing_llm_error
 
 from app.db.models import ModelConfigRecord
 from app.db.repositories.models import list_model_names_by_provider
@@ -29,6 +30,10 @@ class ModelService:
 
     
     def validate(self, config: ModelConfig) -> bool:
+        success, _ = self.validate_with_message(config)
+        return success
+
+    def validate_with_message(self, config: ModelConfig) -> tuple[bool, str]:
         if self._provider_client is not None:
             provider = self._provider_client
         else:
@@ -44,9 +49,9 @@ class ModelService:
                     json_mode=False,
                 ),
             )
-            return True
-        except Exception:
-            return False
+            return True, "Connection succeeded"
+        except Exception as exc:
+            return False, user_facing_llm_error(exc)
 
     def get_active_model(self, default_config: ModelConfig, session_override: ModelConfig | None) -> ModelConfig:
         return session_override or default_config

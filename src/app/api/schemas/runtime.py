@@ -112,6 +112,8 @@ class RuntimeSummaryView(BaseModel):
     conversation_id: str
     asset_id: int
     terminal_id: str | None = None
+    model_name: str = ""
+    model_provider: str = ""
     status: str
     run_state: str = "queued"
     loaded_skill_name: str | None = None
@@ -127,6 +129,8 @@ class RuntimeSnapshotView(BaseModel):
     conversation_id: str
     asset_id: int
     terminal_id: str | None = None
+    model_name: str = ""
+    model_provider: str = ""
     status: str
     run_state: str = "queued"
     loaded_skill_name: str | None = None
@@ -165,6 +169,7 @@ class ConversationSummaryView(BaseModel):
     updated_at: datetime
     event_count: int
     last_event_kind: str | None = None
+    asset_id: int | None = None
 
 
 class ConversationDetailView(BaseModel):
@@ -173,11 +178,17 @@ class ConversationDetailView(BaseModel):
     selected_model: str | None = None
     created_at: datetime
     updated_at: datetime
+    asset_id: int | None = None
     events: list[dict] = Field(default_factory=list)
 
 
 class ConversationCreateRequest(BaseModel):
     selected_model: str | None = None
+    asset_id: int | None = None
+
+
+class ConversationUpdateRequest(BaseModel):
+    selected_model: str
 
 
 class ConversationCreateResponse(BaseModel):

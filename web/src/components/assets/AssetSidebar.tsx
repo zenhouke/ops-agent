@@ -74,6 +74,7 @@ export function AssetSidebar({ assets, groups, conversationSummaries, activeConv
               groups={groups}
               selectedAssetId={selectedAssetId}
               onSelectAsset={onSelectAsset}
+              onAddAsset={onAddAsset}
               onUpdateAsset={onUpdateAsset}
               onDeleteAsset={onDeleteAsset}
               onEditAsset={onEditAsset}

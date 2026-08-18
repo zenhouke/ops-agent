@@ -10,6 +10,7 @@ type AssetListProps = {
   onSelectAsset: (assetId: number) => void
   onUpdateAsset?: (assetId: number, payload: any) => Promise<any>
   onDeleteAsset?: (assetId: number) => Promise<void>
+  onAddAsset?: () => void
   onEditAsset?: (asset: Asset) => void
   onDeleteAssetConfirm?: (asset: Asset) => void
 }
@@ -23,7 +24,7 @@ function getAssetMeta(asset: Asset, localSystemLabel: string): string {
   return asset.assetType === 'local_terminal' ? localSystemLabel : `${asset.host}:${asset.port}`
 }
 
-export function AssetList({ assets, groups, selectedAssetId, onSelectAsset, onEditAsset, onDeleteAssetConfirm }: AssetListProps) {
+export function AssetList({ assets, groups, selectedAssetId, onSelectAsset, onAddAsset, onEditAsset, onDeleteAssetConfirm }: AssetListProps) {
   const { t } = useAppearance()
   const [menuAssetId, setMenuAssetId] = useState<number | null>(null)
   const visibleAssets = assets.filter((asset) => asset.assetType !== 'local_terminal')
@@ -44,7 +45,18 @@ export function AssetList({ assets, groups, selectedAssetId, onSelectAsset, onEd
 
   return (
     <div className="flex h-full flex-col bg-ops-deep/50" aria-label={t('assets.hostConnectionList')} onMouseLeave={() => setMenuAssetId(null)}>
-      {visibleAssets.length === 0 ? <p className="text-center py-10 text-ops-muted text-[11px]  tracking-widest font-medium opacity-50">{t('assets.emptyWorkspace')}</p> : null}
+      {visibleAssets.length === 0 ? (
+        <div className="mx-3 mt-4 rounded-lg border border-dashed border-ops-border/40 bg-ops-panel/30 px-3 py-4 text-center">
+          <div className="mx-auto flex h-8 w-8 items-center justify-center rounded-lg border border-ops-cyan/20 bg-ops-cyan/8 text-ops-cyan" aria-hidden="true">
+            <svg viewBox="0 0 24 24" className="h-4 w-4 fill-none stroke-current" strokeWidth="2" strokeLinecap="round"><rect x="3" y="4" width="18" height="6" rx="1.5" /><rect x="3" y="14" width="18" height="6" rx="1.5" /><path d="M7 7h.01M7 17h.01" /></svg>
+          </div>
+          <p className="mt-3 text-[11px] font-semibold text-ops-text/85">{t('assets.emptyWorkspace')}</p>
+          <p className="mt-1 text-[9px] leading-4 text-ops-muted/60">添加 SSH 或网络设备，统一管理远程终端与运维任务。</p>
+          <button type="button" className="mt-3 inline-flex h-7 items-center gap-1.5 rounded-md border border-ops-cyan/30 bg-ops-cyan/10 px-2.5 text-[10px] font-semibold text-ops-cyan transition hover:bg-ops-cyan/15" onClick={onAddAsset}>
+            添加节点
+          </button>
+        </div>
+      ) : null}
       {assetGroups.map((group) => {
         const groupKey = String(group.id)
         const groupAssets = groupedAssets[groupKey] ?? []

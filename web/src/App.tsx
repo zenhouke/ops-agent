@@ -1,4 +1,4 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { Group, Panel, Separator, type Layout } from 'react-resizable-panels'
 import { AssetModals, type AssetModalsRef } from './components/assets/AssetModals'
 import { AssetSidebar } from './components/assets/AssetSidebar'
@@ -67,11 +67,12 @@ export function App() {
     activeConversationId,
     activeConversationIdRef,
     activeConversationTitle,
+    activeConversationAssetId,
     events,
+    runtimeSummaries,
     eventWindow,
     isLoadingOlderEvents,
     setEvents,
-    runtimeSummaries,
     activeRuntimeSnapshot,
     contextStatus,
     setContextStatus,
@@ -80,6 +81,7 @@ export function App() {
     syncConversationRuntimes,
     refreshConversationList,
     createConversation,
+    updateConversationModel,
     deleteConversation,
     upsertConversationSummary,
   } = useConversationState(selectedModel)
@@ -135,6 +137,17 @@ export function App() {
     busyCommand,
   } = useConsolePageState({ events })
 
+  const openConversation = useCallback(async (conversationId: string) => {
+    const conversation = await loadConversation(conversationId)
+    if (conversation.selectedModel && bootstrap.modelOptions.includes(conversation.selectedModel)) {
+      setSelectedModel(conversation.selectedModel)
+    }
+    if (conversation.assetId !== null) {
+      selectAsset(conversation.assetId)
+    }
+    return conversation
+  }, [bootstrap.modelOptions, loadConversation, selectAsset, setSelectedModel])
+
   const {
     pendingApprovalRuntimeId,
     backgroundRun,
@@ -149,8 +162,10 @@ export function App() {
   } = useAgentRun({
     activeConversationId,
     activeConversationTitle,
+    activeConversationAssetId,
     activeConversationIdRef,
     events,
+    runtimeSummaries,
     setEvents,
     createConversation,
     upsertConversationSummary,
@@ -238,17 +253,23 @@ export function App() {
           const [latestConversation] = [...items].sort((left, right) =>
             right.updatedAt.localeCompare(left.updatedAt)
           )
-          await loadConversation(latestConversation.id)
+          const conversation = await loadConversation(latestConversation.id)
 
           if (!active) {
             return
           }
 
           setIsConsoleInitialized(true)
+          if (conversation.selectedModel && bootstrap.modelOptions.includes(conversation.selectedModel)) {
+            setSelectedModel(conversation.selectedModel)
+          }
+          if (conversation.assetId !== null) {
+            selectAsset(conversation.assetId)
+          }
           return
         }
 
-        await createConversation()
+        await createConversation(0)
 
         if (!active) {
           return
@@ -276,6 +297,7 @@ export function App() {
     bootstrap.terminalOutput,
     bootstrap.terminalSessionError,
     bootstrap.terminalSessionId,
+    bootstrap.modelOptions,
     createConversation,
     initializeLocalTerminal,
     isBootstrapLoaded,
@@ -283,7 +305,9 @@ export function App() {
     loadConversation,
     loadError,
     refreshConversationList,
+    selectAsset,
     setLoadError,
+    setSelectedModel,
     t,
   ])
 
@@ -312,14 +336,19 @@ export function App() {
           setTerminalFocused(false)
           setTerminalOpen((current) => !current)
         }}
-        onModelChange={setSelectedModel}
+        onModelChange={(model) => {
+          setSelectedModel(model)
+          void updateConversationModel(model).catch((error: unknown) => {
+            setLoadError(error instanceof Error ? error.message : '模型选择保存失败')
+          })
+        }}
         onPromptChange={setPrompt}
         onViewBackgroundRun={(conversationId) => {
-          void loadConversation(conversationId).then(() => clearBackgroundRunUnread(conversationId))
+          void openConversation(conversationId).then(() => clearBackgroundRunUnread(conversationId))
         }}
-        onCreateConversation={() => void createConversation()}
+        onCreateConversation={() => void createConversation(selectedAsset.id)}
         onSelectConversation={(conversationId) => {
-          void loadConversation(conversationId).then(() => clearBackgroundRunUnread(conversationId))
+          void openConversation(conversationId).then(() => clearBackgroundRunUnread(conversationId))
         }}
         onDeleteConversation={(conversationId) => void deleteConversation(conversationId)}
         onRun={(nextPrompt, selectedSkillName) => runAgent(nextPrompt, selectedSkillName)}
@@ -345,7 +374,7 @@ export function App() {
         onSelectConversation={(conversationId) => {
           setManagementWorkspace(null)
           setActiveWorkspaceSection('conversations')
-          void loadConversation(conversationId)
+          void openConversation(conversationId)
         }}
         onSelectAsset={(assetId) => {
           setManagementWorkspace(null)
@@ -387,7 +416,7 @@ export function App() {
           }}
           onSelectConversation={(conversationId) => {
             setManagementWorkspace(null)
-            void loadConversation(conversationId)
+            void openConversation(conversationId)
           }}
           onDeleteConversation={(conversationId) => {
             void deleteConversation(conversationId)
@@ -527,9 +556,11 @@ export function App() {
 
       <StatusBar
         asset={selectedAsset}
-        model={selectedModel}
+        model={activeRuntimeSnapshot?.modelName || selectedModel}
         contextStatus={contextStatus}
         runtime={activeRuntimeSnapshot}
+        isRunActive={isRunActive}
+        hasPendingApproval={pendingApprovalRuntimeId !== null}
         terminalCount={terminalTabs.length}
       />
 

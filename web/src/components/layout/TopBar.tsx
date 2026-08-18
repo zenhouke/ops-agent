@@ -17,8 +17,7 @@ export function TopBar({
     <header className="desktop-title-bar" data-tauri-drag-region>
       <div className="flex min-w-0 items-center gap-2 text-[11px]" data-tauri-drag-region>
         <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-ops-green" />
-        <span className="shrink-0 font-semibold text-ops-text">{selectedAsset?.name || '本地工作区'}</span>
-        {selectedAsset?.host ? <span className="hidden font-mono text-[10px] text-ops-muted/60 md:inline">{selectedAsset.host}</span> : null}
+        <span className="shrink-0 font-semibold text-ops-text">{selectedAsset?.host || selectedAsset?.name || '本地工作区'}</span>
         <span className="hidden text-ops-border sm:inline">/</span>
         <span className="hidden font-medium text-ops-muted/60 sm:inline">运维工作台</span>
       </div>

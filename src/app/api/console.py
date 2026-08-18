@@ -1,5 +1,6 @@
 import json
 import logging
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -25,6 +26,12 @@ from app.shared.enums import AssetType
 router = APIRouter()
 _console_app_service = ConsoleAppService()
 logger = logging.getLogger(__name__)
+
+SSE_HEADERS = {
+    "Cache-Control": "no-cache, no-transform",
+    "Connection": "keep-alive",
+    "X-Accel-Buffering": "no",
+}
 
 
 def _sse_event(payload: dict) -> str:
@@ -55,7 +62,12 @@ def get_console_bootstrap(
     model_service = ModelService()
     default_record = get_default_model_config(session)
     default_config = model_service.from_record(default_record) if default_record is not None else model_service.load_settings()
-    model_options = [record.model_name for record in list_model_configs(session)] or model_service.list_available_models(default_config.provider, session)
+    configured_model_names = [record.model_name for record in list_model_configs(session)]
+    model_options = (
+        [default_config.model_name, *[name for name in configured_model_names if name != default_config.model_name]]
+        if configured_model_names
+        else model_service.list_available_models(default_config.provider, session)
+    )
     if default_config.model_name and default_config.model_name not in model_options:
         model_options = [default_config.model_name, *model_options]
     local_terminal_asset = next((asset for asset in assets if asset.asset_type == AssetType.LOCAL_TERMINAL.value), None)
@@ -92,24 +104,29 @@ async def run_console_agent(
     t_start = _time.monotonic()
     payload = await _parse_request_model(request, ConsoleRunRequest)
     t_parse = _time.monotonic()
-    if payload.conversation_id and payload.conversation_id != "console":
-        conversation_service = get_conversation_service()
-        user_event = {
-            "id": f"user-{payload.conversation_id}-{abs(hash(payload.prompt))}",
-            "kind": "user",
-            "text": payload.prompt,
-        }
-        try:
-            conversation_service.append_events(payload.conversation_id, [user_event])
-        except FileNotFoundError as exc:
-            raise HTTPException(status_code=404, detail="Conversation not found") from exc
-    t_persist = _time.monotonic()
+    conversation_service = None
     asset_id = payload.asset_id
     if asset_id is None:
         local_terminal_asset = next((asset for asset in list_asset_records(session) if asset.asset_type == AssetType.LOCAL_TERMINAL.value), None)
         asset_id = local_terminal_asset.id if local_terminal_asset is not None and local_terminal_asset.id is not None else 0
     if asset_id is None:
         raise HTTPException(status_code=400, detail="Asset id is required")
+
+    if payload.conversation_id and payload.conversation_id != "console":
+        conversation_service = get_conversation_service()
+        user_event = {
+            "id": f"user-{uuid4().hex}",
+            "kind": "user",
+            "text": payload.prompt,
+        }
+        try:
+            conversation_service.bind_asset(payload.conversation_id, asset_id)
+            conversation_service.append_events(payload.conversation_id, [user_event])
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Conversation not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+    t_persist = _time.monotonic()
     
     try:
         stream = orchestrator.stream_run(
@@ -122,6 +139,8 @@ async def run_console_agent(
             conversation_id=payload.conversation_id,
         )
         first_event = next(stream)
+        if conversation_service is not None and payload.model_name:
+            conversation_service.update_selected_model(payload.conversation_id, payload.model_name)
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
@@ -137,7 +156,7 @@ async def run_console_agent(
             logger.exception("console.run stream failed conversation_id=%s", payload.conversation_id)
             yield _sse_event({"id": "error-run", "kind": "error", "text": str(exc), "recoverable": True})
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    return StreamingResponse(event_stream(), media_type="text/event-stream", headers=SSE_HEADERS)
 
 
 @router.get("/api/console/conversations/{conversation_id}/runtimes")
@@ -234,7 +253,7 @@ async def decide_terminal_request(
         except Exception as exc:
             yield _sse_event({"id": "error-terminal-decision", "kind": "error", "text": str(exc), "recoverable": True})
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    return StreamingResponse(event_stream(), media_type="text/event-stream", headers=SSE_HEADERS)
 
 
 @router.post("/api/console/approval")
@@ -259,4 +278,4 @@ async def approve_console_agent(
         except Exception as exc:
             yield _sse_event({"id": "error-approve", "kind": "error", "text": str(exc), "recoverable": True})
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    return StreamingResponse(event_stream(), media_type="text/event-stream", headers=SSE_HEADERS)

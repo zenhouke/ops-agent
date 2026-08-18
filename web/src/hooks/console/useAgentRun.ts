@@ -14,11 +14,27 @@ import { useTerminalRequestDecision } from './useTerminalRequestDecision'
 import { useAgentRunCancellation } from './useAgentRunCancellation'
 
 
+function createPendingAssistantMessage(): AgentMessage {
+  return {
+    id: PENDING_ASSISTANT_MESSAGE_ID,
+    kind: 'message',
+    ts: Date.now() / 1000,
+    type: 'say',
+    say: 'text',
+    text: '',
+    thinking: '',
+    partial: true,
+  }
+}
+
+
 export function useAgentRun({
   activeConversationId,
   activeConversationTitle,
+  activeConversationAssetId,
   activeConversationIdRef,
   events,
+  runtimeSummaries,
   setEvents,
   createConversation,
   upsertConversationSummary,
@@ -76,17 +92,41 @@ export function useAgentRun({
   }, [activeConversationId, clearBackgroundRunUnread])
 
   useEffect(() => {
-    const pendingApproval = derivePendingApprovalState(events)
+    const terminalRuntimeIds = new Set(
+      runtimeSummaries
+        .filter((runtime) => runtime.status === 'failed' || runtime.runState === 'interrupted')
+        .map((runtime) => runtime.runtimeId)
+    )
+    const pendingApproval = derivePendingApprovalState(events, terminalRuntimeIds)
     if (submittedApprovalKeyRef.current && submittedApprovalKeyRef.current === pendingApproval?.approvalKey) {
       return
     }
     submittedApprovalKeyRef.current = null
     setPendingApprovalRuntimeId(pendingApproval?.runtimeId ?? null)
     setPendingApprovalToken(pendingApproval?.approvalToken ?? null)
-  }, [events])
+  }, [events, runtimeSummaries])
+
+  useEffect(() => {
+    if (!activeRuntimeId) return
+    const runtime = runtimeSummaries.find((item) => item.runtimeId === activeRuntimeId)
+    if (!runtime) return
+    const terminal = runtime.status === 'completed' || runtime.status === 'failed' || runtime.runState === 'interrupted'
+    if (!terminal) return
+    setActiveRuntimeId(null)
+    setPendingApprovalRuntimeId(null)
+    setPendingApprovalToken(null)
+    setBackgroundRun((currentRun) => currentRun?.conversationId === activeConversationId && (currentRun.status === 'running' || currentRun.status === 'needs_approval')
+      ? { ...currentRun, status: runtime.status === 'completed' ? 'completed' : 'failed' }
+      : currentRun)
+  }, [activeConversationId, activeRuntimeId, runtimeSummaries])
 
   const runAgent = useCallback(async (runPrompt: string, selectedSkillName?: string | null) => {
     setLoadError(null)
+
+    if (activeConversationAssetId !== null && activeConversationAssetId !== selectedAsset.id) {
+      setLoadError(`当前会话绑定到资产 ${activeConversationAssetId}，当前目标是 ${selectedAsset.name}。请新建任务后再切换目标。`)
+      return
+    }
 
     let conversationId = activeConversationId
     let deltaBatcher: ReturnType<typeof createDeltaBatcher> | null = null
@@ -97,7 +137,7 @@ export function useAgentRun({
       }
 
       if (!conversationId) {
-        conversationId = await createConversation()
+        conversationId = await createConversation(selectedAsset.id)
       }
 
       if (!conversationId) {
@@ -110,13 +150,7 @@ export function useAgentRun({
         text: runPrompt,
       }
 
-      const pendingStatusEvent: EventItem = {
-        id: PENDING_ASSISTANT_MESSAGE_ID,
-        kind: 'delta',
-        messageId: PENDING_ASSISTANT_MESSAGE_ID,
-        stage: 'assistant',
-        text: 'Initiating request and waiting for model response...',
-      }
+      const pendingStatusEvent = createPendingAssistantMessage()
 
       if (activeConversationIdRef.current === conversationId) {
         setEvents((currentEvents: EventItem[]) => [...currentEvents, userEvent, pendingStatusEvent])
@@ -152,6 +186,7 @@ export function useAgentRun({
       const pendingPersistEvents: EventItem[] = []
       const latestMessageSnapshots = new Map<string, AgentMessage>()
       let requiresApproval = false
+      let runFailed = false
 
       for await (const event of stream) {
         const eventRuntimeId = (event as EventItem & { runtimeId?: string }).runtimeId
@@ -222,6 +257,9 @@ export function useAgentRun({
 
         pendingPersistEvents.push(event)
 
+        if (event.kind === 'error') {
+          runFailed = true
+        }
         if (event.kind === 'approval_required') {
           requiresApproval = true
           const isViewingRunConversation = activeConversationIdRef.current === conversationId
@@ -249,10 +287,14 @@ export function useAgentRun({
       await syncConversationRuntimes(conversationId)
       setBackgroundRun((currentRun) => currentRun?.conversationId === conversationId ? {
         ...currentRun,
-        status: requiresApproval ? 'needs_approval' : 'completed',
+        status: runFailed ? 'failed' : requiresApproval ? 'needs_approval' : 'completed',
         hasUnread: activeConversationIdRef.current !== conversationId,
       } : currentRun)
-      if (!requiresApproval) {
+      if (runFailed) {
+        setPendingApprovalRuntimeId(null)
+        setPendingApprovalToken(null)
+      }
+      if (runFailed || !requiresApproval) {
         setActiveRuntimeId(null)
       }
     } catch (error) {
@@ -299,6 +341,7 @@ export function useAgentRun({
   }, [
     activeConversationId,
     activeConversationTitle,
+    activeConversationAssetId,
     activeConversationIdRef,
     backgroundRun,
     createConversation,
@@ -322,20 +365,19 @@ export function useAgentRun({
       const runId = pendingApprovalRuntimeId
       const approvalToken = pendingApprovalToken
       const conversationId = activeConversationId
-      submittedApprovalKeyRef.current = derivePendingApprovalState(events)?.approvalKey ?? null
+      const terminalRuntimeIds = new Set(
+        runtimeSummaries
+          .filter((runtime) => runtime.status === 'failed' || runtime.runState === 'interrupted')
+          .map((runtime) => runtime.runtimeId)
+      )
+      submittedApprovalKeyRef.current = derivePendingApprovalState(events, terminalRuntimeIds)?.approvalKey ?? null
       setPendingApprovalRuntimeId(null)
       setPendingApprovalToken(null)
 
       if (activeConversationIdRef.current === conversationId) {
         setEvents((currentEvents: EventItem[]) => [
           ...currentEvents,
-          {
-            id: PENDING_ASSISTANT_MESSAGE_ID,
-            kind: 'delta',
-            messageId: PENDING_ASSISTANT_MESSAGE_ID,
-            stage: 'assistant',
-            text: approved ? 'Approval submitted, waiting for model to continue...' : 'Rejection submitted, waiting for model to continue...',
-          },
+          createPendingAssistantMessage(),
         ])
       }
 
@@ -455,7 +497,8 @@ export function useAgentRun({
       setEvents,
       refreshConversationList,
       syncConversationRuntimes,
-      events,
+    events,
+    runtimeSummaries,
     ]
   )
 

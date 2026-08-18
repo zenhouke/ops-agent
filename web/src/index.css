@@ -51,8 +51,8 @@
   --ops-border: 72 72 72;
   --ops-text: 245 245 245;
   --ops-muted: 156 156 156;
-  --ops-green: 214 214 214;
-  --ops-cyan: 232 232 232;
+  --ops-green: 74 222 128;
+  --ops-cyan: 56 189 248;
   --ops-warning: 245 158 11;
   --ops-danger: 239 68 68;
 }
@@ -65,8 +65,8 @@
   --ops-border: 203 200 193;
   --ops-text: 32 32 32;
   --ops-muted: 115 113 108;
-  --ops-green: 74 106 82;
-  --ops-cyan: 52 52 50;
+  --ops-green: 31 138 76;
+  --ops-cyan: 2 132 199;
   --ops-warning: 176 120 48;
   --ops-danger: 178 68 68;
 }
@@ -81,14 +81,14 @@
   .desktop-app-shell {
     @apply flex h-screen w-screen flex-col overflow-hidden bg-ops-bg text-ops-text;
     background-image:
-      linear-gradient(rgb(var(--ops-text) / 0.012) 1px, transparent 1px),
-      linear-gradient(90deg, rgb(var(--ops-text) / 0.01) 1px, transparent 1px);
+      linear-gradient(rgb(var(--ops-cyan) / 0.016) 1px, transparent 1px),
+      linear-gradient(90deg, rgb(var(--ops-cyan) / 0.014) 1px, transparent 1px);
     background-size: 32px 32px;
   }
 
   .desktop-title-bar {
     @apply relative z-50 flex h-9 shrink-0 select-none items-center justify-between border-b border-ops-border/35 bg-ops-deep px-3;
-    box-shadow: inset 0 -1px 0 rgb(0 0 0 / 0.32);
+    box-shadow: inset 0 -1px 0 rgb(var(--ops-cyan) / 0.045);
   }
 
   .desktop-title-button {
@@ -163,7 +163,7 @@
   }
 
   .desktop-status-primary {
-    @apply flex h-full items-center gap-1.5 border-r border-ops-border/25 bg-ops-cyan/10 px-2.5 font-medium text-ops-cyan;
+    @apply flex h-full items-center gap-1.5 border-r border-ops-green/20 bg-ops-green/10 px-2.5 font-medium text-ops-green;
   }
 
   .desktop-status-item {

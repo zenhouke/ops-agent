@@ -9,6 +9,7 @@ from contextlib import contextmanager
 from typing import Any, Literal
 
 from app.core.llm.types import LLMMessage
+from app.core.llm.errors import user_facing_llm_error
 from app.core.loop.agent_loop import AgentLoop
 from app.core.loop.loop_events import LoopEvent
 from app.core.loop.loop_state import LoopContext, LoopRuntimeStep, LoopState
@@ -197,6 +198,25 @@ class RuntimeExecutionMixin:
                 "recoverable": False,
                 "budgetExceeded": True,
             })
+        except Exception as exc:
+            message = user_facing_llm_error(exc)
+            runtime.state.phase = "failed"
+            runtime.state.error_message = message
+            yield self._append_runtime_event(runtime, "error", {
+                "text": message,
+                "recoverable": True,
+            })
+
+    def fail_runtime(self: Any, runtime_id: str, message: str) -> dict | None:
+        runtime = self.get_runtime(runtime_id)
+        if runtime is None:
+            return None
+        runtime.state.phase = "failed"
+        runtime.state.error_message = message
+        return self._append_runtime_event(runtime, "error", {
+            "text": message,
+            "recoverable": True,
+        })
 
     def run(self: Any, *, runtime_id: str, terminal_service: Any) -> Iterator[dict]:
         runtime = self.get_runtime(runtime_id)

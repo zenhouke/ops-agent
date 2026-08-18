@@ -41,8 +41,8 @@ function contextLabel(status: ConversationContextStatus | null) {
 }
 
 function contextUsageLabel(status: ConversationContextStatus | null) {
-  if (!status?.tokenUsage) return contextLabel(status)
-  return `${contextLabel(status)} · ${formatTokenCount(status.tokenUsage.totalTokens)} tokens`
+  if (!status?.tokenUsage) return `上下文 ${contextLabel(status)}`
+  return `上下文 ${contextLabel(status)} · 累计 ${formatTokenCount(status.tokenUsage.totalTokens)} tokens`
 }
 
 function contextUsageTitle(status: ConversationContextStatus | null) {
@@ -161,8 +161,14 @@ export function PromptInput({
   }
 
   return (
-    <div className="relative mx-auto mb-2 mt-1 w-[calc(100%-2.5rem)] max-w-[980px] shrink-0 rounded-[18px] border border-ops-border/35 bg-ops-panel/80 shadow-[0_10px_32px_rgb(var(--ops-bg)/0.28)] transition-all duration-200 focus-within:border-ops-text/35 focus-within:ring-1 focus-within:ring-ops-text/10">
-      <div className="relative overflow-visible rounded-[17px]">
+    <div className="relative mx-auto mb-3 mt-1 w-[calc(100%-2.5rem)] max-w-[980px] shrink-0 rounded-lg border border-ops-border/40 bg-ops-panel/85 shadow-[0_14px_40px_rgb(0_0_0/0.22)] transition-all duration-200 focus-within:border-ops-cyan/45 focus-within:ring-1 focus-within:ring-ops-cyan/10">
+      <div className="relative overflow-visible rounded-lg">
+        <div className="flex h-8 items-center justify-between border-b border-ops-border/20 px-3.5">
+          <span className="flex items-center gap-2 text-[9px] font-semibold tracking-[0.08em] text-ops-muted/65">
+            <span className="h-1.5 w-1.5 rounded-full bg-ops-cyan" />任务指令
+          </span>
+          <span className="hidden text-[9px] text-ops-muted/45 sm:inline">Enter 执行 · Shift+Enter 换行 · / 调用技能</span>
+        </div>
         <label className="sr-only" htmlFor="prompt-input">
           {t('assistant.commandInput')}
         </label>
@@ -170,7 +176,7 @@ export function PromptInput({
           <textarea
             id="prompt-input"
             ref={textareaRef}
-            className="min-h-[58px] w-full resize-none bg-transparent px-4 pb-2 pr-14 pt-3.5 text-[13px] font-medium leading-relaxed text-ops-text caret-ops-text outline-none placeholder:text-ops-muted/35 scrollbar-thin"
+            className="min-h-[56px] w-full resize-none bg-transparent px-4 pb-2 pr-14 pt-3 text-[13px] font-medium leading-relaxed text-ops-text caret-ops-cyan outline-none placeholder:text-ops-muted/35 scrollbar-thin"
             value={prompt}
             onChange={(event) => onPromptChange(event.target.value)}
             onKeyDown={(e) => {
@@ -223,8 +229,8 @@ export function PromptInput({
           <div className="flex min-w-0 flex-1 items-center gap-2 overflow-visible">
             <div className="flex min-w-0 items-center gap-1.5 rounded-full px-1.5 py-1" aria-label={t('assistant.context')}>
               <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-ops-green" />
-              <span className="max-w-[150px] truncate text-[9px] font-semibold text-ops-text/75">{selectedAsset.name}</span>
-              <span className="hidden max-w-[120px] truncate font-mono text-[9px] text-ops-muted/45 lg:inline">{selectedAsset.host || '本地'}</span>
+              <span className="max-w-[180px] truncate font-mono text-[9px] font-semibold text-ops-text/75">{selectedAsset.host || selectedAsset.name}</span>
+              {!selectedAsset.host ? <span className="hidden text-[9px] text-ops-muted/45 lg:inline">本地</span> : null}
             </div>
           </div>
 

@@ -21,6 +21,9 @@ export default defineConfig({
     },
   },
   server: {
+    watch: {
+      ignored: ['**/src-tauri/target/**'],
+    },
     proxy: {
       '/api': {
         target: apiProxyTarget,

@@ -56,6 +56,8 @@ class RuntimePersistenceMixin:
             "conversation_id": runtime.conversation_id,
             "asset_id": runtime.asset_id,
             "terminal_id": runtime.terminal_id,
+            "model_name": state.context.model_config.model_name,
+            "model_provider": state.context.model_config.provider.value,
             "status": state.phase,
             "run_state": self._run_state(runtime),
             "loaded_skill_name": state.context.loaded_skill_name,

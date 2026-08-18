@@ -11,6 +11,7 @@ export function mapConversationSummary(dto: ConversationSummaryDto): Conversatio
     ...mapRequiredTimestamps(dto),
     eventCount: dto.event_count,
     lastEventKind: dto.last_event_kind,
+    assetId: dto.asset_id,
   }
 }
 
@@ -19,6 +20,7 @@ export function mapConversationDetail(dto: ConversationDetailDto): ConversationD
     id: dto.id,
     title: dto.title,
     selectedModel: dto.selected_model,
+    assetId: dto.asset_id,
     ...mapRequiredTimestamps(dto),
     events: dto.events,
   }
@@ -64,15 +66,23 @@ export async function getConversations(): Promise<ConversationSummary[]> {
   return conversations.map(mapConversationSummary)
 }
 
-export async function createConversation(selectedModel: string | null): Promise<{ conversation: ConversationSummary; events: EventItem[] }> {
+export async function createConversation(selectedModel: string | null, assetId: number | null): Promise<{ conversation: ConversationSummary; events: EventItem[] }> {
   const response = await requestJson<ConversationCreateResponseDto>('/api/conversations', {
     method: 'POST',
-    body: JSON.stringify({ selected_model: selectedModel }),
+    body: JSON.stringify({ selected_model: selectedModel, asset_id: assetId }),
   })
   return {
     conversation: mapConversationSummary(response.conversation),
     events: response.events,
   }
+}
+
+export async function updateConversationModel(conversationId: string, selectedModel: string): Promise<ConversationSummary> {
+  const response = await requestJson<ConversationSummaryDto>(`/api/conversations/${conversationId}`, {
+    method: 'PATCH',
+    body: JSON.stringify({ selected_model: selectedModel }),
+  })
+  return mapConversationSummary(response)
 }
 
 export async function getConversation(conversationId: string): Promise<ConversationDetail> {

@@ -56,6 +56,14 @@ def get_model_config(session: Session, model_config_id: int) -> ModelConfigRecor
     return session.get(ModelConfigRecord, model_config_id)
 
 
+def get_model_config_by_model_name(session: Session, model_name: str) -> ModelConfigRecord | None:
+    return session.exec(
+        select(ModelConfigRecord)
+        .where(ModelConfigRecord.model_name == model_name)
+        .order_by(desc(cast(Any, ModelConfigRecord.id)))
+    ).first()
+
+
 def get_default_model_config(session: Session) -> ModelConfigRecord | None:
     return session.exec(select(ModelConfigRecord).where(ModelConfigRecord.is_default == True)).first()
 

@@ -111,6 +111,8 @@ def _ensure_runtime_columns() -> None:
         "lease_expires_at": (
             "ALTER TABLE agent_runtimes ADD COLUMN lease_expires_at DATETIME"
         ),
+        "model_name": "ALTER TABLE agent_runtimes ADD COLUMN model_name VARCHAR NOT NULL DEFAULT ''",
+        "model_provider": "ALTER TABLE agent_runtimes ADD COLUMN model_provider VARCHAR NOT NULL DEFAULT ''",
     }
     with engine.begin() as connection:
         for column_name, statement in statements.items():

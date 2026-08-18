@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react'
 import { EmptyState } from '../layout/EmptyState'
-import type { EventItem } from '../../types/ops'
+import type { EventItem, RuntimeSummary } from '../../types/ops'
 import { CommandExecutionCard } from './conversation/CommandExecutionCard'
 import { AssistantMessageContent } from './conversation/AssistantMessageContent'
 import { EventCard } from './conversation/EventCard'
@@ -9,6 +9,9 @@ import { buildConversationGroups, buildConversationTurns, collectSettledTerminal
 
 type ConversationViewProps = {
   events: EventItem[]
+  runtimeSummaries: RuntimeSummary[]
+  targetLabel?: string
+  targetMeta?: string
   hasMoreBefore?: boolean
   isLoadingOlder?: boolean
   pendingApprovalRuntimeId: string | null
@@ -16,12 +19,16 @@ type ConversationViewProps = {
   onApprove?: (allowPrefix?: string) => void
   onReject?: () => void
   onTerminalRequestDecision?: (input: { runtimeId: string; requestId: string; approvalToken: string; approved: boolean }) => Promise<void>
+  onSelectSuggestion?: (suggestion: string) => void
 }
 
 const MAX_RENDERED_TURNS = 80
 
 export function ConversationView({
   events,
+  runtimeSummaries,
+  targetLabel,
+  targetMeta,
   hasMoreBefore = false,
   isLoadingOlder = false,
   pendingApprovalRuntimeId,
@@ -29,6 +36,7 @@ export function ConversationView({
   onApprove,
   onReject,
   onTerminalRequestDecision,
+  onSelectSuggestion,
 }: ConversationViewProps) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const shouldAutoScrollRef = useRef(true)
@@ -43,6 +51,14 @@ export function ConversationView({
   const turns = useMemo(
     () => buildConversationTurns(buildConversationGroups(events)),
     [events]
+  )
+  const terminalRuntimeIds = useMemo(
+    () => new Set(
+      runtimeSummaries
+        .filter((runtime) => runtime.status === 'failed' || runtime.runState === 'interrupted')
+        .map((runtime) => runtime.runtimeId)
+    ),
+    [runtimeSummaries]
   )
   const hiddenTurnCount = showAllLoadedTurns ? 0 : Math.max(0, turns.length - MAX_RENDERED_TURNS)
   const visibleTurns = hiddenTurnCount > 0 ? turns.slice(hiddenTurnCount) : turns
@@ -73,7 +89,14 @@ export function ConversationView({
   if (events.length === 0) {
     return (
       <div className="flex-1 overflow-y-auto p-3" aria-label="任务执行记录">
-        <EmptyState title="准备就绪" description="输入任务后，执行记录、审批请求和最终结果会显示在这里。" />
+        <EmptyState
+          title="工作台已就绪"
+          description="选择一个常用任务，或在下方直接描述你的运维目标。"
+          targetLabel={targetLabel}
+          targetMeta={targetMeta}
+          suggestions={['检查当前主机资源与异常', '查看最近的系统错误日志', '梳理服务状态并提示风险']}
+          onSelectSuggestion={onSelectSuggestion}
+        />
       </div>
     )
   }
@@ -129,6 +152,7 @@ export function ConversationView({
                           startEvent={entry.startEvent}
                           chunkEvents={entry.chunkEvents}
                           endEvent={entry.endEvent}
+                          terminalRuntimeIds={terminalRuntimeIds}
                           pendingApprovalRuntimeId={pendingApprovalRuntimeId}
                           onApprove={onApprove}
                           onReject={onReject}

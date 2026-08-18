@@ -21,6 +21,28 @@ if [ -f "$REPO_ROOT/.env" ]; then
     set +a
 fi
 
+# pnpm 11 uses node:sqlite and requires Node.js 22.13 or newer. When nvm is
+# available, select the repository's Node 22 runtime even if the shell default
+# still points at an older installation.
+NVM_SCRIPT="${NVM_DIR:-$HOME/.nvm}/nvm.sh"
+if [ -s "$NVM_SCRIPT" ]; then
+    # shellcheck disable=SC1090
+    source "$NVM_SCRIPT"
+    if command -v nvm >/dev/null 2>&1; then
+        nvm use 22 >/dev/null 2>&1 || true
+    fi
+fi
+
+if ! command -v node >/dev/null 2>&1; then
+    echo "Node.js 22.13+ is required to run the frontend, but node was not found." >&2
+    exit 1
+fi
+if ! node -e 'const [major, minor] = process.versions.node.split(".").map(Number); process.exit(major > 22 || (major === 22 && minor >= 13) ? 0 : 1)'; then
+    echo "Node.js 22.13+ is required to run the frontend; found $(node --version)." >&2
+    echo "Install or activate Node.js 22 before running ./scripts/run.sh." >&2
+    exit 1
+fi
+
 OPS_AGENT_PORT="${OPS_AGENT_PORT:-8000}"
 export OPS_AGENT_PORT
 export VITE_API_PROXY_TARGET="${VITE_API_PROXY_TARGET:-http://127.0.0.1:${OPS_AGENT_PORT}}"
@@ -56,7 +78,11 @@ echo "Starting Ops Agent Backend..."
 
 echo "Starting Ops Agent Frontend..."
 echo "Frontend API proxy target: ${VITE_API_PROXY_TARGET}"
-cd "$REPO_ROOT/web" && pnpm dev &
+if [ ! -x "$REPO_ROOT/web/node_modules/.bin/vite" ]; then
+    echo "Frontend dependencies are not installed. Run 'pnpm --dir web install' first." >&2
+    exit 1
+fi
+cd "$REPO_ROOT/web" && ./node_modules/.bin/vite &
 
 # Wait for background processes
 wait

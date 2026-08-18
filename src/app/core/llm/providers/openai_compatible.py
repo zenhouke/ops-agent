@@ -38,7 +38,11 @@ class OpenAICompatibleLLMProvider:
                 finish_reason = getattr(choice, "finish_reason", finish_reason)
                 delta = getattr(choice, "delta", None)
                 text = getattr(delta, "content", None)
-                reasoning = getattr(delta, "reasoning_content", None)
+                reasoning = (
+                    getattr(delta, "reasoning_content", None)
+                    or getattr(delta, "reasoning", None)
+                    or getattr(delta, "thinking", None)
+                )
                 for tool_call in getattr(delta, "tool_calls", None) or []:
                     index = getattr(tool_call, "index", 0) or 0
                     current = tool_call_fragments.setdefault(index, {"id": "", "name": "", "arguments": ""})

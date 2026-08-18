@@ -16,6 +16,7 @@ release/
 .env
 .roo/
 .ops-agent/
+.playwright-cli/
 .D
 .DS_Store
 web/src-tauri/target/

@@ -160,6 +160,9 @@ export function AssistantPanel({
 
           <ConversationView
             events={events}
+            runtimeSummaries={runtimeSummaries}
+            targetLabel={selectedAsset.host || selectedAsset.name}
+            targetMeta={selectedAsset.host ? undefined : '本地终端'}
             hasMoreBefore={eventWindow?.hasMoreBefore ?? false}
             isLoadingOlder={isLoadingOlderEvents}
             pendingApprovalRuntimeId={pendingApprovalRuntimeId}
@@ -167,6 +170,10 @@ export function AssistantPanel({
             onApprove={onApprove}
             onReject={onReject}
             onTerminalRequestDecision={onTerminalRequestDecision}
+            onSelectSuggestion={(suggestion) => {
+              onPromptChange(suggestion)
+              requestAnimationFrame(() => document.getElementById('prompt-input')?.focus())
+            }}
           />
 
           <PromptInput

@@ -149,6 +149,8 @@ class AgentRuntimeRecord(SQLModel, table=True):
     conversation_id: str = Field(index=True)
     asset_id: int
     terminal_id: str | None = None
+    model_name: str = ""
+    model_provider: str = ""
     status: str
     mode: str = "agent"  # Legacy NOT NULL column; plan mode is no longer supported.
     run_state: str = "queued"

@@ -51,6 +51,8 @@ class RuntimeStore:
                     conversation_id=str(snapshot["conversation_id"]),
                     asset_id=int(snapshot["asset_id"]),
                     terminal_id=snapshot.get("terminal_id"),
+                    model_name=str(snapshot.get("model_name") or ""),
+                    model_provider=str(snapshot.get("model_provider") or ""),
                     status=str(snapshot["status"]),
                     mode="agent",
                     run_state=run_state,
@@ -83,6 +85,8 @@ class RuntimeStore:
                     conversation_id=str(snapshot["conversation_id"]),
                     asset_id=int(snapshot["asset_id"]),
                     terminal_id=snapshot.get("terminal_id"),
+                    model_name=str(snapshot.get("model_name") or ""),
+                    model_provider=str(snapshot.get("model_provider") or ""),
                     status=str(snapshot["status"]),
                     owner_instance_id=self._instance_id,
                     lease_expires_at=self._lease_expiry(run_state),
@@ -239,6 +243,8 @@ class RuntimeStore:
         record.lease_expires_at = self._lease_expiry(run_state)
         record.sequence = int(snapshot.get("last_sequence") or 0)
         record.terminal_id = snapshot.get("terminal_id")
+        record.model_name = str(snapshot.get("model_name") or "")
+        record.model_provider = str(snapshot.get("model_provider") or "")
         record.snapshot_json = _encode(snapshot)
         record.updated_at = self._as_datetime(snapshot.get("updated_at"))
 

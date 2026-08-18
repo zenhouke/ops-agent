@@ -23,6 +23,7 @@ class ConversationSummary:
     updated_at: str
     event_count: int
     last_event_kind: str | None
+    asset_id: int | None = None
 
 
 @dataclass
@@ -35,6 +36,7 @@ class ConversationDetail:
     event_count: int
     last_event_kind: str | None
     events: list[dict]
+    asset_id: int | None = None
 
 
 @dataclass
@@ -57,7 +59,7 @@ class ConversationService:
     def base_dir(self) -> Path:
         return self._base_dir
 
-    def create_conversation(self, selected_model: str | None) -> ConversationSummary:
+    def create_conversation(self, selected_model: str | None, asset_id: int | None = None) -> ConversationSummary:
         conversation_id = f"conv_{uuid4().hex}"
         timestamp = self._utc_now()
         detail = ConversationDetail(
@@ -69,6 +71,7 @@ class ConversationService:
             event_count=0,
             last_event_kind=None,
             events=[],
+            asset_id=asset_id,
         )
         self._ensure_base_dir()
         self._write_detail(detail)
@@ -81,11 +84,48 @@ class ConversationService:
             return []
         payload = json.loads(index_path.read_text(encoding="utf-8"))
         summaries = [ConversationSummary(**item) for item in payload]
+        for summary in summaries:
+            if summary.asset_id is not None:
+                continue
+            try:
+                summary.asset_id = self.get_conversation(summary.id).asset_id
+            except (FileNotFoundError, TypeError, ValueError):
+                continue
         return self._sort_summaries(summaries)
 
     def get_conversation(self, conversation_id: str) -> ConversationDetail:
         payload = json.loads(self._detail_path(conversation_id).read_text(encoding="utf-8"))
-        return ConversationDetail(**payload)
+        detail = ConversationDetail(**payload)
+        detail.events = self._with_unique_event_ids(detail.events)
+        if detail.asset_id is None:
+            detail.asset_id = self._infer_asset_id(detail.events)
+        return detail
+
+    def bind_asset(self, conversation_id: str, asset_id: int) -> ConversationDetail:
+        detail = self.get_conversation(conversation_id)
+        if detail.asset_id is not None and detail.asset_id != asset_id:
+            raise ValueError(
+                f"Conversation is bound to asset {detail.asset_id}; requested asset {asset_id}. "
+                "Create a new task before switching targets."
+            )
+        if detail.asset_id == asset_id:
+            return detail
+        detail.asset_id = asset_id
+        detail.updated_at = self._utc_now()
+        self._write_detail(detail)
+        self._upsert_summary(detail)
+        return detail
+
+    def update_selected_model(self, conversation_id: str, model_name: str) -> ConversationDetail:
+        detail = self.get_conversation(conversation_id)
+        normalized_model_name = model_name.strip()
+        if not normalized_model_name or detail.selected_model == normalized_model_name:
+            return detail
+        detail.selected_model = normalized_model_name
+        detail.updated_at = self._utc_now()
+        self._write_detail(detail)
+        self._upsert_summary(detail)
+        return detail
 
     def get_events_page(self, conversation_id: str, *, offset: int, limit: int) -> ConversationEventsPage:
         detail = self.get_conversation(conversation_id)
@@ -242,7 +282,38 @@ class ConversationService:
             updated_at=detail.updated_at,
             event_count=detail.event_count,
             last_event_kind=detail.last_event_kind,
+            asset_id=detail.asset_id,
         )
+
+    def _infer_asset_id(self, events: list[dict]) -> int | None:
+        for event in events:
+            for key in ("assetId", "asset_id"):
+                value = event.get(key)
+                if isinstance(value, int) and not isinstance(value, bool):
+                    return value
+            tool_call = event.get("toolCall")
+            args = tool_call.get("args") if isinstance(tool_call, dict) else None
+            if isinstance(args, dict):
+                value = args.get("asset_id")
+                if isinstance(value, int) and not isinstance(value, bool):
+                    return value
+        return None
+
+    def _with_unique_event_ids(self, events: list[dict]) -> list[dict]:
+        seen: dict[str, int] = {}
+        normalized: list[dict] = []
+        for event in events:
+            event_id = event.get("id")
+            if not isinstance(event_id, str) or not event_id:
+                normalized.append(event)
+                continue
+            duplicate_index = seen.get(event_id, 0)
+            seen[event_id] = duplicate_index + 1
+            if duplicate_index == 0:
+                normalized.append(event)
+                continue
+            normalized.append({**event, "id": f"{event_id}:duplicate:{duplicate_index}"})
+        return normalized
 
     def _ensure_base_dir(self) -> None:
         self._base_dir.mkdir(parents=True, exist_ok=True)

@@ -243,6 +243,8 @@ export type RuntimeSummary = {
   conversationId: string
   assetId: number
   terminalId: string | null
+  modelName: string
+  modelProvider: string
   status: string
   runState: string
   loadedSkillName: string | null
@@ -283,6 +285,8 @@ export type RuntimeSnapshot = {
   conversationId: string
   assetId: number
   terminalId: string | null
+  modelName: string
+  modelProvider: string
   status: string
   runState: string
   loadedSkillName: string | null
@@ -414,6 +418,7 @@ export type ConversationSummary = {
   updatedAt: string
   eventCount: number
   lastEventKind: string | null
+  assetId: number | null
 }
 
 export type ConversationDetail = {
@@ -422,6 +427,7 @@ export type ConversationDetail = {
   selectedModel: string | null
   createdAt: string
   updatedAt: string
+  assetId: number | null
   events: EventItem[]
 }
 

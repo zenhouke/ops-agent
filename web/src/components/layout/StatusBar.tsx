@@ -5,19 +5,29 @@ type StatusBarProps = {
   model: string
   contextStatus: ConversationContextStatus | null
   runtime: RuntimeSnapshot | null
+  isRunActive?: boolean
+  hasPendingApproval?: boolean
   terminalCount: number
 }
 
-function runtimeLabel(runtime: RuntimeSnapshot | null) {
-  if (!runtime) return '就绪'
-  if (runtime.pendingApprovalStepId) return '等待审批'
-  const status = `${runtime.runState || runtime.status || ''}`.toLowerCase()
+function runtimeLabel(runtime: RuntimeSnapshot | null, isRunActive = false, hasPendingApproval = false) {
+  if (!runtime) {
+    if (hasPendingApproval) return '等待审批'
+    return isRunActive ? '执行中' : '就绪'
+  }
+  const status = `${runtime.runState || ''} ${runtime.status || ''}`.toLowerCase()
   if (status.includes('complete') || status.includes('success')) return '已完成'
-  if (status.includes('fail') || status.includes('error')) return '执行失败'
+  if (status.includes('fail') || status.includes('error') || status.includes('interrupt')) return '执行失败'
+  if (hasPendingApproval || runtime.pendingApprovalStepId) return '等待审批'
+  if (isRunActive) return '执行中'
   return '执行中'
 }
 
-export function StatusBar({ asset, model, contextStatus, runtime, terminalCount }: StatusBarProps) {
+export function StatusBar({ asset, model, contextStatus, runtime, isRunActive = false, hasPendingApproval = false, terminalCount }: StatusBarProps) {
+  const targetLabel = asset?.host || asset?.name || '未选择'
+  const runtimeStatus = `${runtime?.runState || ''} ${runtime?.status || ''}`.toLowerCase()
+  const isTerminal = /complete|success|fail|error|interrupt/.test(runtimeStatus)
+
   return (
     <footer className="desktop-status-bar" aria-label="Application status">
       <div className="desktop-status-primary">
@@ -30,11 +40,11 @@ export function StatusBar({ asset, model, contextStatus, runtime, terminalCount 
         </svg>
         {terminalCount} 个终端
       </div>
-      <div className="desktop-status-item max-w-[240px]" title={asset?.name}>
-        目标：<span className="truncate font-medium text-ops-text/85">{asset?.name || '未选择'}</span>
+      <div className="desktop-status-item max-w-[240px]" title={targetLabel}>
+        目标：<span className="truncate font-medium text-ops-text/85">{targetLabel}</span>
       </div>
-      <div className="desktop-status-item max-w-[220px]" title={runtimeLabel(runtime)}>
-        <span className={runtime?.pendingApprovalStepId ? 'text-ops-warning' : 'text-ops-muted'}>{runtimeLabel(runtime)}</span>
+      <div className="desktop-status-item max-w-[220px]" title={runtimeLabel(runtime, isRunActive, hasPendingApproval)}>
+        <span className={hasPendingApproval || (runtime?.pendingApprovalStepId && !isTerminal) ? 'text-ops-warning' : 'text-ops-muted'}>{runtimeLabel(runtime, isRunActive, hasPendingApproval)}</span>
       </div>
       <div className="ml-auto desktop-status-item font-mono">
         上下文 {contextStatus ? `${Math.round(contextStatus.contextPercent)}%` : '--'}

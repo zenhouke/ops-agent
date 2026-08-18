@@ -151,5 +151,5 @@ def test_model_config(payload: ModelConnectionTestRequest) -> ModelConnectionTes
         prompt_cache_ttl=payload.prompt_cache_ttl,
         provider_options=payload.provider_options,
     )
-    success = model_service.validate(config)
-    return ModelConnectionTestResponse(success=success, message="Connection succeeded" if success else "Connection failed")
+    success, message = model_service.validate_with_message(config)
+    return ModelConnectionTestResponse(success=success, message=message)

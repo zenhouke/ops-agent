@@ -24,6 +24,43 @@ function rgba(color: string, alpha: number) {
 export function createTerminalTheme(background: string): ITheme {
   const lightBackground = relativeLuminance(hexToRgb(background)) > 0.45
   const foreground = lightBackground ? '#202020' : '#EEEDEA'
+  const ansiColors = lightBackground
+    ? {
+        black: '#242424',
+        red: '#C62828',
+        green: '#2E7D32',
+        yellow: '#9A6700',
+        blue: '#1565C0',
+        magenta: '#7B1FA2',
+        cyan: '#00796B',
+        white: '#5A5956',
+        brightBlack: '#73716C',
+        brightRed: '#D32F2F',
+        brightGreen: '#388E3C',
+        brightYellow: '#B26A00',
+        brightBlue: '#1976D2',
+        brightMagenta: '#8E24AA',
+        brightCyan: '#00897B',
+        brightWhite: '#202020',
+      }
+    : {
+        black: '#242424',
+        red: '#F07178',
+        green: '#AAD94C',
+        yellow: '#FFB454',
+        blue: '#59C2FF',
+        magenta: '#D2A6FF',
+        cyan: '#95E6CB',
+        white: '#D8D7D3',
+        brightBlack: '#73716C',
+        brightRed: '#FF8F88',
+        brightGreen: '#C2E86B',
+        brightYellow: '#FFD580',
+        brightBlue: '#73D0FF',
+        brightMagenta: '#DFBFFF',
+        brightCyan: '#B8F3E2',
+        brightWhite: '#FAF9F7',
+      }
 
   return {
     background,
@@ -31,21 +68,6 @@ export function createTerminalTheme(background: string): ITheme {
     cursor: foreground,
     cursorAccent: background,
     selectionBackground: rgba(foreground, lightBackground ? 0.18 : 0.28),
-    black: lightBackground ? '#343432' : '#1E1E1D',
-    red: '#B24444',
-    green: '#4A6A52',
-    yellow: '#B07830',
-    blue: '#6F6D68',
-    magenta: '#817B78',
-    cyan: '#5F5E5A',
-    white: lightBackground ? '#4B4A47' : '#D8D7D3',
-    brightBlack: '#73716C',
-    brightRed: '#D46767',
-    brightGreen: '#789782',
-    brightYellow: '#C99A5B',
-    brightBlue: '#97948E',
-    brightMagenta: '#A49B98',
-    brightCyan: '#A9A7A1',
-    brightWhite: lightBackground ? '#202020' : '#FAF9F7',
+    ...ansiColors,
   }
 }
