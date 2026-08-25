@@ -84,11 +84,12 @@ class ConsoleAppService:
                     "cacheCreationInputTokens": total_usage.cache_creation_input_tokens,
                     "cacheReadInputTokens": total_usage.cache_read_input_tokens,
                     "totalTokens": total_usage.total_tokens,
+                    "measurement": "reported",
                 }
         except Exception:
             logger.exception("Failed to record model usage runtime_id=%s", state.context.runtime_id)
 
-    def _conversation_token_usage_payload(self, conversation_id: str) -> dict[str, int]:
+    def _conversation_token_usage_payload(self, conversation_id: str) -> dict[str, Any]:
         try:
             with DbSession(engine) as session:
                 usage = sum_conversation_usage(session, conversation_id)
@@ -101,9 +102,10 @@ class ConsoleAppService:
             "cacheCreationInputTokens": usage.cache_creation_input_tokens,
             "cacheReadInputTokens": usage.cache_read_input_tokens,
             "totalTokens": usage.total_tokens,
+            "measurement": "reported" if usage.total_tokens > 0 else "unavailable",
         }
 
-    def _context_percent_for_status_event(self, *, context_percent: int, token_usage: dict[str, int], model_config) -> int:
+    def _context_percent_for_status_event(self, *, context_percent: int, token_usage: dict[str, Any], model_config) -> int:
         if context_percent > 0:
             return context_percent
         return self._context_manager().context_percent_for_tokens(token_usage.get("totalTokens") or 0, model_config)
@@ -327,6 +329,51 @@ class ConsoleAppService:
             runtime_id=runtime_id,
             log_message="stream_approve failed runtime_id=%s",
             event_iter_factory=resume_events,
+            runtime_id_log=runtime_id,
+        )
+
+    def stream_reconnect(
+        self,
+        *,
+        runtime_id: str,
+        since: int,
+        terminal_service: TerminalService,
+    ) -> Iterator[dict]:
+        runtime = self.runtime_manager.get_runtime(runtime_id)
+        if runtime is None:
+            yield self._runtime_error_event(runtime_id, "Runtime not found.", recoverable=False)
+            return
+
+        cursor, missed_events = self.runtime_manager.events_since(runtime_id, since)
+        for event in missed_events:
+            yield event
+
+        snapshot = self.runtime_manager.get_snapshot(runtime_id)
+        last_heartbeat = time.monotonic()
+        while snapshot.get("run_state") == "running":
+            time.sleep(0.1)
+            cursor, next_events = self.runtime_manager.events_since(runtime_id, cursor)
+            for event in next_events:
+                yield event
+            if next_events:
+                last_heartbeat = time.monotonic()
+            if not next_events and time.monotonic() - last_heartbeat >= 5:
+                yield {
+                    "id": f"reconnect-heartbeat-{runtime_id}",
+                    "kind": "context_status",
+                    "runtimeId": runtime_id,
+                    "reconnecting": True,
+                }
+                last_heartbeat = time.monotonic()
+            snapshot = self.runtime_manager.get_snapshot(runtime_id)
+
+        if snapshot.get("run_state") in {"terminal", "waiting"}:
+            return
+
+        yield from self._stream_events_with_error_handling(
+            runtime_id=runtime_id,
+            log_message="stream_reconnect failed runtime_id=%s",
+            event_iter_factory=lambda: self.runtime_manager.run(runtime_id=runtime_id, terminal_service=terminal_service),
             runtime_id_log=runtime_id,
         )
 

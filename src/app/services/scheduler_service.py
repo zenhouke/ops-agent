@@ -134,7 +134,6 @@ class SchedulerService:
                     prompt=job.prompt,
                     asset_id=job.asset_id,
                     conversation_id=conversation_id,
-                    mode="agent",
                     terminal_service=terminal_service,
                 )
 

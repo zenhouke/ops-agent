@@ -45,6 +45,7 @@ export type ConversationTokenUsageDto = {
   cache_creation_input_tokens: number
   cache_read_input_tokens: number
   total_tokens: number
+  measurement: 'reported' | 'unavailable'
 }
 
 export type ConversationContextStatusDto = {
@@ -69,6 +70,7 @@ export type SkillsResponseDto = {
 
 export type ConsoleRunRequest = {
   prompt: string
+  mode?: 'standard' | 'incident'
   assetId?: number
   terminalId?: string | null
   modelName?: string
@@ -78,6 +80,7 @@ export type ConsoleRunRequest = {
 
 export type ConsoleRunRequestDto = {
   prompt: string
+  mode?: 'standard' | 'incident'
   asset_id?: number
   terminal_id?: string | null
   model_name?: string
@@ -138,6 +141,7 @@ export type RuntimeSnapshotDto = {
   }>
   current_step_id: string | null
   pending_approval_step_id: string | null
+  pending_approval_token?: string | null
   last_output_excerpt: string
   summary: string | null
   error_message: string | null

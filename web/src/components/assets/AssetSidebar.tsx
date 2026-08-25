@@ -7,7 +7,7 @@ import type { WorkspaceSection } from '../layout/ActivityRail'
 
 type ConversationRunBadge = {
   conversationId: string
-  status: 'running' | 'needs_approval' | 'completed' | 'failed'
+  status: 'running' | 'needs_approval' | 'completed' | 'failed' | 'disconnected'
   hasUnread: boolean
 }
 
@@ -16,7 +16,7 @@ type AssetSidebarProps = {
   groups: AssetGroup[]
   conversationSummaries: ConversationSummary[]
   activeConversationId: string | null
-  backgroundRun: ConversationRunBadge | null
+  runs: ConversationRunBadge[]
   selectedAssetId: number
   collapsed: boolean
   activeSection: WorkspaceSection
@@ -32,7 +32,7 @@ type AssetSidebarProps = {
   onDeleteAssetConfirm?: (asset: Asset) => void
 }
 
-export function AssetSidebar({ assets, groups, conversationSummaries, activeConversationId, backgroundRun, selectedAssetId, collapsed, activeSection, onToggleCollapse, onSelectAsset, onSelectConversation, onDeleteConversation, onUpdateAsset, onDeleteAsset, onAddAsset, onManageGroups, onEditAsset, onDeleteAssetConfirm }: AssetSidebarProps) {
+export function AssetSidebar({ assets, groups, conversationSummaries, activeConversationId, runs, selectedAssetId, collapsed, activeSection, onToggleCollapse, onSelectAsset, onSelectConversation, onDeleteConversation, onUpdateAsset, onDeleteAsset, onAddAsset, onManageGroups, onEditAsset, onDeleteAssetConfirm }: AssetSidebarProps) {
   const { t } = useAppearance()
 
   return (
@@ -85,7 +85,7 @@ export function AssetSidebar({ assets, groups, conversationSummaries, activeConv
             <ConversationList
               items={conversationSummaries}
               activeConversationId={activeConversationId}
-              backgroundRun={backgroundRun}
+              runs={runs}
               onSelect={onSelectConversation}
               onDelete={onDeleteConversation}
             />

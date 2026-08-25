@@ -20,6 +20,7 @@ class SkillsResponse(BaseModel):
 
 class ConsoleRunRequest(BaseModel):
     prompt: str
+    mode: Literal["standard", "incident"] = "standard"
     currentEvents: list[dict] = Field(default_factory=list)
     asset_id: int | None = None
     terminal_id: str | None = None
@@ -133,6 +134,7 @@ class RuntimeSnapshotView(BaseModel):
     steps: list[RuntimeStepView] = Field(default_factory=list)
     current_step_id: str | None = None
     pending_approval_step_id: str | None = None
+    pending_approval_token: str | None = None
     last_output_excerpt: str = ""
     summary: str | None = None
     error_message: str | None = None
@@ -185,12 +187,23 @@ class ConversationCreateResponse(BaseModel):
     events: list[dict] = Field(default_factory=list)
 
 
+class ConversationBranchRequest(BaseModel):
+    before_event_id: str | None = None
+    through_event_id: str | None = None
+
+
+class ConversationBranchResponse(BaseModel):
+    conversation: ConversationSummaryView
+    events: list[dict] = Field(default_factory=list)
+
+
 class ConversationTokenUsageView(BaseModel):
     input_tokens: int = 0
     output_tokens: int = 0
     cache_creation_input_tokens: int = 0
     cache_read_input_tokens: int = 0
     total_tokens: int = 0
+    measurement: Literal["reported", "unavailable"] = "unavailable"
 
 
 class ConversationContextStatusView(BaseModel):

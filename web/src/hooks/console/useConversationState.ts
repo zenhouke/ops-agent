@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   appendConversationEvents,
+  branchConversation as branchConversationApi,
   createConversation as createConversationApi,
   deleteConversation as deleteConversationApi,
   getConversationContext,
@@ -185,12 +186,18 @@ export function useConversationState(selectedModel: string) {
 
   const syncConversationRuntimes = useCallback(async (conversationId: string) => {
     const runtimes = await listConversationRuntimes(conversationId)
+    if (activeConversationIdRef.current !== conversationId) {
+      return runtimes
+    }
     setRuntimeSummaries(runtimes)
     const nextRuntimeId = activeRuntimeId && runtimes.some((runtime: RuntimeSummary) => runtime.runtimeId === activeRuntimeId)
       ? activeRuntimeId
       : (runtimes[0]?.runtimeId ?? null)
     setActiveRuntimeId(nextRuntimeId)
     const nextSnapshot = nextRuntimeId ? await getRuntimeSnapshot(nextRuntimeId) : null
+    if (activeConversationIdRef.current !== conversationId) {
+      return runtimes
+    }
     setActiveRuntimeSnapshot(nextSnapshot)
     setEvents((currentEvents) => mergeSnapshotTerminalEvents(currentEvents, nextSnapshot))
     return runtimes
@@ -213,6 +220,27 @@ export function useConversationState(selectedModel: string) {
     setContextStatus(null)
     return created.conversation.id
   }, [selectedModel])
+
+  const branchConversation = useCallback(async (
+    sourceConversationId: string,
+    boundary: { beforeEventId?: string; throughEventId?: string },
+  ) => {
+    const created = await branchConversationApi(sourceConversationId, boundary)
+    setConversationSummaries((currentItems) => [
+      created.conversation,
+      ...currentItems.filter((item) => item.id !== created.conversation.id),
+    ])
+    activeConversationIdRef.current = created.conversation.id
+    setActiveConversationId(created.conversation.id)
+    setActiveConversationTitle(created.conversation.title)
+    setEvents(created.events)
+    setEventWindow({ offset: 0, total: created.events.length, hasMoreBefore: false, hasMoreAfter: false })
+    setRuntimeSummaries([])
+    setActiveRuntimeId(null)
+    setActiveRuntimeSnapshot(null)
+    setContextStatus(null)
+    return created.conversation.id
+  }, [])
 
   const deleteConversation = useCallback(
     async (conversationId: string) => {
@@ -266,6 +294,7 @@ export function useConversationState(selectedModel: string) {
     syncConversationRuntimes,
     refreshConversationList,
     createConversation,
+    branchConversation,
     deleteConversation,
     loadOlderConversationEvents,
     setActiveConversationMeta,

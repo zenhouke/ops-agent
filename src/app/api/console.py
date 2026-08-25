@@ -1,5 +1,8 @@
 import json
 import logging
+import time
+from collections.abc import Iterable, Iterator
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from fastapi.responses import StreamingResponse
@@ -26,9 +29,78 @@ router = APIRouter()
 _console_app_service = ConsoleAppService()
 logger = logging.getLogger(__name__)
 
+INCIDENT_MODE_INSTRUCTION = """[Incident response mode]
+Treat the following request as an operational incident. Establish impact, scope, timeline, and evidence before proposing changes. Separate verified facts from hypotheses. Prefer read-only diagnostics first. For every mutating command, state risk, expected result, and rollback, and preserve the normal human approval workflow. Finish with a concise incident summary and reusable runbook steps.
+
+Operator request:
+"""
+
 
 def _sse_event(payload: dict) -> str:
-    return f"event: {payload.get('kind', 'message')}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+    event_id = payload.get("eventId") or (
+        f"{payload.get('runtimeId')}:{payload.get('sequence')}"
+        if payload.get("runtimeId") and payload.get("sequence") is not None
+        else payload.get("id")
+    )
+    id_line = f"id: {str(event_id).replace(chr(10), '').replace(chr(13), '')}\n" if event_id else ""
+    return f"{id_line}event: {payload.get('kind', 'message')}\ndata: {json.dumps(payload, ensure_ascii=False)}\n\n"
+
+
+def _conversation_event(payload: dict) -> dict | None:
+    kind = payload.get("kind")
+    if kind in {"context_status", "delta"}:
+        return None
+    if kind == "message_update":
+        return {**payload, "kind": "message"}
+    return dict(payload)
+
+
+def _persisted_stream(conversation_id: str | None, events: Iterable[dict]) -> Iterator[str]:
+    service = get_conversation_service() if conversation_id and conversation_id != "console" else None
+    pending_messages: dict[str, dict] = {}
+    last_message_write: dict[str, float] = {}
+
+    def persist(event: dict) -> bool:
+        if service is None or conversation_id is None:
+            return True
+        try:
+            service.append_events(conversation_id, [event])
+            return True
+        except Exception:
+            logger.exception("Failed to persist stream event conversation_id=%s", conversation_id)
+            return False
+
+    try:
+        for event in events:
+            outgoing = dict(event)
+            persisted_event = _conversation_event(event)
+            if service is not None and persisted_event is not None:
+                message_id = str(persisted_event.get("id") or "") if persisted_event.get("kind") == "message" else ""
+                is_partial_message = bool(message_id and persisted_event.get("partial", False))
+                now = time.monotonic()
+                if is_partial_message and now - last_message_write.get(message_id, 0.0) < 0.5:
+                    pending_messages[message_id] = persisted_event
+                    outgoing["persistenceStatus"] = "saving"
+                else:
+                    if message_id:
+                        pending_messages.pop(message_id, None)
+                        last_message_write[message_id] = now
+                    outgoing["persistenceStatus"] = "saved" if persist(persisted_event) else "failed"
+            yield _sse_event(outgoing)
+    finally:
+        for pending_event in pending_messages.values():
+            persist(pending_event)
+
+
+def _streaming_response(events: Iterable[str]) -> StreamingResponse:
+    return StreamingResponse(
+        events,
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache, no-transform",
+            "X-Accel-Buffering": "no",
+        },
+    )
 
 
 async def _parse_request_model(request: Request, model_type):
@@ -91,13 +163,19 @@ async def run_console_agent(
     import time as _time
     t_start = _time.monotonic()
     payload = await _parse_request_model(request, ConsoleRunRequest)
+    effective_prompt = (
+        f"{INCIDENT_MODE_INSTRUCTION}{payload.prompt}"
+        if payload.mode == "incident"
+        else payload.prompt
+    )
     t_parse = _time.monotonic()
     if payload.conversation_id and payload.conversation_id != "console":
         conversation_service = get_conversation_service()
         user_event = {
-            "id": f"user-{payload.conversation_id}-{abs(hash(payload.prompt))}",
+            "id": f"user-{uuid4().hex}",
             "kind": "user",
             "text": payload.prompt,
+            "mode": payload.mode,
         }
         try:
             conversation_service.append_events(payload.conversation_id, [user_event])
@@ -114,7 +192,7 @@ async def run_console_agent(
     try:
         stream = orchestrator.stream_run(
             session=session,
-            prompt=payload.prompt,
+            prompt=effective_prompt,
             asset_id=asset_id,
             terminal_id=payload.terminal_id,
             model_name=payload.model_name,
@@ -126,18 +204,19 @@ async def run_console_agent(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
 
     def event_stream():
-        yield _sse_event(first_event)
+        yield first_event
         t_first_event = None
         try:
             for event in stream:
                 if t_first_event is None:
                     t_first_event = _time.monotonic()
-                yield _sse_event(event)
+                yield event
         except Exception as exc:
             logger.exception("console.run stream failed conversation_id=%s", payload.conversation_id)
-            yield _sse_event({"id": "error-run", "kind": "error", "text": str(exc), "recoverable": True})
+            yield {"id": f"error-run-{uuid4().hex}", "kind": "error", "text": str(exc), "recoverable": True}
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    persisted_conversation_id = payload.conversation_id if payload.conversation_id != "console" else None
+    return _streaming_response(_persisted_stream(persisted_conversation_id, event_stream()))
 
 
 @router.get("/api/console/conversations/{conversation_id}/runtimes")
@@ -156,6 +235,23 @@ def get_runtime_snapshot(runtime_id: str) -> RuntimeSnapshotView:
 def get_runtime_events(runtime_id: str, since: int = 0) -> RuntimeEventsResponse:
     latest_sequence, events = _console_app_service.runtime_manager.events_since(runtime_id, since)
     return RuntimeEventsResponse(latest_sequence=latest_sequence, events=[dict(event) for event in events])
+
+
+@router.post("/api/console/runtimes/{runtime_id}/reconnect")
+def reconnect_runtime_stream(
+    runtime_id: str,
+    since: int = 0,
+    terminal_service: TerminalService = Depends(get_terminal_service),
+):
+    runtime = _console_app_service.runtime_manager.get_runtime(runtime_id)
+    if runtime is None:
+        raise HTTPException(status_code=404, detail="Runtime not found.")
+    stream = _console_app_service.stream_reconnect(
+        runtime_id=runtime_id,
+        since=since,
+        terminal_service=terminal_service,
+    )
+    return _streaming_response(_persisted_stream(runtime.conversation_id, stream))
 
 
 @router.post("/api/console/runtimes/{runtime_id}/cancel")
@@ -227,14 +323,14 @@ async def decide_terminal_request(
     )
 
     def event_stream():
-        yield _sse_event(response_event)
+        yield response_event
         try:
             for event in stream:
-                yield _sse_event(event)
+                yield event
         except Exception as exc:
-            yield _sse_event({"id": "error-terminal-decision", "kind": "error", "text": str(exc), "recoverable": True})
+            yield {"id": f"error-terminal-decision-{uuid4().hex}", "kind": "error", "text": str(exc), "recoverable": True}
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    return _streaming_response(_persisted_stream(runtime.conversation_id, event_stream()))
 
 
 @router.post("/api/console/approval")
@@ -244,6 +340,8 @@ async def approve_console_agent(
     orchestrator: TaskOrchestrator = Depends(get_task_orchestrator),
 ):
     payload = await _parse_request_model(request, ConsoleApprovalRequest)
+    runtime = _console_app_service.runtime_manager.get_runtime(payload.runtime_id)
+    conversation_id = runtime.conversation_id if runtime is not None else None
     stream = orchestrator.stream_approve(
         session=session,
         runtime_id=payload.runtime_id,
@@ -255,8 +353,8 @@ async def approve_console_agent(
     def event_stream():
         try:
             for event in stream:
-                yield _sse_event(event)
+                yield event
         except Exception as exc:
-            yield _sse_event({"id": "error-approve", "kind": "error", "text": str(exc), "recoverable": True})
+            yield {"id": f"error-approve-{uuid4().hex}", "kind": "error", "text": str(exc), "recoverable": True}
 
-    return StreamingResponse(event_stream(), media_type="text/event-stream")
+    return _streaming_response(_persisted_stream(conversation_id, event_stream()))

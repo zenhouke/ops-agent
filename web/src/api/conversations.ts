@@ -54,6 +54,7 @@ export function mapConversationContextStatus(dto: ConversationContextStatusDto):
           cacheCreationInputTokens: dto.token_usage.cache_creation_input_tokens,
           cacheReadInputTokens: dto.token_usage.cache_read_input_tokens,
           totalTokens: dto.token_usage.total_tokens,
+          measurement: dto.token_usage.measurement,
         }
       : undefined,
   }
@@ -68,6 +69,23 @@ export async function createConversation(selectedModel: string | null): Promise<
   const response = await requestJson<ConversationCreateResponseDto>('/api/conversations', {
     method: 'POST',
     body: JSON.stringify({ selected_model: selectedModel }),
+  })
+  return {
+    conversation: mapConversationSummary(response.conversation),
+    events: response.events,
+  }
+}
+
+export async function branchConversation(
+  conversationId: string,
+  boundary: { beforeEventId?: string; throughEventId?: string },
+): Promise<{ conversation: ConversationSummary; events: EventItem[] }> {
+  const response = await requestJson<ConversationCreateResponseDto>(`/api/conversations/${conversationId}/branch`, {
+    method: 'POST',
+    body: JSON.stringify({
+      before_event_id: boundary.beforeEventId ?? null,
+      through_event_id: boundary.throughEventId ?? null,
+    }),
   })
   return {
     conversation: mapConversationSummary(response.conversation),

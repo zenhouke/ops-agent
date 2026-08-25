@@ -9,21 +9,13 @@ import type {
 import { ConversationView } from './ConversationView'
 import { PromptInput } from './PromptInput'
 import { useAppearance } from '../../hooks/useAppearance'
-
-type BackgroundRunStatus = 'running' | 'needs_approval' | 'completed' | 'failed'
-
-type BackgroundRunState = {
-  conversationId: string
-  title: string
-  status: BackgroundRunStatus
-  hasUnread: boolean
-}
+import type { BackgroundRunState, ConversationSaveStatus } from '../../hooks/console/agentRunSupport'
 
 type AssistantPanelProps = {
   conversationSummaries: ConversationSummary[]
   activeConversationId: string | null
   activeConversationTitle: string
-  backgroundRun: BackgroundRunState | null
+  backgroundRuns: BackgroundRunState[]
   events: EventItem[]
   eventWindow: { hasMoreBefore: boolean } | null
   isLoadingOlderEvents: boolean
@@ -36,6 +28,7 @@ type AssistantPanelProps = {
   selectedAsset: Asset
   contextStatus: ConversationContextStatus | null
   loadError: string | null
+  conversationSaveStatus: ConversationSaveStatus
   terminalOpen: boolean
   onToggleTerminal: () => void
   onModelChange: (model: string) => void
@@ -44,13 +37,16 @@ type AssistantPanelProps = {
   onCreateConversation: () => void
   onSelectConversation: (conversationId: string) => void
   onDeleteConversation: (conversationId: string) => void
-  onRun: (prompt: string, selectedSkillName?: string | null) => Promise<void>
+  onRun: (prompt: string, selectedSkillName?: string | null, mode?: 'standard' | 'incident') => Promise<void>
   isRunActive: boolean
   onCancelRun: () => Promise<void>
   onApprove: (allowPrefix?: string) => void
   onReject: () => void
   onTerminalRequestDecision?: (input: { runtimeId: string; requestId: string; approvalToken: string; approved: boolean }) => Promise<void>
   onLoadOlderEvents: () => Promise<void>
+  onForkRun: (eventId: string, prompt: string) => Promise<void>
+  onBranch: (eventId: string) => Promise<void>
+  onCreateRunbook: () => Promise<void>
 }
 
 function backgroundRunCopy(run: BackgroundRunState) {
@@ -63,12 +59,40 @@ function backgroundRunCopy(run: BackgroundRunState) {
   if (run.status === 'failed') {
     return { message: `会话「${run.title}」执行失败`, action: '查看', tone: 'danger' as const }
   }
+  if (run.status === 'disconnected') {
+    return { message: `会话「${run.title}」连接已中断，等待状态同步`, action: '重新打开', tone: 'danger' as const }
+  }
   return { message: `会话「${run.title}」正在后台运行`, action: '查看', tone: 'running' as const }
+}
+
+function ExecutionPlan({ runtime, runtimeCount }: { runtime: RuntimeSnapshot; runtimeCount: number }) {
+  if (runtime.steps.length === 0) return null
+  const completedCount = runtime.steps.filter((step) => step.status === 'completed').length
+  return (
+    <details className="mx-auto mt-2 w-[calc(100%-2.5rem)] max-w-[940px] shrink-0 rounded border border-ops-border/30 bg-ops-panel/35 px-3 py-2" open={Boolean(runtime.pendingApprovalStepId)}>
+      <summary className="cursor-pointer select-none text-[11px] font-semibold text-ops-text">
+        执行计划 · {completedCount}/{runtime.steps.length} 完成{runtimeCount > 1 ? ` · ${runtimeCount} 次运行` : ''}
+      </summary>
+      <ol className="mt-2 space-y-1.5 border-t border-ops-border/20 pt-2">
+        {runtime.steps.map((step, index) => (
+          <li key={step.stepId} className="grid grid-cols-[18px_minmax(0,1fr)_auto] items-start gap-2 text-[11px]">
+            <span className={`mt-0.5 flex h-4 w-4 items-center justify-center rounded-full border text-[9px] ${step.status === 'completed' ? 'border-ops-green/50 text-ops-green' : step.status === 'failed' ? 'border-ops-danger/50 text-ops-danger' : step.status === 'running' ? 'border-ops-cyan/60 text-ops-cyan' : 'border-ops-border/50 text-ops-muted'}`}>{index + 1}</span>
+            <span className="min-w-0">
+              <span className="block font-medium text-ops-text">{step.title}</span>
+              {step.command ? <code className="mt-0.5 block truncate text-[10px] text-ops-muted">{step.command}</code> : null}
+              {step.reason ? <span className="mt-0.5 block text-[10px] text-ops-muted/80">{step.reason}</span> : null}
+            </span>
+            <span className={`rounded border px-1.5 py-0.5 text-[9px] ${step.riskLevel === 'high' || step.riskLevel === 'critical' ? 'border-ops-danger/30 text-ops-danger' : 'border-ops-border/30 text-ops-muted'}`}>{step.status}</span>
+          </li>
+        ))}
+      </ol>
+    </details>
+  )
 }
 
 export function AssistantPanel({
   activeConversationTitle,
-  backgroundRun,
+  backgroundRuns,
   events,
   eventWindow,
   isLoadingOlderEvents,
@@ -81,6 +105,7 @@ export function AssistantPanel({
   selectedAsset,
   contextStatus,
   loadError,
+  conversationSaveStatus,
   terminalOpen,
   onToggleTerminal,
   onModelChange,
@@ -96,10 +121,11 @@ export function AssistantPanel({
   onReject,
   onTerminalRequestDecision,
   onLoadOlderEvents,
+  onForkRun,
+  onBranch,
+  onCreateRunbook,
 }: AssistantPanelProps) {
   const { t } = useAppearance()
-  const backgroundRunInfo = backgroundRun ? backgroundRunCopy(backgroundRun) : null
-
   return (
     <section className="flex h-full w-full flex-col overflow-hidden bg-ops-bg" aria-label="任务工作台">
       <header className="relative z-10 flex h-10 shrink-0 items-center justify-between border-b border-ops-border/25 bg-ops-deep/75 pr-2">
@@ -113,6 +139,21 @@ export function AssistantPanel({
           <span className="hidden items-center gap-1.5 text-[9px] text-ops-muted/60 lg:inline-flex"><span className="h-1.5 w-1.5 rounded-full bg-ops-green" />任务工作台</span>
         </div>
         <div className="flex shrink-0 items-center gap-1">
+          <span
+            className={`mr-1 text-[9px] font-semibold ${conversationSaveStatus === 'failed' ? 'text-ops-danger' : 'text-ops-muted/55'}`}
+            role={conversationSaveStatus === 'failed' ? 'alert' : 'status'}
+          >
+            {conversationSaveStatus === 'saving' ? '保存中…' : conversationSaveStatus === 'saved' ? '已保存' : conversationSaveStatus === 'failed' ? '保存失败' : ''}
+          </span>
+          <button
+            type="button"
+            className="desktop-toolbar-button"
+            disabled={events.length === 0 || isRunActive}
+            onClick={() => void onCreateRunbook()}
+            title="从当前对话生成可审核的 Runbook 草稿"
+          >
+            提炼 Runbook
+          </button>
           <button
             type="button"
             className={`desktop-toolbar-button ${terminalOpen ? 'bg-ops-text/10 text-ops-text' : ''}`}
@@ -144,19 +185,23 @@ export function AssistantPanel({
             </div>
           ) : null}
 
-          {backgroundRun && backgroundRunInfo ? (
-            <div className={`relative z-10 mx-3 mt-3 flex items-center gap-3 rounded-md border-l-2 border-y border-r px-3 py-2 text-[11px] font-semibold ${backgroundRunInfo.tone === 'warning' ? 'border-ops-warning/35 bg-ops-warning/8 text-ops-warning' : backgroundRunInfo.tone === 'danger' ? 'border-ops-danger/35 bg-ops-danger/8 text-ops-danger' : backgroundRunInfo.tone === 'success' ? 'border-ops-emerald/30 bg-ops-emerald/8 text-ops-emerald' : 'border-ops-cyan/30 bg-ops-cyan/8 text-ops-cyan'}`}>
-              <span className="min-w-0 flex-1 truncate">{backgroundRunInfo.message}</span>
-              {backgroundRun.hasUnread ? <span className="rounded-full bg-current/10 px-2 py-0.5 text-[10px]">有新输出</span> : null}
-              <button
-                type="button"
-                className="shrink-0 rounded-xl border border-current/30 px-3 py-1.5 text-[10px] font-black transition hover:bg-current/10 active:scale-95"
-                onClick={() => onViewBackgroundRun(backgroundRun.conversationId)}
-              >
-                {backgroundRunInfo.action}
-              </button>
+          {backgroundRuns.length > 0 ? (
+            <div className="relative z-10 mx-3 mt-3 space-y-1.5" aria-label="后台运行队列">
+              {backgroundRuns.slice(0, 3).map((run) => {
+                const info = backgroundRunCopy(run)
+                return (
+                  <div key={run.conversationId} className={`flex items-center gap-3 rounded-md border-l-2 border-y border-r px-3 py-2 text-[11px] font-semibold ${info.tone === 'warning' ? 'border-ops-warning/35 bg-ops-warning/8 text-ops-warning' : info.tone === 'danger' ? 'border-ops-danger/35 bg-ops-danger/8 text-ops-danger' : info.tone === 'success' ? 'border-ops-emerald/30 bg-ops-emerald/8 text-ops-emerald' : 'border-ops-cyan/30 bg-ops-cyan/8 text-ops-cyan'}`}>
+                    <span className="min-w-0 flex-1 truncate">{info.message} · {run.assetName}</span>
+                    {run.hasUnread ? <span className="rounded-full bg-current/10 px-2 py-0.5 text-[10px]">有新输出</span> : null}
+                    <button type="button" className="shrink-0 rounded-xl border border-current/30 px-3 py-1.5 text-[10px] font-black transition hover:bg-current/10 active:scale-95" onClick={() => onViewBackgroundRun(run.conversationId)}>{info.action}</button>
+                  </div>
+                )
+              })}
+              {backgroundRuns.length > 3 ? <div className="px-2 text-[10px] text-ops-muted">另有 {backgroundRuns.length - 3} 个后台任务</div> : null}
             </div>
           ) : null}
+
+          {activeRuntimeSnapshot ? <ExecutionPlan runtime={activeRuntimeSnapshot} runtimeCount={runtimeSummaries.length} /> : null}
 
           <ConversationView
             events={events}
@@ -167,6 +212,9 @@ export function AssistantPanel({
             onApprove={onApprove}
             onReject={onReject}
             onTerminalRequestDecision={onTerminalRequestDecision}
+            onForkRun={onForkRun}
+            onBranch={onBranch}
+            branchDisabled={isRunActive}
           />
 
           <PromptInput
@@ -175,8 +223,7 @@ export function AssistantPanel({
             selectedModel={selectedModel}
             selectedAsset={selectedAsset}
             contextStatus={contextStatus}
-            blockedRun={backgroundRun && (backgroundRun.status === 'running' || backgroundRun.status === 'needs_approval') ? { message: '另一个会话正在运行，当前暂不支持并行执行', actionLabel: backgroundRun.status === 'needs_approval' ? '前往处理' : '查看运行会话' } : null}
-            onViewBlockedRun={backgroundRun ? () => onViewBackgroundRun(backgroundRun.conversationId) : undefined}
+            blockedRun={null}
             onPromptChange={onPromptChange}
             onModelChange={onModelChange}
             onRun={onRun}

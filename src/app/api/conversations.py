@@ -7,6 +7,8 @@ from fastapi import APIRouter, HTTPException, Response, status
 from app.api.schemas import (
     ConversationAppendEventsRequest,
     ConversationAppendEventsResponse,
+    ConversationBranchRequest,
+    ConversationBranchResponse,
     ConversationContextStatusView,
     ConversationEventsPageView,
     ConversationTokenUsageView,
@@ -105,6 +107,7 @@ def get_conversation_context(conversation_id: str) -> ConversationContextStatusV
         cache_creation_input_tokens=usage.cache_creation_input_tokens,
         cache_read_input_tokens=usage.cache_read_input_tokens,
         total_tokens=usage.total_tokens,
+        measurement="reported" if usage.total_tokens > 0 else "unavailable",
     )
     metadata = context_manager.read_metadata(conversation_id)
     source_revision = context_manager.source_revision(events)
@@ -120,6 +123,25 @@ def get_conversation_context(conversation_id: str) -> ConversationContextStatusV
         context_percent=metadata.context_percent,
         context_status=metadata.context_status,
         token_usage=token_usage,
+    )
+
+
+@router.post("/api/conversations/{conversation_id}/branch", response_model=ConversationBranchResponse)
+def branch_conversation(conversation_id: str, payload: ConversationBranchRequest) -> ConversationBranchResponse:
+    service = get_conversation_service()
+    try:
+        detail = service.branch_conversation(
+            conversation_id,
+            before_event_id=payload.before_event_id,
+            through_event_id=payload.through_event_id,
+        )
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Conversation not found") from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    return ConversationBranchResponse(
+        conversation=ConversationSummaryView.model_validate(service.to_summary(detail).__dict__),
+        events=detail.events,
     )
 
 

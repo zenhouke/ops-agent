@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import type {
   KnowledgeDraft,
   KnowledgeEntry,
@@ -44,6 +44,10 @@ type KnowledgeTab = 'library' | 'draft'
 export function KnowledgeWorkspace(props: KnowledgeWorkspaceProps) {
   const [activeTab, setActiveTab] = useState<KnowledgeTab>(props.draft ? 'draft' : 'library')
   const hasRuntimeStats = props.knowledgeEntriesInjected !== undefined || props.knowledgeContextChars !== undefined
+
+  useEffect(() => {
+    if (props.draftLoading || props.draft || props.draftError) setActiveTab('draft')
+  }, [props.draft, props.draftError, props.draftLoading])
 
   return (
     <section className="flex h-full min-h-0 flex-col bg-ops-bg" aria-labelledby="knowledge-workspace-title">

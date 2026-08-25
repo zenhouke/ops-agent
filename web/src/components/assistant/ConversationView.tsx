@@ -16,6 +16,9 @@ type ConversationViewProps = {
   onApprove?: (allowPrefix?: string) => void
   onReject?: () => void
   onTerminalRequestDecision?: (input: { runtimeId: string; requestId: string; approvalToken: string; approved: boolean }) => Promise<void>
+  onForkRun?: (eventId: string, prompt: string) => Promise<void>
+  onBranch?: (eventId: string) => Promise<void>
+  branchDisabled?: boolean
 }
 
 const MAX_RENDERED_TURNS = 80
@@ -29,12 +32,16 @@ export function ConversationView({
   onApprove,
   onReject,
   onTerminalRequestDecision,
+  onForkRun,
+  onBranch,
+  branchDisabled,
 }: ConversationViewProps) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const shouldAutoScrollRef = useRef(true)
   const [showAllLoadedTurns, setShowAllLoadedTurns] = useState(false)
 
   const lastEvent = events[events.length - 1]
+  const firstEventId = events[0]?.id
   const isStreamingNow = lastEvent?.kind === 'delta'
   const settledTerminalRequestIds = useMemo(
     () => collectSettledTerminalRequestIds(events),
@@ -49,7 +56,7 @@ export function ConversationView({
 
   useEffect(() => {
     setShowAllLoadedTurns(false)
-  }, [events[0]?.id])
+  }, [firstEventId])
 
   useEffect(() => {
     const el = scrollContainerRef.current
@@ -113,6 +120,9 @@ export function ConversationView({
                   onReject={onReject}
                   onTerminalRequestDecision={onTerminalRequestDecision}
                   settledTerminalRequestIds={settledTerminalRequestIds}
+                  onForkRun={onForkRun}
+                  onBranch={onBranch}
+                  branchDisabled={branchDisabled}
                 />
               ) : null}
 

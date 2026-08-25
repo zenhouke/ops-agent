@@ -63,6 +63,7 @@ function mapRuntimeSnapshot(dto: RuntimeSnapshotDto): RuntimeSnapshot {
     })),
     currentStepId: dto.current_step_id,
     pendingApprovalStepId: dto.pending_approval_step_id,
+    pendingApprovalToken: dto.pending_approval_token ?? null,
     lastOutputExcerpt: dto.last_output_excerpt,
     summary: dto.summary,
     errorMessage: dto.error_message,
@@ -115,6 +116,18 @@ export async function getRuntimeEvents(runtimeId: string, since = 0): Promise<{ 
   }
 }
 
+export async function streamReconnectRuntime(
+  runtimeId: string,
+  since: number,
+  signal?: AbortSignal,
+): Promise<AsyncGenerator<EventItem, void, void>> {
+  const response = await requestEventStream(`/api/console/runtimes/${runtimeId}/reconnect?since=${since}`, {
+    method: 'POST',
+    signal,
+  })
+  return readEventStream(response)
+}
+
 function parseSseBlock(block: string): EventItem | null {
   const lines = block.split('\n')
   const dataLines = lines.filter((line) => line.startsWith('data:')).map((line) => line.slice(5).trim())
@@ -156,6 +169,7 @@ async function* readEventStream(response: Response): AsyncGenerator<EventItem, v
 
 function buildConsoleRunRequestDto({
   prompt,
+  mode,
   assetId,
   terminalId,
   modelName,
@@ -164,6 +178,7 @@ function buildConsoleRunRequestDto({
 }: ConsoleRunRequest): ConsoleRunRequestDto {
   return {
     prompt,
+    mode,
     asset_id: assetId,
     terminal_id: terminalId,
     model_name: modelName,
@@ -179,6 +194,7 @@ export async function streamRunAgent(
   modelName?: string,
   conversationId?: string,
   selectedSkillName?: string | null,
+  mode: 'standard' | 'incident' = 'standard',
   signal?: AbortSignal,
 ): Promise<AsyncGenerator<EventItem, void, void>> {
   const response = await requestEventStream('/api/console/run', {
@@ -187,6 +203,7 @@ export async function streamRunAgent(
     body: JSON.stringify(
       buildConsoleRunRequestDto({
         prompt,
+        mode,
         assetId,
         terminalId,
         modelName,

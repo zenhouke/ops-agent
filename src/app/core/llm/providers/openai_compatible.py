@@ -31,9 +31,9 @@ class OpenAICompatibleLLMProvider:
             usage: LLMTokenUsage | None = None
             tool_call_fragments: dict[int, dict[str, Any]] = {}
             for chunk in response:
+                usage = self._extract_usage(chunk) or usage
                 if not chunk.choices:
                     continue
-                usage = self._extract_usage(chunk) or usage
                 choice = chunk.choices[0]
                 finish_reason = getattr(choice, "finish_reason", finish_reason)
                 delta = getattr(choice, "delta", None)
@@ -73,9 +73,14 @@ class OpenAICompatibleLLMProvider:
         config: ModelConfig,
         request: LLMCompletionRequest,
     ) -> LLMCompletionResponse:
-        response = self._get_client(config).chat.completions.create(
-            **self._build_completion_params(config=config, request=request, stream=False)
-        )
+        params = self._build_completion_params(config=config, request=request, stream=False)
+        self._log_request_summary(config=config, params=params, stream=False)
+        try:
+            response = self._get_client(config).chat.completions.create(**params)
+        except Exception as exc:
+            if self._is_openai_api_error(exc):
+                self._log_api_error(exc, config=config, params=params)
+            raise
         choice = response.choices[0] if getattr(response, "choices", None) else None
         message = getattr(choice, "message", None)
         text = getattr(message, "content", "") or ""
@@ -231,6 +236,8 @@ class OpenAICompatibleLLMProvider:
             "messages": cast(Any, [self._serialize_message(message) for message in request.messages]),
             "stream": stream,
         }
+        if stream and config.provider_options.get("stream_include_usage", True):
+            params["stream_options"] = {"include_usage": True}
         tools = self._serialize_tools(request)
         if tools:
             params["tools"] = cast(Any, tools)

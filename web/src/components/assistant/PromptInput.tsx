@@ -14,7 +14,7 @@ type PromptInputProps = {
   onViewBlockedRun?: () => void
   onPromptChange: (prompt: string) => void
   onModelChange: (model: string) => void
-  onRun: (prompt: string, selectedSkillName?: string | null) => Promise<void>
+  onRun: (prompt: string, selectedSkillName?: string | null, mode?: 'standard' | 'incident') => Promise<void>
   isRunning: boolean
   onCancel: () => Promise<void>
 }
@@ -42,12 +42,16 @@ function contextLabel(status: ConversationContextStatus | null) {
 
 function contextUsageLabel(status: ConversationContextStatus | null) {
   if (!status?.tokenUsage) return contextLabel(status)
+  if (status.tokenUsage.measurement === 'unavailable') return `${contextLabel(status)} · tokens --`
   return `${contextLabel(status)} · ${formatTokenCount(status.tokenUsage.totalTokens)} tokens`
 }
 
 function contextUsageTitle(status: ConversationContextStatus | null) {
   if (!status?.tokenUsage) return contextLabel(status)
   const usage = status.tokenUsage
+  if (usage.measurement === 'unavailable') {
+    return `上下文窗口 ${contextLabel(status)}；当前模型没有返回可核验的 token 用量`
+  }
   return `上下文窗口 ${contextLabel(status)}；本会话真实累计 ${usage.totalTokens} tokens（input ${usage.inputTokens}，output ${usage.outputTokens}，cache read ${usage.cacheReadInputTokens}，cache write ${usage.cacheCreationInputTokens}）`
 }
 
@@ -92,6 +96,7 @@ export function PromptInput({
   const { t } = useAppearance()
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const { skillPackages, loading: skillsLoading, loadSkillPackages } = useSkillPackages()
+  const [incidentMode, setIncidentMode] = useState(false)
 
   const slashSuggestionQuery = useMemo(() => getSlashSuggestionQuery(prompt), [prompt])
   const shouldShowSlashSuggestions = slashSuggestionQuery !== null
@@ -153,7 +158,7 @@ export function PromptInput({
     onPromptChange('')
 
     try {
-      await onRun(nextPrompt, selectedSkillName)
+      await onRun(nextPrompt, selectedSkillName, incidentMode ? 'incident' : 'standard')
     }
     catch {
       onPromptChange(currentPrompt)
@@ -226,6 +231,15 @@ export function PromptInput({
               <span className="max-w-[150px] truncate text-[9px] font-semibold text-ops-text/75">{selectedAsset.name}</span>
               <span className="hidden max-w-[120px] truncate font-mono text-[9px] text-ops-muted/45 lg:inline">{selectedAsset.host || '本地'}</span>
             </div>
+            <button
+              type="button"
+              className={`shrink-0 rounded border px-2 py-1 text-[9px] font-semibold transition ${incidentMode ? 'border-ops-danger/40 bg-ops-danger/10 text-ops-danger' : 'border-ops-border/25 text-ops-muted/60 hover:text-ops-text'}`}
+              aria-pressed={incidentMode}
+              title="启用事故响应框架；不会绕过命令审批"
+              onClick={() => setIncidentMode((current) => !current)}
+            >
+              事故模式
+            </button>
           </div>
 
           <span

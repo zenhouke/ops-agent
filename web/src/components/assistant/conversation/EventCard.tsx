@@ -10,6 +10,9 @@ type EventCardProps = {
   onReject?: () => void
   onTerminalRequestDecision?: (input: { runtimeId: string; requestId: string; approvalToken: string; approved: boolean }) => Promise<void>
   settledTerminalRequestIds?: Set<string>
+  onForkRun?: (eventId: string, prompt: string) => Promise<void>
+  onBranch?: (eventId: string) => Promise<void>
+  branchDisabled?: boolean
 }
 
 function eventValue(event: EventItem, key: string): string | undefined {
@@ -17,9 +20,12 @@ function eventValue(event: EventItem, key: string): string | undefined {
   return typeof value === 'string' ? value : undefined
 }
 
-export function EventCard({ event, onTerminalRequestDecision, settledTerminalRequestIds }: EventCardProps) {
+export function EventCard({ event, onTerminalRequestDecision, settledTerminalRequestIds, onForkRun, onBranch, branchDisabled = false }: EventCardProps) {
   const { t } = useAppearance()
   const [submittingTerminalDecision, setSubmittingTerminalDecision] = useState(false)
+  const [editingPrompt, setEditingPrompt] = useState(false)
+  const [editedPrompt, setEditedPrompt] = useState('')
+  const [branching, setBranching] = useState(false)
 
   if (event.kind === 'error') {
     return (
@@ -33,14 +39,43 @@ export function EventCard({ event, onTerminalRequestDecision, settledTerminalReq
     )
   }
 
+  if (event.kind === 'conversation_branch') {
+    return (
+      <div className="my-1 flex items-center gap-2 text-[10px] text-ops-muted/60" role="status">
+        <span className="h-px flex-1 bg-ops-border/25" />
+        <span>从历史节点创建的分支</span>
+        <span className="h-px flex-1 bg-ops-border/25" />
+      </div>
+    )
+  }
+
   if (event.kind === 'user') {
+    const prompt = event.text ?? ''
     return (
       <section className="border-b border-ops-border/20 pb-3">
-        <div className="mb-1.5 flex items-center gap-2 text-[10px] font-semibold text-ops-cyan">
-          <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="m8 12 2.5 2.5L16 9" /></svg>
-          任务目标
+        <div className="mb-1.5 flex items-center justify-between gap-3">
+          <div className="flex items-center gap-2 text-[10px] font-semibold text-ops-cyan">
+            <svg viewBox="0 0 24 24" className="h-3.5 w-3.5" fill="none" stroke="currentColor" strokeWidth="2.4" aria-hidden="true"><circle cx="12" cy="12" r="9" /><path d="m8 12 2.5 2.5L16 9" /></svg>
+            任务目标
+            {eventValue(event, 'mode') === 'incident' ? <span className="rounded border border-ops-danger/35 bg-ops-danger/10 px-1.5 py-0.5 text-[9px] text-ops-danger">事故模式</span> : null}
+          </div>
+          {onForkRun || onBranch ? (
+            <div className="flex items-center gap-1 text-[10px]">
+              {onForkRun ? <button type="button" className="rounded px-1.5 py-0.5 text-ops-muted hover:bg-ops-panel hover:text-ops-cyan disabled:opacity-40" disabled={branchDisabled || branching} onClick={() => { setEditedPrompt(prompt); setEditingPrompt(true) }}>编辑</button> : null}
+              {onForkRun ? <button type="button" className="rounded px-1.5 py-0.5 text-ops-muted hover:bg-ops-panel hover:text-ops-cyan disabled:opacity-40" disabled={branchDisabled || branching} onClick={() => { setBranching(true); void onForkRun(event.id, prompt).finally(() => setBranching(false)) }}>重试</button> : null}
+              {onBranch ? <button type="button" className="rounded px-1.5 py-0.5 text-ops-muted hover:bg-ops-panel hover:text-ops-cyan disabled:opacity-40" disabled={branchDisabled || branching} onClick={() => { setBranching(true); void onBranch(event.id).finally(() => setBranching(false)) }}>分支</button> : null}
+            </div>
+          ) : null}
         </div>
-        <p className="m-0 whitespace-pre-wrap text-[14px] font-medium leading-6 text-ops-text">{event.text}</p>
+        {editingPrompt ? (
+          <div className="space-y-2">
+            <textarea className="min-h-20 w-full resize-y rounded border border-ops-border/50 bg-ops-deep p-2 text-sm leading-6 text-ops-text outline-none focus:border-ops-cyan/60" value={editedPrompt} onChange={(inputEvent) => setEditedPrompt(inputEvent.target.value)} aria-label="编辑任务目标" />
+            <div className="flex justify-end gap-2">
+              <button type="button" className="rounded px-2 py-1 text-[10px] text-ops-muted hover:text-ops-text" onClick={() => setEditingPrompt(false)}>取消</button>
+              <button type="button" className="rounded border border-ops-cyan/35 bg-ops-cyan/10 px-2 py-1 text-[10px] font-semibold text-ops-cyan disabled:opacity-40" disabled={!editedPrompt.trim() || branching} onClick={() => { if (!editedPrompt.trim() || !onForkRun) return; setBranching(true); void onForkRun(event.id, editedPrompt.trim()).finally(() => setBranching(false)) }}>在新分支运行</button>
+            </div>
+          </div>
+        ) : <p className="m-0 whitespace-pre-wrap text-[14px] font-medium leading-6 text-ops-text">{prompt}</p>}
       </section>
     )
   }

@@ -289,6 +289,7 @@ export type RuntimeSnapshot = {
   steps: RuntimeStep[]
   currentStepId: string | null
   pendingApprovalStepId: string | null
+  pendingApprovalToken: string | null
   lastOutputExcerpt: string
   summary: string | null
   errorMessage: string | null
@@ -314,6 +315,7 @@ export type ConversationTokenUsage = {
   cacheCreationInputTokens: number
   cacheReadInputTokens: number
   totalTokens: number
+  measurement: 'reported' | 'unavailable'
 }
 
 export type ConversationContextStatus = {
@@ -354,6 +356,7 @@ export type TerminalAutonomyEvent = {
   assetName?: string
   terminalId?: string | null
   terminalCreationStatus?: string
+  userDecisionStatus?: string
   approvalToken?: string | null
   channel?: string | null
   reason?: string
@@ -404,7 +407,8 @@ export type EventItem =
   | { id: string; kind: 'message_update'; payload: AgentMessage } // For raw event wrapper if needed
   | { id: string; kind: 'final'; text: string }
   | { id: string; kind: 'error'; text: string }
-  | { id: string; kind: 'user'; text: string }
+  | { id: string; kind: 'conversation_branch'; sourceConversationId: string; sourceEventId?: string | null }
+  | { id: string; kind: 'user'; text: string; mode?: 'standard' | 'incident' }
 
 export type ConversationSummary = {
   id: string

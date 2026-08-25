@@ -318,6 +318,7 @@ export const en: { readonly [K in keyof typeof zh]: string } = {
   'conversation.statusNeedsApproval': 'Needs approval',
   'conversation.statusFailed': 'Failed',
   'conversation.statusRunning': 'Running',
+  'conversation.statusDisconnected': 'Disconnected',
   'conversation.statusNewOutput': 'New output',
   'conversation.statusCompleted': 'Completed',
   'conversation.statusExecuted': 'Executed',

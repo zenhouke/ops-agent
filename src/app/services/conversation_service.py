@@ -6,6 +6,7 @@ import logging
 from datetime import UTC, datetime
 from pathlib import Path
 import re
+import threading
 from uuid import uuid4
 
 from app.utils.file_store import atomic_write_json
@@ -49,9 +50,15 @@ class ConversationEventsPage:
 
 
 class ConversationService:
+    _lock_guard = threading.Lock()
+    _locks: dict[Path, threading.RLock] = {}
+
     def __init__(self, base_dir: Path, model_service=None):
         self._base_dir = Path(base_dir)
         self._model_service = model_service
+        lock_key = self._base_dir.resolve()
+        with self._lock_guard:
+            self._lock = self._locks.setdefault(lock_key, threading.RLock())
 
     @property
     def base_dir(self) -> Path:
@@ -70,21 +77,73 @@ class ConversationService:
             last_event_kind=None,
             events=[],
         )
-        self._ensure_base_dir()
-        self._write_detail(detail)
-        self._upsert_summary(detail)
+        with self._lock:
+            self._ensure_base_dir()
+            self._write_detail(detail)
+            self._upsert_summary(detail)
         return self._to_summary(detail)
 
+    def branch_conversation(
+        self,
+        conversation_id: str,
+        *,
+        before_event_id: str | None = None,
+        through_event_id: str | None = None,
+    ) -> ConversationDetail:
+        if before_event_id and through_event_id:
+            raise ValueError("Choose either before_event_id or through_event_id.")
+        with self._lock:
+            source = self.get_conversation(conversation_id)
+            boundary_id = before_event_id or through_event_id
+            boundary_index = len(source.events) - 1
+            if boundary_id:
+                boundary_index = next(
+                    (
+                        index
+                        for index, event in enumerate(source.events)
+                        if event.get("id") == boundary_id or event.get("eventId") == boundary_id
+                    ),
+                    -1,
+                )
+                if boundary_index < 0:
+                    raise ValueError("Branch event not found.")
+            copied_end = boundary_index if before_event_id else boundary_index + 1
+            timestamp = self._utc_now()
+            branch_event = {
+                "id": f"branch-{uuid4().hex}",
+                "kind": "conversation_branch",
+                "sourceConversationId": source.id,
+                "sourceEventId": boundary_id,
+            }
+            copied_events = [self._sanitize_event(dict(event)) for event in source.events[:copied_end]]
+            events = [branch_event, *copied_events]
+            detail = ConversationDetail(
+                id=f"conv_{uuid4().hex}",
+                title=f"{source.title} · 分支",
+                selected_model=source.selected_model,
+                created_at=timestamp,
+                updated_at=timestamp,
+                event_count=len(events),
+                last_event_kind=events[-1].get("kind") if events else None,
+                events=events,
+            )
+            self._ensure_base_dir()
+            self._write_detail(detail)
+            self._upsert_summary(detail)
+            return detail
+
     def list_conversations(self) -> list[ConversationSummary]:
-        index_path = self._index_path()
-        if not index_path.exists():
-            return []
-        payload = json.loads(index_path.read_text(encoding="utf-8"))
+        with self._lock:
+            index_path = self._index_path()
+            if not index_path.exists():
+                return []
+            payload = json.loads(index_path.read_text(encoding="utf-8"))
         summaries = [ConversationSummary(**item) for item in payload]
         return self._sort_summaries(summaries)
 
     def get_conversation(self, conversation_id: str) -> ConversationDetail:
-        payload = json.loads(self._detail_path(conversation_id).read_text(encoding="utf-8"))
+        with self._lock:
+            payload = json.loads(self._detail_path(conversation_id).read_text(encoding="utf-8"))
         return ConversationDetail(**payload)
 
     def get_events_page(self, conversation_id: str, *, offset: int, limit: int) -> ConversationEventsPage:
@@ -120,33 +179,34 @@ class ConversationService:
         )
 
     def append_events(self, conversation_id: str, events: list[dict], *, async_title_generation: bool = True) -> ConversationDetail:
-        detail = self.get_conversation(conversation_id)
-        sanitized_events = [self._sanitize_event(event) for event in events]
-        had_user_event = any(event.get("kind") == "user" for event in detail.events)
-        self._merge_events(detail.events, sanitized_events)
-        detail.event_count = len(detail.events)
-        detail.last_event_kind = detail.events[-1].get("kind") if detail.events else None
-        detail.updated_at = self._utc_now()
+        with self._lock:
+            detail = self.get_conversation(conversation_id)
+            sanitized_events = [self._sanitize_event(event) for event in events]
+            had_user_event = any(event.get("kind") == "user" for event in detail.events)
+            self._merge_events(detail.events, sanitized_events)
+            detail.event_count = len(detail.events)
+            detail.last_event_kind = detail.events[-1].get("kind") if detail.events else None
+            detail.updated_at = self._utc_now()
 
-        generated_title_sync = None
-        first_user_text = None
-        should_generate_title = not had_user_event or self._is_default_title(detail.title)
-        if should_generate_title:
-            first_user_text = next(
-                (
-                    event.get("text")
-                    for event in sanitized_events
-                    if event.get("kind") == "user" and isinstance(event.get("text"), str)
-                ),
-                None,
-            )
-            if first_user_text and not async_title_generation:
-                generated_title_sync = self._generate_title(first_user_text, detail.selected_model)
-                if generated_title_sync:
-                    detail.title = generated_title_sync
+            generated_title_sync = None
+            first_user_text = None
+            should_generate_title = not had_user_event or self._is_default_title(detail.title)
+            if should_generate_title:
+                first_user_text = next(
+                    (
+                        event.get("text")
+                        for event in sanitized_events
+                        if event.get("kind") == "user" and isinstance(event.get("text"), str)
+                    ),
+                    None,
+                )
+                if first_user_text and not async_title_generation:
+                    generated_title_sync = self._generate_title(first_user_text, detail.selected_model)
+                    if generated_title_sync:
+                        detail.title = generated_title_sync
 
-        self._write_detail(detail)
-        self._upsert_summary(detail)
+            self._write_detail(detail)
+            self._upsert_summary(detail)
 
         if should_generate_title and first_user_text and async_title_generation:
             import threading
@@ -166,22 +226,24 @@ class ConversationService:
             generated_title = self._generate_title(prompt, initial_detail.selected_model)
             
             if generated_title:
-                # Re-fetch detail to avoid overwriting events that were appended during generation
-                detail = self.get_conversation(conversation_id)
-                if generated_title != detail.title:
-                    detail.title = generated_title
-                    detail.updated_at = self._utc_now()
-                    self._write_detail(detail)
-                    self._upsert_summary(detail)
+                with self._lock:
+                    # Re-fetch detail to avoid overwriting events that were appended during generation
+                    detail = self.get_conversation(conversation_id)
+                    if generated_title != detail.title:
+                        detail.title = generated_title
+                        detail.updated_at = self._utc_now()
+                        self._write_detail(detail)
+                        self._upsert_summary(detail)
         except Exception:
             logger.exception("Failed to update conversation title conversation_id=%s", conversation_id)
 
     def delete_conversation(self, conversation_id: str) -> None:
-        detail_path = self._detail_path(conversation_id)
-        if not detail_path.exists():
-            raise FileNotFoundError(conversation_id)
-        detail_path.unlink()
-        self._delete_summary(conversation_id)
+        with self._lock:
+            detail_path = self._detail_path(conversation_id)
+            if not detail_path.exists():
+                raise FileNotFoundError(conversation_id)
+            detail_path.unlink()
+            self._delete_summary(conversation_id)
 
     def _sanitize_event(self, event: dict) -> dict:
         sanitized = dict(event)
@@ -193,20 +255,35 @@ class ConversationService:
         return sanitized
 
     def _merge_events(self, existing_events: list[dict], new_events: list[dict]) -> None:
-        message_index_by_id = {
-            event.get("id"): index
+        event_index_by_identity = {
+            identity: index
             for index, event in enumerate(existing_events)
-            if self._is_agent_message(event)
+            if (identity := self._event_identity(event)) is not None
         }
         for event in new_events:
-            if self._is_agent_message(event):
-                message_id = event.get("id")
-                existing_index = message_index_by_id.get(message_id)
-                if existing_index is not None:
-                    existing_events[existing_index] = event
-                    continue
-                message_index_by_id[message_id] = len(existing_events)
+            identity = self._event_identity(event)
+            existing_index = event_index_by_identity.get(identity) if identity is not None else None
+            if existing_index is not None:
+                existing_events[existing_index] = event
+                continue
+            if identity is not None:
+                event_index_by_identity[identity] = len(existing_events)
             existing_events.append(event)
+
+    def _event_identity(self, event: dict) -> tuple[object, ...] | None:
+        if self._is_agent_message(event):
+            return ("message", event.get("id"))
+        event_id = event.get("eventId")
+        if isinstance(event_id, str) and event_id:
+            return ("event", event_id)
+        runtime_id = event.get("runtimeId")
+        sequence = event.get("sequence")
+        if isinstance(runtime_id, str) and runtime_id and isinstance(sequence, int):
+            return ("runtime", runtime_id, sequence)
+        event_id = event.get("id")
+        if isinstance(event_id, str) and event_id:
+            return ("id", event_id)
+        return None
 
     def _is_agent_message(self, event: dict) -> bool:
         return event.get("kind") == "message" and event.get("type") in {"say", "ask"} and isinstance(event.get("id"), str)

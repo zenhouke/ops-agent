@@ -4,14 +4,14 @@ import type { ConversationSummary, EventItem } from '../../types/ops'
 
 type ConversationRunBadge = {
   conversationId: string
-  status: 'running' | 'needs_approval' | 'completed' | 'failed'
+  status: 'running' | 'needs_approval' | 'completed' | 'failed' | 'disconnected'
   hasUnread: boolean
 }
 
 type ConversationListProps = {
   items: ConversationSummary[]
   activeConversationId: string | null
-  backgroundRun: ConversationRunBadge | null
+  runs: ConversationRunBadge[]
   onSelect: (conversationId: string) => void
   onDelete: (conversationId: string) => void
 }
@@ -60,7 +60,7 @@ function getGroupKey(value: string, todayStart: number): GroupKey {
   return 'earlier'
 }
 
-export function ConversationList({ items, activeConversationId, backgroundRun, onSelect, onDelete }: ConversationListProps) {
+export function ConversationList({ items, activeConversationId, runs, onSelect, onDelete }: ConversationListProps) {
   const { language, t } = useAppearance()
   const timeFormatter = useMemo(() => new Intl.DateTimeFormat(language, {
     hour: '2-digit',
@@ -73,6 +73,7 @@ export function ConversationList({ items, activeConversationId, backgroundRun, o
     minute: '2-digit',
   }), [language])
   const todayStart = startOfDay(new Date())
+  const runsByConversation = useMemo(() => new Map(runs.map((run) => [run.conversationId, run])), [runs])
 
   const groupedItems = useMemo(() => {
     const groups: Record<GroupKey, ConversationSummary[]> = { today: [], yesterday: [], earlier: [] }
@@ -81,9 +82,10 @@ export function ConversationList({ items, activeConversationId, backgroundRun, o
   }, [items, todayStart])
 
   function getStatusMeta(item: ConversationSummary): StatusMeta {
-    const run = backgroundRun?.conversationId === item.id ? backgroundRun : null
+    const run = runsByConversation.get(item.id)
     if (run?.status === 'needs_approval') return { label: t('conversation.statusNeedsApproval'), dotClassName: 'bg-ops-warning', textClassName: 'text-ops-warning' }
     if (run?.status === 'failed') return { label: t('conversation.statusFailed'), dotClassName: 'bg-ops-danger', textClassName: 'text-ops-danger' }
+    if (run?.status === 'disconnected') return { label: t('conversation.statusDisconnected'), dotClassName: 'bg-ops-danger', textClassName: 'text-ops-danger' }
     if (run?.status === 'running') return { label: run.hasUnread ? t('conversation.statusNewOutput') : t('conversation.statusRunning'), dotClassName: 'bg-ops-text', textClassName: 'text-ops-text' }
     if (run?.status === 'completed') return { label: t('conversation.statusCompleted'), dotClassName: 'bg-ops-text/70', textClassName: 'text-ops-muted' }
 
@@ -136,6 +138,8 @@ export function ConversationList({ items, activeConversationId, backgroundRun, o
                 <ul className="space-y-0.5" role="list">
                   {groupItems.map((item) => {
                     const isActive = item.id === activeConversationId
+                    const run = runsByConversation.get(item.id)
+                    const isRunLocked = run?.status === 'running' || run?.status === 'needs_approval' || run?.status === 'disconnected'
                     const isUntitled = !item.title || item.title.trim() === '' || item.title.trim() === 'New'
                     const displayTitle = isUntitled ? t('conversation.untitledTask') : item.title
                     const status = getStatusMeta(item)
@@ -180,7 +184,9 @@ export function ConversationList({ items, activeConversationId, backgroundRun, o
                             event.stopPropagation()
                             onDelete(item.id)
                           }}
+                          disabled={isRunLocked}
                           aria-label={t('conversation.deleteTask', { title: displayTitle })}
+                          title={isRunLocked ? '请先取消或完成当前运行' : undefined}
                         >
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
                         </button>

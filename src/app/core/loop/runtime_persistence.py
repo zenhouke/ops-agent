@@ -62,6 +62,7 @@ class RuntimePersistenceMixin:
             "steps": [self._step_view(step) for step in state.steps],
             "current_step_id": current_step.step_id if current_step else None,
             "pending_approval_step_id": state.pending_approval_step_id,
+            "pending_approval_token": state.pending_approval_token if include_secrets else None,
             "last_output_excerpt": state.last_output_excerpt,
             "summary": state.summary,
             "error_message": state.error_message,

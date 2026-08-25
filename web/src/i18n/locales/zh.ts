@@ -316,6 +316,7 @@ export const zh = {
   'conversation.statusNeedsApproval': '待审批',
   'conversation.statusFailed': '失败',
   'conversation.statusRunning': '执行中',
+  'conversation.statusDisconnected': '连接中断',
   'conversation.statusNewOutput': '有新输出',
   'conversation.statusCompleted': '已完成',
   'conversation.statusExecuted': '已执行',

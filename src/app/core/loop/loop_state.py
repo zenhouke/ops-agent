@@ -87,7 +87,7 @@ class LoopState:
     last_output_excerpt: str = ""
     summary: str | None = None
     error_message: str | None = None
-    latest_usage: dict[str, int] | None = None
+    latest_usage: dict[str, int | str] | None = None
     started_monotonic: float = field(default_factory=time.monotonic)
     deadline_monotonic: float | None = None
     max_llm_calls: int = 0

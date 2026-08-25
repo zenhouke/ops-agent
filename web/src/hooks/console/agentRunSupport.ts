@@ -10,12 +10,14 @@ import type {
 import { mergeDeltaEvent } from './consoleShared'
 
 export interface UseAgentRunProps {
+  conversationSummaries: ConversationSummary[]
   activeConversationId: string | null
   activeConversationTitle: string
   activeConversationIdRef: RefObject<string | null>
   events: EventItem[]
   setEvents: (updater: EventItem[] | ((previous: EventItem[]) => EventItem[])) => void
   createConversation: () => Promise<string>
+  loadConversation: (conversationId: string) => Promise<ConversationSummary>
   upsertConversationSummary: (summary: ConversationSummary) => void
   refreshConversationList: () => Promise<unknown>
   syncConversationRuntimes: (conversationId: string) => Promise<RuntimeSummary[]>
@@ -31,13 +33,21 @@ export interface UseAgentRunProps {
   ) => void
 }
 
-export type BackgroundRunStatus = 'running' | 'needs_approval' | 'completed' | 'failed'
+export type BackgroundRunStatus = 'running' | 'needs_approval' | 'completed' | 'failed' | 'disconnected'
+
+export type ConversationSaveStatus = 'idle' | 'saving' | 'saved' | 'failed'
 
 export type BackgroundRunState = {
   conversationId: string
   title: string
+  assetId: number
+  assetName: string
+  runtimeId: string | null
   status: BackgroundRunStatus
   hasUnread: boolean
+  pendingApprovalToken: string | null
+  pendingApprovalKey: string | null
+  saveStatus: ConversationSaveStatus
 }
 
 export function isAbortError(error: unknown): boolean {

@@ -1,487 +1,382 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
-import { appendConversationEvents, streamApproveAgent, streamRunAgent } from '../../api'
-import type { AgentMessage, EventItem } from '../../types/ops'
+import { appendConversationEvents, cancelAgentRuntime, getRuntimeSnapshot, listConversationRuntimes, streamApproveAgent, streamReconnectRuntime, streamRunAgent } from '../../api'
+import type { AgentMessage, EventItem, RuntimeSummary } from '../../types/ops'
 import { flushDeltaBuffer, LOCAL_TERMINAL_ASSET_ID, mergeEventsBySequence, PENDING_ASSISTANT_MESSAGE_ID, upsertMessageEvent, upsertStreamEvent } from './consoleShared'
-import {
-  createDeltaBatcher,
-  derivePendingApprovalState,
-  getRunErrorMessage,
-  isAbortError,
-  type BackgroundRunState,
-  type UseAgentRunProps,
-} from './agentRunSupport'
+import { createDeltaBatcher, derivePendingApprovalState, getRunErrorMessage, isAbortError, type BackgroundRunState, type BackgroundRunStatus, type ConversationSaveStatus, type UseAgentRunProps } from './agentRunSupport'
 import { useTerminalRequestDecision } from './useTerminalRequestDecision'
-import { useAgentRunCancellation } from './useAgentRunCancellation'
 
+type RunRegistry = Record<string, BackgroundRunState>
+const ACTIVE_RUN_STATUSES: ReadonlySet<BackgroundRunStatus> = new Set(['running', 'needs_approval', 'disconnected'])
+
+function runtimeStatus(runtime: RuntimeSummary): BackgroundRunStatus {
+  const status = runtime.status.toLowerCase()
+  if (runtime.pendingApprovalStepId || runtime.runState === 'waiting' || status.includes('approv') || status.includes('waiting')) return 'needs_approval'
+  if (runtime.runState === 'terminal' || status.includes('complete') || status.includes('fail') || status.includes('error')) {
+    return status.includes('fail') || status.includes('error') ? 'failed' : 'completed'
+  }
+  return 'running'
+}
 
 export function useAgentRun({
-  activeConversationId,
-  activeConversationTitle,
-  activeConversationIdRef,
-  events,
-  setEvents,
-  createConversation,
-  upsertConversationSummary,
-  refreshConversationList,
-  syncConversationRuntimes,
-  selectedAsset,
-  activeTerminalTab,
-  selectedModel,
-  setLoadError,
-  setContextStatus,
+  conversationSummaries, activeConversationId, activeConversationTitle, activeConversationIdRef, events, setEvents,
+  createConversation, loadConversation, upsertConversationSummary, refreshConversationList,
+  syncConversationRuntimes, selectedAsset, activeTerminalTab, selectedModel, setLoadError, setContextStatus,
 }: UseAgentRunProps) {
-  const [pendingApprovalRuntimeId, setPendingApprovalRuntimeId] = useState<string | null>(null)
-  const [pendingApprovalToken, setPendingApprovalToken] = useState<string | null>(null)
-  const [backgroundRun, setBackgroundRun] = useState<BackgroundRunState | null>(null)
-  const [activeRuntimeId, setActiveRuntimeId] = useState<string | null>(null)
-  const activeRunAbortRef = useRef<AbortController | null>(null)
-  const intentionalCancellationRef = useRef(false)
-  const submittedApprovalKeyRef = useRef<string | null>(null)
+  const [runsByConversation, setRunsByConversation] = useState<RunRegistry>({})
+  const runsRef = useRef<RunRegistry>({})
+  const abortControllersRef = useRef(new Map<string, AbortController>())
+  const intentionalCancellationsRef = useRef(new Set<string>())
+  const submittedApprovalKeysRef = useRef(new Map<string, string>())
+  const eventCacheRef = useRef(new Map<string, EventItem[]>())
+  const runtimeHydrationRef = useRef(new Map<string, string>())
   const latestEventsRef = useRef<EventItem[]>(events)
 
-  useEffect(() => {
-    latestEventsRef.current = events
-  }, [events])
-
-  const decideTerminalAccess = useTerminalRequestDecision({
-    activeConversationId,
-    activeConversationIdRef,
-    latestEventsRef,
-    setEvents,
-    setLoadError,
-    syncConversationRuntimes,
-    upsertConversationSummary,
-  })
-
-  const activeBackgroundRun = useMemo(() => {
-    if (!backgroundRun || backgroundRun.conversationId === activeConversationId) {
-      return null
-    }
-    return backgroundRun
-  }, [activeConversationId, backgroundRun])
-
-  const clearBackgroundRunUnread = useCallback((conversationId: string) => {
-    setBackgroundRun((currentRun) => {
-      if (!currentRun || currentRun.conversationId !== conversationId) {
-        return currentRun
-      }
-      return { ...currentRun, hasUnread: false }
+  const updateRun = useCallback((conversationId: string, updater: (run?: BackgroundRunState) => BackgroundRunState | undefined) => {
+    setRunsByConversation((current) => {
+      const nextRun = updater(current[conversationId])
+      if (nextRun === current[conversationId]) return current
+      const next = { ...current }
+      if (nextRun) next[conversationId] = nextRun
+      else delete next[conversationId]
+      runsRef.current = next
+      return next
     })
   }, [])
 
-  useEffect(() => {
-    if (activeConversationId) {
-      clearBackgroundRunUnread(activeConversationId)
+  const updateVisibleEvents = useCallback((conversationId: string, updater: (current: EventItem[]) => EventItem[]) => {
+    if (activeConversationIdRef.current !== conversationId) return
+    setEvents((current) => {
+      if (activeConversationIdRef.current !== conversationId) return current
+      const next = updater(current)
+      eventCacheRef.current.set(conversationId, next)
+      return next
+    })
+  }, [activeConversationIdRef, setEvents])
+
+  const markUnread = useCallback((conversationId: string) => {
+    if (activeConversationIdRef.current !== conversationId) {
+      updateRun(conversationId, (run) => run && !run.hasUnread ? { ...run, hasUnread: true } : run)
     }
-  }, [activeConversationId, clearBackgroundRunUnread])
+  }, [activeConversationIdRef, updateRun])
+
+  const updateRunSaveStatus = useCallback((conversationId: string, status: ConversationSaveStatus) => {
+    updateRun(conversationId, (run) => run && run.saveStatus !== status ? { ...run, saveStatus: status } : run)
+  }, [updateRun])
+
+  const observePersistenceStatus = useCallback((conversationId: string, event: EventItem) => {
+    if ((event as EventItem & { persistenceStatus?: string }).persistenceStatus === 'failed') updateRunSaveStatus(conversationId, 'failed')
+  }, [updateRunSaveStatus])
 
   useEffect(() => {
-    const pendingApproval = derivePendingApprovalState(events)
-    if (submittedApprovalKeyRef.current && submittedApprovalKeyRef.current === pendingApproval?.approvalKey) {
-      return
-    }
-    submittedApprovalKeyRef.current = null
-    setPendingApprovalRuntimeId(pendingApproval?.runtimeId ?? null)
-    setPendingApprovalToken(pendingApproval?.approvalToken ?? null)
-  }, [events])
+    latestEventsRef.current = events
+    if (activeConversationId) eventCacheRef.current.set(activeConversationId, events)
+  }, [activeConversationId, events])
 
-  const runAgent = useCallback(async (runPrompt: string, selectedSkillName?: string | null) => {
-    setLoadError(null)
+  useEffect(() => {
+    if (!activeConversationId) return
+    const pending = derivePendingApprovalState(events)
+    if (!pending || submittedApprovalKeysRef.current.get(activeConversationId) === pending.approvalKey) return
+    submittedApprovalKeysRef.current.delete(activeConversationId)
+    updateRun(activeConversationId, (run) => ({
+      conversationId: activeConversationId,
+      title: run?.title ?? (activeConversationTitle || '当前会话'),
+      assetId: run?.assetId ?? selectedAsset.id,
+      assetName: run?.assetName ?? selectedAsset.name,
+      runtimeId: pending.runtimeId,
+      status: 'needs_approval', hasUnread: false,
+      pendingApprovalToken: pending.approvalToken ?? run?.pendingApprovalToken ?? null,
+      pendingApprovalKey: pending.approvalKey,
+      saveStatus: run?.saveStatus ?? 'saved',
+    }))
+  }, [activeConversationId, activeConversationTitle, events, selectedAsset.id, selectedAsset.name, updateRun])
 
-    let conversationId = activeConversationId
-    let deltaBatcher: ReturnType<typeof createDeltaBatcher> | null = null
+  useEffect(() => {
+    let cancelled = false
+    void (async () => {
+      const candidates = conversationSummaries.filter((summary) => runtimeHydrationRef.current.get(summary.id) !== summary.updatedAt)
+      await Promise.all(candidates.map(async (summary) => {
+        runtimeHydrationRef.current.set(summary.id, summary.updatedAt)
+        try {
+          const runtimes = await listConversationRuntimes(summary.id)
+          const runtime = runtimes.find((item) => item.runState !== 'terminal')
+          if (!runtime || cancelled) return
+          const status = runtimeStatus(runtime)
+          const snapshot = status === 'needs_approval' ? await getRuntimeSnapshot(runtime.runtimeId) : null
+          if (cancelled) return
+          updateRun(summary.id, (run) => ({
+            conversationId: summary.id,
+            title: summary.title || run?.title || '未命名会话',
+            assetId: runtime.assetId,
+            assetName: run?.assetName ?? (runtime.assetId === selectedAsset.id ? selectedAsset.name : `资产 #${runtime.assetId}`),
+            runtimeId: runtime.runtimeId, status,
+            hasUnread: run?.hasUnread ?? activeConversationIdRef.current !== summary.id,
+            pendingApprovalToken: snapshot?.pendingApprovalToken ?? run?.pendingApprovalToken ?? null,
+            pendingApprovalKey: run?.pendingApprovalKey ?? runtime.pendingApprovalStepId,
+            saveStatus: run?.saveStatus ?? 'saved',
+          }))
+        } catch { /* Runtime hydration is best-effort. */ }
+      }))
+    })()
+    return () => { cancelled = true }
+  }, [activeConversationIdRef, conversationSummaries, selectedAsset.id, selectedAsset.name, updateRun])
 
+  const clearRunUnread = useCallback((conversationId: string) => {
+    updateRun(conversationId, (run) => run?.hasUnread ? { ...run, hasUnread: false } : run)
+  }, [updateRun])
+
+  useEffect(() => { if (activeConversationId) clearRunUnread(activeConversationId) }, [activeConversationId, clearRunUnread])
+
+  const processStream = useCallback(async (conversationId: string, stream: AsyncGenerator<EventItem, void, void>) => {
+    const deltaBuffer = new Map<string, string>()
+    const batcher = createDeltaBatcher({ setEvents, isActive: () => activeConversationIdRef.current === conversationId })
+    const persisted: EventItem[] = []
+    const messages = new Map<string, AgentMessage>()
+    let runtimeId = runsRef.current[conversationId]?.runtimeId ?? null
+    let lastSequence = 0
+    let requiresApproval = false
     try {
-      if (backgroundRun && backgroundRun.status !== 'completed' && backgroundRun.status !== 'failed' && backgroundRun.conversationId !== activeConversationId) {
-        throw new Error(`会话「${backgroundRun.title}」正在${backgroundRun.status === 'needs_approval' ? '等待审批' : '运行'}，当前暂不支持并行执行。`)
-      }
-
-      if (!conversationId) {
-        conversationId = await createConversation()
-      }
-
-      if (!conversationId) {
-        throw new Error('No active conversation available for agent run.')
-      }
-
-      const userEvent: EventItem = {
-        id: `user-${Date.now()}`,
-        kind: 'user',
-        text: runPrompt,
-      }
-
-      const pendingStatusEvent: EventItem = {
-        id: PENDING_ASSISTANT_MESSAGE_ID,
-        kind: 'delta',
-        messageId: PENDING_ASSISTANT_MESSAGE_ID,
-        stage: 'assistant',
-        text: 'Initiating request and waiting for model response...',
-      }
-
-      if (activeConversationIdRef.current === conversationId) {
-        setEvents((currentEvents: EventItem[]) => [...currentEvents, userEvent, pendingStatusEvent])
-        setPendingApprovalRuntimeId(null)
-        setPendingApprovalToken(null)
-      }
-      setBackgroundRun({
-        conversationId,
-        title: activeConversationId === conversationId ? activeConversationTitle || '当前会话' : '后台会话',
-        status: 'running',
-        hasUnread: false,
-      })
-
-      const abortController = new AbortController()
-      activeRunAbortRef.current = abortController
-      intentionalCancellationRef.current = false
-      setActiveRuntimeId(null)
-      const stream = await streamRunAgent(
-        runPrompt,
-        selectedAsset?.id === LOCAL_TERMINAL_ASSET_ID ? undefined : selectedAsset?.id,
-        activeTerminalTab?.sessionId ?? null,
-        selectedModel,
-        conversationId,
-        selectedSkillName,
-        abortController.signal,
-      )
-
-      const deltaBuffer = new Map<string, string>()
-      deltaBatcher = createDeltaBatcher({
-        setEvents,
-        isActive: () => activeConversationIdRef.current === conversationId,
-      })
-      const pendingPersistEvents: EventItem[] = []
-      const latestMessageSnapshots = new Map<string, AgentMessage>()
-      let requiresApproval = false
-
       for await (const event of stream) {
+        observePersistenceStatus(conversationId, event)
         const eventRuntimeId = (event as EventItem & { runtimeId?: string }).runtimeId
         if (eventRuntimeId) {
-          setActiveRuntimeId(eventRuntimeId)
+          runtimeId = eventRuntimeId
+          updateRun(conversationId, (run) => run ? { ...run, runtimeId: eventRuntimeId } : run)
         }
+        const sequence = (event as EventItem & { sequence?: number }).sequence
+        if (typeof sequence === 'number' && sequence > lastSequence) lastSequence = sequence
+
         if (event.kind === 'message_update') {
           const message = { ...event, kind: 'message' as const } as unknown as AgentMessage
-          const isViewingRunConversation = activeConversationIdRef.current === conversationId
-          if (isViewingRunConversation) {
-            setEvents((currentEvents: EventItem[]) => upsertMessageEvent(currentEvents, message))
-          } else {
-            setBackgroundRun((currentRun) => currentRun?.conversationId === conversationId ? { ...currentRun, hasUnread: true } : currentRun)
+          updateVisibleEvents(conversationId, (current) => upsertMessageEvent(current, message))
+          markUnread(conversationId)
+          if (message.type === 'ask' && eventRuntimeId) {
+            requiresApproval = true
+            const pending = derivePendingApprovalState([message])
+            updateRun(conversationId, (run) => run ? {
+              ...run, runtimeId: eventRuntimeId, status: 'needs_approval',
+              hasUnread: activeConversationIdRef.current !== conversationId,
+              pendingApprovalToken: message.toolCall?.approvalToken ?? null,
+              pendingApprovalKey: pending?.approvalKey ?? null,
+            } : run)
           }
-
-          if (message.type === 'ask') {
-            const runtimeId = (event as any).runtimeId
-            if (runtimeId) {
-              requiresApproval = true
-              setBackgroundRun((currentRun) => currentRun?.conversationId === conversationId ? { ...currentRun, status: 'needs_approval', hasUnread: !isViewingRunConversation } : currentRun)
-              if (isViewingRunConversation) {
-                setPendingApprovalRuntimeId(runtimeId)
-                setPendingApprovalToken(message.toolCall?.approvalToken ?? null)
-              }
-            }
-          }
-
-          latestMessageSnapshots.set(message.id, message)
+          messages.set(message.id, message)
           continue
         }
-
         if (event.kind === 'delta' && event.messageId) {
-          const currentText = deltaBuffer.get(event.messageId) || ''
-          const newText = currentText + event.text
-          deltaBuffer.set(event.messageId, newText)
-
-          const isViewingRunConversation = activeConversationIdRef.current === conversationId
-          if (isViewingRunConversation) {
-            deltaBatcher.push({
-              messageId: event.messageId,
-              text: newText,
-              stage: 'stage' in event ? event.stage : undefined,
-            })
-          } else {
-            setBackgroundRun((currentRun) => currentRun?.conversationId === conversationId ? { ...currentRun, hasUnread: true } : currentRun)
-          }
+          const text = `${deltaBuffer.get(event.messageId) || ''}${event.text}`
+          deltaBuffer.set(event.messageId, text)
+          if (activeConversationIdRef.current === conversationId) batcher.push({ messageId: event.messageId, text, stage: 'stage' in event ? event.stage : undefined })
+          else markUnread(conversationId)
           continue
         }
-
         if (event.kind === 'context_status') {
           if (activeConversationIdRef.current === conversationId) {
-            setContextStatus((currentStatus) => ({
-              contextPercent: event.contextPercent ?? currentStatus?.contextPercent ?? 0,
-              contextStatus: event.contextStatus ?? currentStatus?.contextStatus ?? 'normal',
-              tokenUsage: event.tokenUsage ?? currentStatus?.tokenUsage,
-              knowledgeEntriesInjected: event.knowledgeEntriesInjected ?? currentStatus?.knowledgeEntriesInjected,
-              knowledgeContextChars: event.knowledgeContextChars ?? currentStatus?.knowledgeContextChars,
+            setContextStatus((current) => ({
+              contextPercent: event.contextPercent ?? current?.contextPercent ?? 0,
+              contextStatus: event.contextStatus ?? current?.contextStatus ?? 'normal',
+              tokenUsage: event.tokenUsage ?? current?.tokenUsage,
+              knowledgeEntriesInjected: event.knowledgeEntriesInjected ?? current?.knowledgeEntriesInjected,
+              knowledgeContextChars: event.knowledgeContextChars ?? current?.knowledgeContextChars,
             }))
           }
           continue
         }
-
-        if (activeConversationIdRef.current === conversationId) {
-          setEvents((currentEvents: EventItem[]) => upsertStreamEvent(currentEvents, event))
-        } else {
-          setBackgroundRun((currentRun) => currentRun?.conversationId === conversationId ? { ...currentRun, hasUnread: true } : currentRun)
-        }
-
-        pendingPersistEvents.push(event)
-
+        updateVisibleEvents(conversationId, (current) => upsertStreamEvent(current, event))
+        markUnread(conversationId)
+        persisted.push(event)
         if (event.kind === 'approval_required') {
           requiresApproval = true
-          const isViewingRunConversation = activeConversationIdRef.current === conversationId
-          setBackgroundRun((currentRun) => currentRun?.conversationId === conversationId ? { ...currentRun, status: 'needs_approval', hasUnread: !isViewingRunConversation } : currentRun)
-          if (isViewingRunConversation) {
-            setPendingApprovalRuntimeId(event.runtimeId ?? null)
-            setPendingApprovalToken(event.approvalToken ?? null)
-          }
-        }
-        if (event.kind === 'approval_decision' && activeConversationIdRef.current === conversationId) {
-          setPendingApprovalRuntimeId(null)
-          setPendingApprovalToken(null)
+          const pending = derivePendingApprovalState([event])
+          updateRun(conversationId, (run) => run ? {
+            ...run, runtimeId: event.runtimeId ?? run.runtimeId, status: 'needs_approval',
+            hasUnread: activeConversationIdRef.current !== conversationId,
+            pendingApprovalToken: event.approvalToken ?? null, pendingApprovalKey: pending?.approvalKey ?? null,
+          } : run)
+        } else if (event.kind === 'terminal_session_request' && event.userDecisionStatus !== 'approved' && event.userDecisionStatus !== 'rejected') {
+          requiresApproval = true
+          updateRun(conversationId, (run) => run ? { ...run, status: 'needs_approval', hasUnread: activeConversationIdRef.current !== conversationId } : run)
+        } else if (event.kind === 'approval_decision' || event.kind === 'approval_granted' || event.kind === 'approval_rejected') {
+          updateRun(conversationId, (run) => run ? { ...run, pendingApprovalToken: null, pendingApprovalKey: null } : run)
         }
       }
-
-      deltaBatcher.flush()
-
-      const finalMessageSnapshots = Array.from(latestMessageSnapshots.values()) as EventItem[]
-      const finalEvents = flushDeltaBuffer(deltaBuffer, latestEventsRef.current)
-      const allPersistEvents = mergeEventsBySequence([...pendingPersistEvents, ...finalMessageSnapshots, ...finalEvents])
-      if (allPersistEvents.length > 0) {
-        const response = await appendConversationEvents(conversationId, allPersistEvents)
+      batcher.flush()
+      const finalEvents = mergeEventsBySequence([
+        ...persisted,
+        ...Array.from(messages.values()) as EventItem[],
+        ...flushDeltaBuffer(deltaBuffer, eventCacheRef.current.get(conversationId) ?? []),
+      ])
+      if (finalEvents.length > 0) {
+        const response = await appendConversationEvents(conversationId, finalEvents)
         upsertConversationSummary(response.conversation)
       }
-      await syncConversationRuntimes(conversationId)
-      setBackgroundRun((currentRun) => currentRun?.conversationId === conversationId ? {
-        ...currentRun,
-        status: requiresApproval ? 'needs_approval' : 'completed',
-        hasUnread: activeConversationIdRef.current !== conversationId,
-      } : currentRun)
-      if (!requiresApproval) {
-        setActiveRuntimeId(null)
-      }
-    } catch (error) {
-      deltaBatcher?.cancel()
-      setActiveRuntimeId(null)
-      setPendingApprovalRuntimeId(null)
-      setPendingApprovalToken(null)
-      if (intentionalCancellationRef.current || isAbortError(error)) {
-        setBackgroundRun((currentRun) => currentRun?.conversationId === conversationId
-          ? { ...currentRun, status: 'failed' }
-          : currentRun)
-        return
-      }
-      const errorMessage = getRunErrorMessage(error)
-      if (!conversationId) {
-        setLoadError(errorMessage)
-      }
+      updateRunSaveStatus(conversationId, 'saved')
+      const status: BackgroundRunStatus = requiresApproval ? 'needs_approval' : 'completed'
+      updateRun(conversationId, (run) => run ? {
+        ...run, status, hasUnread: activeConversationIdRef.current !== conversationId,
+        pendingApprovalToken: requiresApproval ? run.pendingApprovalToken : null,
+        pendingApprovalKey: requiresApproval ? run.pendingApprovalKey : null,
+      } : run)
+      if (activeConversationIdRef.current === conversationId) await syncConversationRuntimes(conversationId)
+      return { runtimeId, lastSequence, status }
+    } finally { batcher.cancel() }
+  }, [activeConversationIdRef, markUnread, observePersistenceStatus, setContextStatus, setEvents, syncConversationRuntimes, updateRun, updateRunSaveStatus, updateVisibleEvents, upsertConversationSummary])
 
-      if (conversationId) {
-        setBackgroundRun((currentRun) => currentRun?.conversationId === conversationId ? { ...currentRun, status: 'failed', hasUnread: activeConversationIdRef.current !== conversationId } : currentRun)
-        const errorEvent: EventItem = {
-          id: `error-${Date.now()}`,
-          kind: 'error',
-          text: errorMessage,
-        }
-        if (activeConversationIdRef.current === conversationId) {
-          setEvents((currentEvents) => upsertStreamEvent(currentEvents, errorEvent))
-        }
-        try {
-          const response = await appendConversationEvents(conversationId, [errorEvent])
-          upsertConversationSummary(response.conversation)
-          await syncConversationRuntimes(conversationId)
-        } catch {
-        }
-      }
-    } finally {
-      activeRunAbortRef.current = null
-      intentionalCancellationRef.current = false
+  const recoverRuntime = useCallback(async (conversationId: string, runtimeId: string, since: number) => {
+    const delays = [0, 250, 750]
+    for (const delay of delays) {
+      if (delay) await new Promise((resolve) => window.setTimeout(resolve, delay))
       try {
-        await refreshConversationList()
-      } catch {
-      }
+        const reconnectStream = await streamReconnectRuntime(runtimeId, since)
+        for await (const event of reconnectStream) observePersistenceStatus(conversationId, event)
+        const runtime = (await listConversationRuntimes(conversationId)).find((item) => item.runtimeId === runtimeId)
+        if (!runtime) continue
+        const status = runtimeStatus(runtime)
+        const snapshot = status === 'needs_approval' ? await getRuntimeSnapshot(runtimeId) : null
+        if (activeConversationIdRef.current === conversationId) {
+          await loadConversation(conversationId)
+          await syncConversationRuntimes(conversationId)
+        }
+        return { status, approvalToken: snapshot?.pendingApprovalToken ?? null }
+      } catch (error) { if (delay === delays[delays.length - 1]) throw error }
     }
-  }, [
-    activeConversationId,
-    activeConversationTitle,
-    activeConversationIdRef,
-    backgroundRun,
-    createConversation,
-    selectedAsset,
-    activeTerminalTab,
-    selectedModel,
-    setLoadError,
-    setContextStatus,
-    upsertConversationSummary,
-    setEvents,
-    refreshConversationList,
-    syncConversationRuntimes,
-  ])
+    return null
+  }, [activeConversationIdRef, loadConversation, observePersistenceStatus, syncConversationRuntimes])
 
-  const submitApproval = useCallback(
-    async (approved: boolean, allowPrefix?: string) => {
-      if (!pendingApprovalRuntimeId || !activeConversationId) {
+  const runAgent = useCallback(async (runPrompt: string, selectedSkillName?: string | null, mode: 'standard' | 'incident' = 'standard') => {
+    setLoadError(null)
+    let conversationId = activeConversationIdRef.current
+    let runtimeId: string | null = null
+    let lastSequence = 0
+    try {
+      if (conversationId && ACTIVE_RUN_STATUSES.has(runsRef.current[conversationId]?.status)) throw new Error('当前会话已有任务正在运行或等待审批。')
+      if (!conversationId) conversationId = await createConversation()
+      if (!conversationId) throw new Error('No active conversation available for agent run.')
+      updateRun(conversationId, () => ({
+        conversationId: conversationId!,
+        title: activeConversationId === conversationId ? activeConversationTitle || '当前会话' : '后台会话',
+        assetId: selectedAsset.id, assetName: selectedAsset.name, runtimeId: null,
+        status: 'running', hasUnread: false, pendingApprovalToken: null, pendingApprovalKey: null, saveStatus: 'saving',
+      }))
+      updateVisibleEvents(conversationId, (current) => [...current,
+        { id: `user-${Date.now()}`, kind: 'user', text: runPrompt },
+        { id: PENDING_ASSISTANT_MESSAGE_ID, kind: 'delta', messageId: PENDING_ASSISTANT_MESSAGE_ID, stage: 'assistant', text: 'Initiating request and waiting for model response...' },
+      ])
+      const controller = new AbortController()
+      abortControllersRef.current.set(conversationId, controller)
+      intentionalCancellationsRef.current.delete(conversationId)
+      const stream = await streamRunAgent(runPrompt, selectedAsset.id === LOCAL_TERMINAL_ASSET_ID ? undefined : selectedAsset.id, activeTerminalTab?.sessionId ?? null, selectedModel, conversationId, selectedSkillName, mode, controller.signal)
+      const result = await processStream(conversationId, stream)
+      runtimeId = result.runtimeId
+      lastSequence = result.lastSequence
+    } catch (error) {
+      if (!conversationId) { setLoadError(getRunErrorMessage(error)); return }
+      if (intentionalCancellationsRef.current.has(conversationId) || isAbortError(error)) {
+        updateRun(conversationId, (run) => run ? { ...run, status: 'failed', pendingApprovalToken: null, pendingApprovalKey: null } : run)
         return
       }
-
-      const runId = pendingApprovalRuntimeId
-      const approvalToken = pendingApprovalToken
-      const conversationId = activeConversationId
-      submittedApprovalKeyRef.current = derivePendingApprovalState(events)?.approvalKey ?? null
-      setPendingApprovalRuntimeId(null)
-      setPendingApprovalToken(null)
-
-      if (activeConversationIdRef.current === conversationId) {
-        setEvents((currentEvents: EventItem[]) => [
-          ...currentEvents,
-          {
-            id: PENDING_ASSISTANT_MESSAGE_ID,
-            kind: 'delta',
-            messageId: PENDING_ASSISTANT_MESSAGE_ID,
-            stage: 'assistant',
-            text: approved ? 'Approval submitted, waiting for model to continue...' : 'Rejection submitted, waiting for model to continue...',
-          },
-        ])
+      runtimeId = runtimeId ?? runsRef.current[conversationId]?.runtimeId ?? null
+      if (runtimeId) {
+        try {
+          const recovered = await recoverRuntime(conversationId, runtimeId, lastSequence)
+          if (recovered) {
+            updateRun(conversationId, (run) => run ? { ...run, status: recovered.status, pendingApprovalToken: recovered.approvalToken ?? run.pendingApprovalToken, hasUnread: activeConversationIdRef.current !== conversationId, saveStatus: 'saved' } : run)
+            return
+          }
+        } catch { /* Fall through to disconnected state. */ }
+        updateRun(conversationId, (run) => run ? { ...run, status: 'disconnected', hasUnread: activeConversationIdRef.current !== conversationId } : run)
+        if (activeConversationIdRef.current === conversationId) setLoadError('流式连接已中断，任务可能仍在后台运行。请稍后重新打开该会话同步状态。')
+        return
       }
-
+      const message = getRunErrorMessage(error)
+      updateRun(conversationId, (run) => run ? { ...run, status: 'failed', hasUnread: activeConversationIdRef.current !== conversationId, saveStatus: 'failed' } : run)
+      const errorEvent: EventItem = { id: `error-${Date.now()}`, kind: 'error', text: message }
+      updateVisibleEvents(conversationId, (current) => upsertStreamEvent(current, errorEvent))
+      markUnread(conversationId)
+      if (activeConversationIdRef.current === conversationId) setLoadError(message)
       try {
-        const stream = await streamApproveAgent(runId, approved, approvalToken ?? undefined, allowPrefix)
-        const deltaBuffer = new Map<string, string>()
-        const deltaBatcher = createDeltaBatcher({
-          setEvents,
-          isActive: () => activeConversationIdRef.current === conversationId,
-        })
-        const pendingPersistEvents: EventItem[] = []
-        const latestMessageSnapshots = new Map<string, AgentMessage>()
-        let requiresApproval = false
+        const response = await appendConversationEvents(conversationId, [errorEvent])
+        upsertConversationSummary(response.conversation)
+        updateRunSaveStatus(conversationId, 'saved')
+        if (activeConversationIdRef.current === conversationId) await syncConversationRuntimes(conversationId)
+      } catch { updateRunSaveStatus(conversationId, 'failed') }
+    } finally {
+      if (conversationId) { abortControllersRef.current.delete(conversationId); intentionalCancellationsRef.current.delete(conversationId) }
+      try { await refreshConversationList() } catch { /* Best effort. */ }
+    }
+  }, [activeConversationId, activeConversationIdRef, activeConversationTitle, activeTerminalTab?.sessionId, createConversation, markUnread, processStream, recoverRuntime, refreshConversationList, selectedAsset.id, selectedAsset.name, selectedModel, setLoadError, syncConversationRuntimes, updateRun, updateRunSaveStatus, updateVisibleEvents, upsertConversationSummary])
 
-        for await (const event of stream) {
-          const eventRuntimeId = (event as EventItem & { runtimeId?: string }).runtimeId
-          if (eventRuntimeId) {
-            setActiveRuntimeId(eventRuntimeId)
-          }
-          if (event.kind === 'message_update') {
-            const message = { ...event, kind: 'message' as const } as unknown as AgentMessage
-            setEvents((currentEvents: EventItem[]) => upsertMessageEvent(currentEvents, message))
+  const submitApproval = useCallback(async (approved: boolean, allowPrefix?: string) => {
+    if (!activeConversationId) return
+    const run = runsRef.current[activeConversationId]
+    if (!run?.runtimeId || run.status !== 'needs_approval') return
+    const conversationId = activeConversationId
+    if (run.pendingApprovalKey) submittedApprovalKeysRef.current.set(conversationId, run.pendingApprovalKey)
+    updateRunSaveStatus(conversationId, 'saving')
+    updateRun(conversationId, (current) => current ? { ...current, status: 'running', pendingApprovalToken: null, pendingApprovalKey: null } : current)
+    updateVisibleEvents(conversationId, (current) => [...current, { id: PENDING_ASSISTANT_MESSAGE_ID, kind: 'delta', messageId: PENDING_ASSISTANT_MESSAGE_ID, stage: 'assistant', text: approved ? 'Approval submitted, waiting for model to continue...' : 'Rejection submitted, waiting for model to continue...' }])
+    try {
+      await processStream(conversationId, await streamApproveAgent(run.runtimeId, approved, run.pendingApprovalToken ?? undefined, allowPrefix))
+    } catch (error) {
+      const message = error instanceof Error ? error.message : 'Failed to submit approval.'
+      updateRun(conversationId, (current) => current ? { ...current, status: 'needs_approval', pendingApprovalToken: run.pendingApprovalToken, pendingApprovalKey: run.pendingApprovalKey, saveStatus: 'failed' } : current)
+      if (activeConversationIdRef.current === conversationId) setLoadError(message)
+      try { upsertConversationSummary((await appendConversationEvents(conversationId, [{ id: `approval-error-${Date.now()}`, kind: 'error', text: message }])).conversation) } catch { /* Retry remains available. */ }
+    } finally { try { await refreshConversationList() } catch { /* Best effort. */ } }
+  }, [activeConversationId, activeConversationIdRef, processStream, refreshConversationList, setLoadError, updateRun, updateRunSaveStatus, updateVisibleEvents, upsertConversationSummary])
 
-            if (message.type === 'ask' && activeConversationIdRef.current === conversationId) {
-              const eventRuntimeId = (event as any).runtimeId
-              if (eventRuntimeId) {
-                requiresApproval = true
-                setPendingApprovalRuntimeId(eventRuntimeId)
-                setPendingApprovalToken(message.toolCall?.approvalToken ?? null)
-              }
-            }
-            latestMessageSnapshots.set(message.id, message)
-            continue
-          }
+  const cancelRun = useCallback(async () => {
+    if (!activeConversationId) return
+    const conversationId = activeConversationId
+    const run = runsRef.current[conversationId]
+    if (!run || !ACTIVE_RUN_STATUSES.has(run.status)) return
+    intentionalCancellationsRef.current.add(conversationId)
+    updateRunSaveStatus(conversationId, 'saving')
+    try {
+      if (run.runtimeId) await cancelAgentRuntime(run.runtimeId)
+      abortControllersRef.current.get(conversationId)?.abort()
+      updateRun(conversationId, (current) => current ? { ...current, status: 'failed', pendingApprovalToken: null, pendingApprovalKey: null, saveStatus: 'saved' } : current)
+      const event: EventItem = { id: `runtime-cancelled-${run.runtimeId ?? 'pending'}-${Date.now()}`, kind: 'error', text: '运行已由操作员取消。' }
+      updateVisibleEvents(conversationId, (current) => upsertStreamEvent(current, event))
+      upsertConversationSummary((await appendConversationEvents(conversationId, [event])).conversation)
+      if (activeConversationIdRef.current === conversationId) await syncConversationRuntimes(conversationId)
+    } catch (error) {
+      intentionalCancellationsRef.current.delete(conversationId)
+      updateRunSaveStatus(conversationId, 'failed')
+      setLoadError(error instanceof Error ? error.message : '取消运行失败。')
+    }
+  }, [activeConversationId, activeConversationIdRef, setLoadError, syncConversationRuntimes, updateRun, updateRunSaveStatus, updateVisibleEvents, upsertConversationSummary])
 
-          if (event.kind === 'delta' && event.messageId) {
-            const currentText = deltaBuffer.get(event.messageId) || ''
-            const newText = currentText + event.text
-            deltaBuffer.set(event.messageId, newText)
-
-            deltaBatcher.push({
-              messageId: event.messageId,
-              text: newText,
-              stage: 'stage' in event ? event.stage : undefined,
-            })
-            continue
-          }
-
-          if (activeConversationIdRef.current === conversationId) {
-            setEvents((currentEvents: EventItem[]) => upsertStreamEvent(currentEvents, event))
-          }
-
-          pendingPersistEvents.push(event)
-
-          if (event.kind === 'approval_required' && activeConversationIdRef.current === conversationId) {
-            requiresApproval = true
-            setPendingApprovalRuntimeId(event.runtimeId ?? null)
-            setPendingApprovalToken(event.approvalToken ?? null)
-          }
-          if (event.kind === 'approval_decision' && activeConversationIdRef.current === conversationId) {
-            setPendingApprovalRuntimeId(null)
-            setPendingApprovalToken(null)
-          }
-        }
-
-        deltaBatcher.flush()
-
-        const finalMessageSnapshots = Array.from(latestMessageSnapshots.values()) as EventItem[]
-        const finalEvents = flushDeltaBuffer(deltaBuffer, latestEventsRef.current)
-        const allPersistEvents = mergeEventsBySequence([...pendingPersistEvents, ...finalMessageSnapshots, ...finalEvents])
-        if (allPersistEvents.length > 0) {
-          const response = await appendConversationEvents(conversationId, allPersistEvents)
-          upsertConversationSummary(response.conversation)
-        }
-        await syncConversationRuntimes(conversationId)
-        setBackgroundRun((current) => current?.conversationId === conversationId ? {
-          ...current,
-          status: requiresApproval ? 'needs_approval' : 'completed',
-        } : current)
-        if (!requiresApproval) {
-          setActiveRuntimeId(null)
-        }
-      } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : 'Failed to submit approval.'
-        setLoadError(errorMessage)
-
-        try {
-          const errorEvent: EventItem = {
-            id: `error-${Date.now()}`,
-            kind: 'error',
-            text: errorMessage,
-          }
-          const response = await appendConversationEvents(conversationId, [errorEvent])
-          upsertConversationSummary(response.conversation)
-          await syncConversationRuntimes(conversationId)
-        } catch {
-        }
-
-        if (activeConversationIdRef.current === conversationId) {
-          setPendingApprovalRuntimeId(runId)
-          setPendingApprovalToken(approvalToken ?? null)
-        }
-      } finally {
-        try {
-          await refreshConversationList()
-        } catch {
-        }
-      }
-    },
-    [
-      pendingApprovalRuntimeId,
-      pendingApprovalToken,
-      activeConversationId,
-      activeConversationIdRef,
-      setLoadError,
-      upsertConversationSummary,
-      setEvents,
-      refreshConversationList,
-      syncConversationRuntimes,
-      events,
-    ]
-  )
-
-  const cancelRun = useAgentRunCancellation({
-    activeConversationId,
-    activeRuntimeId,
-    abortRef: activeRunAbortRef,
-    intentionalCancellationRef,
-    setActiveRuntimeId,
-    setBackgroundRun,
-    setEvents,
-    setLoadError,
-    setPendingApprovalRuntimeId,
-    setPendingApprovalToken,
-    syncConversationRuntimes,
+  const activeRun = activeConversationId ? runsByConversation[activeConversationId] : undefined
+  const runs = useMemo(() => Object.values(runsByConversation), [runsByConversation])
+  const backgroundRuns = useMemo(() => runs.filter((run) => run.conversationId !== activeConversationId && (ACTIVE_RUN_STATUSES.has(run.status) || run.hasUnread)), [activeConversationId, runs])
+  const settleRuntime = useCallback(async (conversationId: string, runtimeId: string) => {
+    const runtime = (await listConversationRuntimes(conversationId)).find((item) => item.runtimeId === runtimeId)
+    if (!runtime) return
+    const status = runtimeStatus(runtime)
+    const snapshot = status === 'needs_approval' ? await getRuntimeSnapshot(runtimeId) : null
+    updateRun(conversationId, (run) => run ? {
+      ...run,
+      status,
+      pendingApprovalToken: snapshot?.pendingApprovalToken ?? null,
+      pendingApprovalKey: runtime.pendingApprovalStepId,
+      hasUnread: activeConversationIdRef.current !== conversationId,
+    } : run)
+  }, [activeConversationIdRef, updateRun])
+  const decideTerminalAccess = useTerminalRequestDecision({
+    activeConversationId, activeConversationIdRef, latestEventsRef, setEvents, setLoadError,
+    syncConversationRuntimes, upsertConversationSummary,
+    onPersistenceStatus: observePersistenceStatus,
+    setSaveStatus: updateRunSaveStatus,
+    onRuntimeSettled: settleRuntime,
   })
+  const approveRun = useCallback((allowPrefix?: string) => void submitApproval(true, allowPrefix), [submitApproval])
+  const rejectRun = useCallback(() => void submitApproval(false), [submitApproval])
+
   return {
-    pendingApprovalRuntimeId,
-    backgroundRun,
-    activeBackgroundRun,
-    clearBackgroundRunUnread,
-    isRunActive: Boolean(activeRuntimeId || (backgroundRun && ['running', 'needs_approval'].includes(backgroundRun.status))),
-    runAgent,
-    cancelRun,
-    approveRun: (allowPrefix?: string) => void submitApproval(true, allowPrefix),
-    rejectRun: () => void submitApproval(false),
-    decideTerminalAccess,
+    pendingApprovalRuntimeId: activeRun?.pendingApprovalToken ? activeRun.runtimeId : null,
+    conversationSaveStatus: activeRun?.saveStatus ?? 'idle',
+    runs, backgroundRuns, clearRunUnread,
+    isRunActive: Boolean(activeRun && ACTIVE_RUN_STATUSES.has(activeRun.status)),
+    runAgent, cancelRun, approveRun, rejectRun, decideTerminalAccess,
   }
 }

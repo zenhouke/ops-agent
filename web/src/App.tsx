@@ -80,6 +80,7 @@ export function App() {
     syncConversationRuntimes,
     refreshConversationList,
     createConversation,
+    branchConversation,
     deleteConversation,
     upsertConversationSummary,
   } = useConversationState(selectedModel)
@@ -137,9 +138,10 @@ export function App() {
 
   const {
     pendingApprovalRuntimeId,
-    backgroundRun,
-    activeBackgroundRun,
-    clearBackgroundRunUnread,
+    conversationSaveStatus,
+    runs,
+    backgroundRuns,
+    clearRunUnread,
     isRunActive,
     runAgent,
     cancelRun,
@@ -147,12 +149,14 @@ export function App() {
     rejectRun,
     decideTerminalAccess,
   } = useAgentRun({
+    conversationSummaries,
     activeConversationId,
     activeConversationTitle,
     activeConversationIdRef,
     events,
     setEvents,
     createConversation,
+    loadConversation,
     upsertConversationSummary,
     refreshConversationList,
     syncConversationRuntimes,
@@ -294,7 +298,7 @@ export function App() {
         conversationSummaries={conversationSummaries}
         activeConversationId={activeConversationId}
         activeConversationTitle={activeConversationTitle}
-        backgroundRun={activeBackgroundRun}
+        backgroundRuns={backgroundRuns}
         events={events}
         eventWindow={eventWindow}
         isLoadingOlderEvents={isLoadingOlderEvents}
@@ -307,6 +311,7 @@ export function App() {
         selectedAsset={selectedAsset}
         contextStatus={contextStatus}
         loadError={loadError}
+        conversationSaveStatus={conversationSaveStatus}
         terminalOpen={terminalOpen}
         onToggleTerminal={() => {
           setTerminalFocused(false)
@@ -315,20 +320,38 @@ export function App() {
         onModelChange={setSelectedModel}
         onPromptChange={setPrompt}
         onViewBackgroundRun={(conversationId) => {
-          void loadConversation(conversationId).then(() => clearBackgroundRunUnread(conversationId))
+          void loadConversation(conversationId).then(() => clearRunUnread(conversationId))
         }}
         onCreateConversation={() => void createConversation()}
         onSelectConversation={(conversationId) => {
-          void loadConversation(conversationId).then(() => clearBackgroundRunUnread(conversationId))
+          void loadConversation(conversationId).then(() => clearRunUnread(conversationId))
         }}
         onDeleteConversation={(conversationId) => void deleteConversation(conversationId)}
-        onRun={(nextPrompt, selectedSkillName) => runAgent(nextPrompt, selectedSkillName)}
+        onRun={(nextPrompt, selectedSkillName, mode) => runAgent(nextPrompt, selectedSkillName, mode)}
         isRunActive={isRunActive}
         onCancelRun={cancelRun}
         onApprove={(allowPrefix) => void approveRun(allowPrefix)}
         onReject={() => void rejectRun()}
         onTerminalRequestDecision={decideTerminalAccess}
         onLoadOlderEvents={loadOlderConversationEvents}
+        onForkRun={async (eventId, nextPrompt) => {
+          if (!activeConversationId || isRunActive) return
+          setLoadError(null)
+          await branchConversation(activeConversationId, { beforeEventId: eventId })
+          await runAgent(nextPrompt)
+        }}
+        onBranch={async (eventId) => {
+          if (!activeConversationId || isRunActive) return
+          setLoadError(null)
+          await branchConversation(activeConversationId, { throughEventId: eventId })
+        }}
+        onCreateRunbook={async () => {
+          if (!activeConversationId || isRunActive) return
+          clearKnowledgeDraft()
+          setManagementWorkspace('knowledge')
+          setSidebarCollapsed(true)
+          await generateKnowledgeDraft(activeConversationId, { modelName: selectedModel || null })
+        }}
       />
     )
   }
@@ -376,7 +399,7 @@ export function App() {
           groups={bootstrap.groups}
           conversationSummaries={conversationSummaries}
           activeConversationId={activeConversationId}
-          backgroundRun={backgroundRun}
+          runs={runs}
           selectedAssetId={selectedAssetId}
           collapsed={sidebarCollapsed}
           activeSection={activeWorkspaceSection}

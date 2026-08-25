@@ -11,7 +11,7 @@ type StatusBarProps = {
 function runtimeLabel(runtime: RuntimeSnapshot | null) {
   if (!runtime) return '就绪'
   if (runtime.pendingApprovalStepId) return '等待审批'
-  const status = `${runtime.runState || runtime.status || ''}`.toLowerCase()
+  const status = `${runtime.status || runtime.runState || ''}`.toLowerCase()
   if (status.includes('complete') || status.includes('success')) return '已完成'
   if (status.includes('fail') || status.includes('error')) return '执行失败'
   return '执行中'
