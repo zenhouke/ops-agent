@@ -1,0 +1,7 @@
+{
+  "bundle": {
+    "resources": {
+      "../bin/ops-agent-backend.exe": "bin/ops-agent-backend.exe"
+    }
+  }
+}

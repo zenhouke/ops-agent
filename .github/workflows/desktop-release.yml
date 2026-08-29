@@ -10,17 +10,62 @@ permissions:
   contents: write
 
 jobs:
+  validate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.13"
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 11
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt pyright
+          pnpm --dir web install --frozen-lockfile
+
+      - name: Validate source
+        run: |
+          python -m compileall -q src/app
+          pyright
+          pnpm --dir web lint
+          pnpm --dir web build
+
   build:
+    needs: validate
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: macos-latest
             platform: macos
+            artifact_paths: |
+              web/src-tauri/target/release/bundle/dmg/*.dmg
           - os: ubuntu-latest
             platform: linux
+            artifact_paths: |
+              web/src-tauri/target/release/bundle/deb/*.deb
+              web/src-tauri/target/release/bundle/rpm/*.rpm
+              web/src-tauri/target/release/bundle/appimage/*.AppImage
           - os: windows-latest
             platform: windows
+            artifact_paths: |
+              web/src-tauri/target/release/bundle/msi/*.msi
+              web/src-tauri/target/release/bundle/nsis/*.exe
 
     runs-on: ${{ matrix.os }}
 
@@ -66,17 +111,27 @@ jobs:
         working-directory: web
         run: pnpm install --frozen-lockfile
 
-      - name: Validate source
+      - name: Set bundle version from tag
+        if: startsWith(github.ref, 'refs/tags/v')
         shell: bash
         run: |
-          python -m compileall -q src/app
-          pyright
-          pnpm --dir web lint
-          pnpm --dir web build
-          cargo check --manifest-path web/src-tauri/Cargo.toml
+          release_version="${GITHUB_REF_NAME#v}"
+          RELEASE_VERSION="$release_version" python - <<'PY'
+          import json
+          import os
+          from pathlib import Path
+
+          config_path = Path("web/src-tauri/tauri.conf.json")
+          config = json.loads(config_path.read_text(encoding="utf-8"))
+          config["version"] = os.environ["RELEASE_VERSION"]
+          config_path.write_text(json.dumps(config, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
+          PY
 
       - name: Build backend binary
         run: python scripts/build_backend_binary.py --platform ${{ matrix.platform }}
+
+      - name: Validate desktop
+        run: cargo check --manifest-path web/src-tauri/Cargo.toml
 
       - name: Build desktop bundle (Linux)
         if: matrix.platform == 'linux'
@@ -117,10 +172,8 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: ops-agent-${{ matrix.platform }}
-          path: |
-            web/src-tauri/target/release/bundle/**
-            web/src-tauri/target/release/*.exe
-            web/src-tauri/target/release/*.app
+          if-no-files-found: error
+          path: ${{ matrix.artifact_paths }}
 
   release:
     if: startsWith(github.ref, 'refs/tags/v')

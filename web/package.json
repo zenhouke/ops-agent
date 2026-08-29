@@ -8,8 +8,8 @@
     "build": "tsc && vite build",
     "lint": "eslint .",
     "preview": "vite preview",
-    "tauri:dev": "PATH=$HOME/.cargo/bin:$PATH tauri dev",
-    "tauri:build": "PATH=$HOME/.cargo/bin:$PATH tauri build",
+    "tauri:dev": "tauri dev",
+    "tauri:build": "tauri build",
     "desktop:build": "../scripts/build_desktop_bundle.sh"
   },
   "dependencies": {

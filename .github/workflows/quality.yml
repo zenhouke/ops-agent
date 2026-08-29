@@ -51,4 +51,5 @@ jobs:
           pyright
           pnpm --dir web lint
           pnpm --dir web build
+          install -Dm755 /dev/null web/bin/ops-agent-backend
           cargo check --manifest-path web/src-tauri/Cargo.toml
