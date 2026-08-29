@@ -34,6 +34,9 @@ type AssetSidebarProps = {
 
 export function AssetSidebar({ assets, groups, conversationSummaries, activeConversationId, runs, selectedAssetId, collapsed, activeSection, onToggleCollapse, onSelectAsset, onSelectConversation, onDeleteConversation, onUpdateAsset, onDeleteAsset, onAddAsset, onManageGroups, onEditAsset, onDeleteAssetConfirm }: AssetSidebarProps) {
   const { t } = useAppearance()
+  const visibleAssets = activeSection === 'jumpserver'
+    ? assets.filter((asset) => asset.authType === 'jumpserver')
+    : assets.filter((asset) => asset.authType !== 'jumpserver')
 
   return (
     <aside className={`h-full overflow-hidden border-r bg-ops-panel/70 transition-[width,border-color] duration-200 ease-out ${collapsed ? 'w-0 border-transparent' : 'w-[248px] border-ops-border/35'}`} aria-label="Resource explorer">
@@ -41,7 +44,7 @@ export function AssetSidebar({ assets, groups, conversationSummaries, activeConv
         <div className="flex h-10 items-center justify-between border-b border-ops-border/25 bg-ops-deep/55 px-3">
           <div className="flex min-w-0 items-center gap-2">
             <h2 className="truncate text-[11px] font-semibold text-ops-text">
-              {activeSection === 'assets' ? t('assets.nodes') : t('conversation.taskHistory')}
+              {activeSection === 'assets' ? t('assets.nodes') : activeSection === 'jumpserver' ? t('management.jumpServerAssets') : t('conversation.taskHistory')}
             </h2>
             {activeSection === 'conversations' && conversationSummaries.length > 0 ? (
               <span className="rounded border border-ops-border/30 px-1.5 py-0.5 text-[9px] leading-none text-ops-muted/70">
@@ -67,10 +70,10 @@ export function AssetSidebar({ assets, groups, conversationSummaries, activeConv
         </div>
 
         <div className="min-h-0 flex-1 overflow-hidden">
-          {activeSection === 'assets' ? (
+          {activeSection === 'assets' || activeSection === 'jumpserver' ? (
           <div className="h-full overflow-y-auto overflow-x-hidden">
             <AssetList
-              assets={assets}
+              assets={visibleAssets}
               groups={groups}
               selectedAssetId={selectedAssetId}
               onSelectAsset={onSelectAsset}

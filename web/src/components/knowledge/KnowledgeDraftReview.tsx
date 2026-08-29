@@ -27,7 +27,7 @@ function compactText(value: string, fallback: string) {
   return trimmed.length > 0 ? trimmed : fallback
 }
 
-export function KnowledgeDraftReview({ conversationId, selectedModel, draft, draftSourceConversation, draftLoading, draftError, saving, onGenerateDraft, onSaveDraft, onClearDraft }: KnowledgeDraftReviewProps) {
+export function KnowledgeDraftReview({ conversationId, selectedModel, draft, draftSourceConversation, draftLoading, draftError, saving, onGenerateDraft, onSaveDraft, onClearDraft, onDraftChange }: KnowledgeDraftReviewProps) {
   const [form, setForm] = useState<DraftFormState>(() => formFromDraft(draft))
   useEffect(() => setForm(formFromDraft(draft)), [draft])
 
@@ -35,19 +35,26 @@ export function KnowledgeDraftReview({ conversationId, selectedModel, draft, dra
   const commandSummaries = useMemo(() => draft?.commands ?? [], [draft])
   const assetSummaries = useMemo(() => draft?.assets ?? [], [draft])
   const sourceSummaries = useMemo(() => draft?.sources ?? [], [draft])
-  const handleFieldChange = (field: keyof DraftFormState, value: string) => setForm((current) => ({ ...current, [field]: value }))
+  const handleFieldChange = (field: keyof DraftFormState, value: string) => {
+    setForm((current) => ({ ...current, [field]: value }))
+    if (!draft) return
+    onDraftChange({
+      ...draft,
+      [field]: field === 'tags' ? value.split(',').map((item) => item.trim()).filter(Boolean) : value,
+    })
+  }
 
   if (!draft) {
     return (
-      <section className="flex min-h-[520px] flex-col items-center justify-center text-center" aria-label="从任务提炼知识">
+      <section className="flex min-h-[420px] flex-col items-center justify-center px-4 text-center" aria-label="从任务提炼知识">
         <div className="mb-4 flex h-10 w-10 items-center justify-center rounded-md border border-ops-border/35 text-ops-muted" aria-hidden="true">
           <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M12 3v18M5 8h14M5 16h14" /></svg>
         </div>
         <h2 className="text-sm font-semibold text-ops-text">从当前任务提炼知识</h2>
-        <p className="mt-2 max-w-[440px] text-[11px] leading-5 text-ops-muted/70">
+        <p className="mt-2 max-w-[480px] text-xs leading-5 text-ops-muted/75">
           系统会根据任务事件生成可审核草稿。确认保存后，重要信息会同步写入后端 Markdown 文件；生成草稿时不会自动落盘。
         </p>
-        <div className="mt-4 flex items-center gap-2 text-[10px] text-ops-muted/55">
+        <div className="mt-4 flex flex-wrap items-center justify-center gap-2 text-[11px] text-ops-muted/60">
           <span>当前任务</span><span>·</span><span>{conversationId ? compactText(draftSourceConversation?.title ?? '', '已选择') : '未选择'}</span><span>·</span><span>{selectedModel || '未选择模型'}</span>
         </div>
         <button type="button" className="button button-primary mt-6 h-9 px-5" disabled={!conversationId || disabled} onClick={() => { if (conversationId) void onGenerateDraft(conversationId, { modelName: selectedModel || null }) }}>
@@ -61,10 +68,10 @@ export function KnowledgeDraftReview({ conversationId, selectedModel, draft, dra
 
   return (
     <section aria-label="审核知识草稿">
-      <div className="flex items-center justify-between border-b border-ops-border/25 pb-4">
-        <div>
+      <div className="flex flex-col items-start justify-between gap-3 border-b border-ops-border/25 pb-4 sm:flex-row sm:items-center">
+        <div className="min-w-0">
           <h2 className="text-[13px] font-semibold text-ops-text">审核知识草稿</h2>
-          <p className="mt-1 text-[10px] text-ops-muted/65">来源：{compactText(draftSourceConversation?.title ?? '', '当前任务')} · 保存前请确认不包含敏感信息</p>
+          <p className="mt-1 truncate text-[11px] text-ops-muted/70">来源：{compactText(draftSourceConversation?.title ?? '', '当前任务')} · 保存前请确认不包含敏感信息</p>
         </div>
         <button type="button" className="button h-8 px-3" disabled={disabled} onClick={onClearDraft}>放弃草稿</button>
       </div>
@@ -74,24 +81,24 @@ export function KnowledgeDraftReview({ conversationId, selectedModel, draft, dra
         <div className="my-4 border border-ops-warning/30 bg-ops-warning/5 px-3 py-2 text-xs text-ops-warning"><div className="mb-1 font-semibold">脱敏提醒</div>{draft.redactionWarnings.join('；')}</div>
       ) : null}
 
-      <div className="grid gap-4 py-5 lg:grid-cols-2">
-        <DraftField className="lg:col-span-2" label="标题" value={form.title} disabled={disabled} onChange={(value) => handleFieldChange('title', value)} />
+      <div className="grid gap-4 py-5 md:grid-cols-2">
+        <DraftField className="md:col-span-2" label="标题" value={form.title} disabled={disabled} onChange={(value) => handleFieldChange('title', value)} />
         <DraftArea label="摘要" value={form.summary} disabled={disabled} onChange={(value) => handleFieldChange('summary', value)} />
         <DraftArea label="问题" value={form.problem} disabled={disabled} onChange={(value) => handleFieldChange('problem', value)} />
         <DraftArea label="诊断" value={form.diagnosis} disabled={disabled} onChange={(value) => handleFieldChange('diagnosis', value)} />
         <DraftArea label="处置" value={form.resolution} disabled={disabled} onChange={(value) => handleFieldChange('resolution', value)} />
-        <DraftField className="lg:col-span-2" label="标签" value={form.tags} disabled={disabled} placeholder="例如：ssh, nginx, 故障排查" onChange={(value) => handleFieldChange('tags', value)} />
+        <DraftField className="md:col-span-2" label="标签" value={form.tags} disabled={disabled} placeholder="例如：ssh, nginx, 故障排查" onChange={(value) => handleFieldChange('tags', value)} />
       </div>
 
-      <div className="grid gap-px overflow-hidden border border-ops-border/25 bg-ops-border/20 lg:grid-cols-3">
+      <div className="grid gap-px overflow-hidden rounded-md border border-ops-border/25 bg-ops-border/20 md:grid-cols-3">
         <ReadOnlySummary title="相关命令" emptyText="无命令摘要" items={commandSummaries.map((item) => compactText(item.command, '未命名命令'))} />
         <ReadOnlySummary title="相关资产" emptyText="无资产摘要" items={assetSummaries.map((item) => compactText(item.label, '未命名资产'))} />
         <ReadOnlySummary title="证据来源" emptyText="无来源摘要" items={sourceSummaries.map((item) => item.eventIndex !== null ? `事件 #${item.eventIndex}` : compactText(item.relevance, '任务来源'))} />
       </div>
 
-      <div className="mt-5 flex items-center justify-between border-t border-ops-border/25 pt-4">
-        <p className="text-[10px] text-ops-muted/60">保存后将生成 Markdown 文件并进入全局知识检索，可供后续任务引用。</p>
-        <button type="button" className="button button-primary h-9 px-5" disabled={disabled} onClick={() => void onSaveDraft({
+      <div className="mt-5 flex flex-col items-stretch justify-between gap-3 border-t border-ops-border/25 pt-4 sm:flex-row sm:items-center">
+        <p className="text-[11px] leading-5 text-ops-muted/65">保存后将生成 Markdown 文件并进入全局知识检索，可供后续任务引用。</p>
+        <button type="button" className="button button-primary h-9 shrink-0 px-5" disabled={disabled} onClick={() => void onSaveDraft({
           title: form.title,
           summary: form.summary,
           problem: form.problem,
@@ -105,11 +112,11 @@ export function KnowledgeDraftReview({ conversationId, selectedModel, draft, dra
 }
 
 function DraftField({ label, value, disabled, placeholder, className = '', onChange }: { label: string; value: string; disabled: boolean; placeholder?: string; className?: string; onChange: (value: string) => void }) {
-  return <label className={className}><span className="mb-1.5 block text-[10px] font-semibold text-ops-muted/70">{label}</span><input className="field-control" value={value} disabled={disabled} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} /></label>
+  return <label className={className}><span className="mb-1.5 block text-[11px] font-semibold text-ops-muted/75">{label}</span><input className="field-control" value={value} disabled={disabled} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} /></label>
 }
 
 function DraftArea({ label, value, disabled, onChange }: { label: string; value: string; disabled: boolean; onChange: (value: string) => void }) {
-  return <label><span className="mb-1.5 block text-[10px] font-semibold text-ops-muted/70">{label}</span><textarea className="field-control min-h-28 resize-y" value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} /></label>
+  return <label><span className="mb-1.5 block text-[11px] font-semibold text-ops-muted/75">{label}</span><textarea className="field-control min-h-28 resize-y leading-5" value={value} disabled={disabled} onChange={(event) => onChange(event.target.value)} /></label>
 }
 
 function ReadOnlySummary({ title, emptyText, items }: { title: string; emptyText: string; items: string[] }) {

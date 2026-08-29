@@ -210,3 +210,47 @@ class NetworkTopologyLink(SQLModel, table=True):
     target_interface: str = ""
     protocol: str = ""
     raw_json: str = "{}"
+
+
+class JumpServerInstance(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "jumpserver_instances"  # pyright: ignore[reportIncompatibleVariableOverride]
+    id: int | None = Field(default=None, primary_key=True)
+    auth_mode: str = "access_key"
+    name: str
+    base_url: str
+    org_id: str
+    access_key_id: str
+    access_key_secret_encryption_version: str
+    encrypted_access_key_secret: str
+    verify_tls: bool = True
+    enabled: bool = True
+    connection_status: str = "untested"
+    last_error: str = ""
+    last_sync_at: datetime | None = None
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+
+
+class JumpServerAssetBinding(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "jumpserver_asset_bindings"  # pyright: ignore[reportIncompatibleVariableOverride]
+    __table_args__ = (
+        UniqueConstraint("instance_id", "external_asset_id", name="uq_jumpserver_instance_asset"),
+        UniqueConstraint("asset_id", name="uq_jumpserver_local_asset"),
+    )
+    id: int | None = Field(default=None, primary_key=True)
+    instance_id: int = Field(index=True)
+    asset_id: int = Field(index=True)
+    external_asset_id: str = Field(index=True)
+    external_name: str
+    address: str = ""
+    platform: str = ""
+    category: str = ""
+    asset_type: str = ""
+    protocols_json: str = "[]"
+    accounts_json: str = "[]"
+    account_ref: str = ""
+    account_username: str = ""
+    active: bool = True
+    last_seen_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
+    updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))

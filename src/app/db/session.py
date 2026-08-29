@@ -31,6 +31,7 @@ def init_db() -> None:
     _ensure_model_usage_columns()
     _ensure_scheduler_columns()
     _ensure_runtime_columns()
+    _ensure_jumpserver_columns()
 
 
 def _ensure_asset_columns() -> None:
@@ -124,6 +125,19 @@ def _ensure_runtime_columns() -> None:
             "CREATE INDEX IF NOT EXISTS ix_agent_runtimes_lease_expires_at "
             "ON agent_runtimes (lease_expires_at)"
         ))
+
+
+def _ensure_jumpserver_columns() -> None:
+    inspector = inspect(engine)
+    if "jumpserver_instances" not in inspector.get_table_names():
+        return
+    existing = {column["name"] for column in inspector.get_columns("jumpserver_instances")}
+    with engine.begin() as connection:
+        if "auth_mode" not in existing:
+            connection.execute(text(
+                "ALTER TABLE jumpserver_instances "
+                "ADD COLUMN auth_mode VARCHAR NOT NULL DEFAULT 'access_key'"
+            ))
 
 
 def get_session() -> Generator[Session, None, None]:

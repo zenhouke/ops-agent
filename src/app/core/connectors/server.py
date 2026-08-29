@@ -1,4 +1,5 @@
 from io import StringIO
+from collections.abc import Callable
 from typing import Any
 
 from app.core.connectors.network import NetworkConnector
@@ -26,6 +27,7 @@ class ServerConnector:
         private_key: str | None = None,
         passphrase: str | None = None,
         proxy_config: SSHProxyConfig | None = None,
+        close_callback: Callable[[], None] | None = None,
     ):
         self.host = host
         self.port = port
@@ -34,6 +36,8 @@ class ServerConnector:
         self.private_key = private_key
         self.passphrase = passphrase
         self.proxy_config = proxy_config
+        self.close_callback = close_callback
+        self._close_callback_called = False
         self.shell_kind = "posix"
         self.client = None
         self.channel = None
@@ -238,6 +242,9 @@ class ServerConnector:
                 pass
 
     def close(self) -> None:
+        if self.close_callback is not None and not self._close_callback_called:
+            self._close_callback_called = True
+            self.close_callback()
         if self.channel is not None:
             self.channel.close()
             self.channel = None
@@ -272,6 +279,14 @@ def connector_factory(asset, *, credential_secret_override: str | None = None):
     credential_service = CredentialService(secret_key=get_ops_agent_secret_key())
     asset_id = getattr(asset, "id", None)
     asset_type = getattr(asset, "asset_type", "")
+
+    if getattr(asset, "auth_type", "") == "jumpserver":
+        from app.services.jumpserver_service import get_jumpserver_service
+        with Session(engine) as session:
+            connector = get_jumpserver_service().connector_for_asset(session, asset)
+        if connector is None:
+            raise ValueError("JumpServer asset binding was not found.")
+        return connector
 
     if asset_type == "local_terminal":
         return LocalPtyConnector()

@@ -92,8 +92,8 @@ export function KnowledgeBrowser({ entries, total, limit, offset, loading, error
   }
 
   return (
-    <section aria-label="知识条目">
-      <div className="grid gap-2 border-b border-ops-border/25 pb-4 md:grid-cols-[minmax(0,1fr)_180px_auto]">
+    <section className="flex min-h-full flex-1 flex-col" aria-label="知识条目">
+      <div className="grid gap-3 border-b border-ops-border/25 pb-4 lg:grid-cols-[minmax(240px,1fr)_minmax(160px,220px)] xl:grid-cols-[minmax(0,1fr)_200px_auto]">
         <label>
           <span className="sr-only">搜索知识</span>
           <input className="field-control h-9 w-full" value={query} placeholder="搜索标题、摘要、问题或处置方案" onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') handleSearch(0, true) }} />
@@ -102,23 +102,23 @@ export function KnowledgeBrowser({ entries, total, limit, offset, loading, error
           <span className="sr-only">筛选标签</span>
           <input className="field-control h-9 w-full" value={tag} placeholder="按标签筛选" onChange={(event) => setTag(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') handleSearch(0, true) }} />
         </label>
-        <div className="flex items-center gap-2">
-          <button type="button" className="button button-primary h-9 px-4" disabled={loading} onClick={() => handleSearch(0, true)}>{loading ? '搜索中' : '搜索'}</button>
+        <div className="flex flex-wrap items-center gap-2 lg:col-span-2 xl:col-span-1">
+          <button type="button" className="button button-primary h-9 min-w-20 px-4" disabled={loading} onClick={() => handleSearch(0, true)}>{loading ? '搜索中' : '搜索'}</button>
           <button type="button" className="button h-9 px-3" onClick={clearFilters}>重置</button>
           <button type="button" className="button h-9 px-3" disabled={reindexing} onClick={() => void onReindex()}>{reindexing ? '重建中' : '重建索引'}</button>
         </div>
       </div>
 
-      <div className="flex h-10 items-center justify-between border-b border-ops-border/20 text-[10px] text-ops-muted">
+      <div className="flex min-h-10 flex-wrap items-center justify-between gap-2 border-b border-ops-border/20 py-2 text-[11px] text-ops-muted">
         <span>共 {total} 条知识</span>
         <span>点击条目查看诊断、处置和来源</span>
       </div>
 
       {error ? <div className="my-3 border border-ops-danger/30 bg-ops-danger/5 px-3 py-2 text-xs text-ops-danger" role="alert">{error}</div> : null}
 
-      <div className="divide-y divide-ops-border/20">
+      <div className="mt-3 flex-1 space-y-2">
         {entries.length === 0 ? (
-          <div className="flex min-h-[320px] flex-col items-center justify-center text-center">
+          <div className="flex min-h-[240px] flex-1 flex-col items-center justify-center text-center">
             <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-md border border-ops-border/35 text-ops-muted" aria-hidden="true">
               <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5z" /></svg>
             </div>
@@ -128,30 +128,30 @@ export function KnowledgeBrowser({ entries, total, limit, offset, loading, error
         ) : entries.map((entry) => {
           const entryExpanded = expandedEntryId === entry.id
           return (
-            <article key={entry.id} className={entryExpanded ? 'bg-ops-panel/35' : ''}>
-              <div className="flex items-start gap-4 px-2 py-3.5">
+            <article key={entry.id} className={`overflow-hidden rounded-md border transition-colors ${entryExpanded ? 'border-ops-border/45 bg-ops-panel/35' : 'border-ops-border/25 bg-ops-deep/20 hover:border-ops-border/40'}`}>
+              <div className="flex items-start gap-2 px-3 py-3.5 sm:gap-4 sm:px-4">
                 <button type="button" className="min-w-0 flex-1 text-left active:scale-[0.995]" onClick={() => setExpandedEntryId((current) => current === entry.id ? null : entry.id)} aria-expanded={entryExpanded}>
-                  <div className="flex min-w-0 items-center gap-2">
+                  <div className="flex min-w-0 flex-wrap items-center gap-2">
                     <svg className="h-3.5 w-3.5 shrink-0 text-ops-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M6 3h9l3 3v15H6z" /><path d="M9 12h6M9 16h4" /></svg>
-                    <h3 className="truncate text-[12px] font-semibold text-ops-text">{compactText(entry.title, '未命名知识')}</h3>
-                    {entry.tags.slice(0, 3).map((item) => <span key={item} className="rounded border border-ops-border/30 px-1.5 py-0.5 text-[9px] text-ops-muted">{item}</span>)}
+                    <h3 className="min-w-0 flex-1 truncate text-[13px] font-semibold text-ops-text">{compactText(entry.title, '未命名知识')}</h3>
+                    {entry.tags.slice(0, 3).map((item) => <span key={item} className="shrink-0 rounded border border-ops-border/30 px-1.5 py-0.5 text-[10px] text-ops-muted">{item}</span>)}
                   </div>
-                  <p className="mt-1.5 line-clamp-1 pl-[22px] text-[11px] text-ops-muted/75">{compactText(entry.summary, '暂无摘要')}</p>
-                  <div className="mt-2 flex items-center gap-2 pl-[22px] text-[9px] text-ops-muted/50">
-                    <span>{compactText(entry.sourceConversation.title, '未知任务')}</span><span>·</span><time dateTime={entry.updatedAt}>{formatDate(entry.updatedAt)}</time>
+                  <p className="mt-2 line-clamp-2 pl-[22px] text-xs leading-5 text-ops-muted/80">{compactText(entry.summary, '暂无摘要')}</p>
+                  <div className="mt-2 flex flex-wrap items-center gap-2 pl-[22px] text-[10px] text-ops-muted/55">
+                    <span className="max-w-full truncate">{compactText(entry.sourceConversation.title, '未知任务')}</span><span>·</span><time dateTime={entry.updatedAt}>{formatDate(entry.updatedAt)}</time>
                   </div>
                 </button>
-                <button type="button" className="rounded px-2 py-1 text-[9px] text-ops-muted transition-all duration-200 hover:bg-ops-danger/10 hover:text-ops-danger active:scale-95" onClick={() => handleDelete(entry)}>删除</button>
+                <button type="button" className="shrink-0 rounded px-2 py-1 text-[10px] text-ops-muted transition-all duration-200 hover:bg-ops-danger/10 hover:text-ops-danger active:scale-95" onClick={() => handleDelete(entry)}>删除</button>
               </div>
 
               {entryExpanded ? (
-                <div className="border-t border-ops-border/15 px-6 py-4">
-                  <div className="grid gap-5 lg:grid-cols-3">
+                <div className="border-t border-ops-border/15 px-4 py-4 sm:px-6">
+                  <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
                     <DetailBlock title="问题" value={entry.problem} fallback="暂无问题描述" />
                     <DetailBlock title="诊断" value={entry.diagnosis} fallback="暂无诊断内容" />
                     <DetailBlock title="处置" value={entry.resolution} fallback="暂无处置方案" />
                   </div>
-                  <dl className="mt-4 grid gap-2 border-t border-ops-border/15 pt-3 text-[10px] lg:grid-cols-3">
+                  <dl className="mt-4 grid gap-3 border-t border-ops-border/15 pt-3 text-[11px] md:grid-cols-2 xl:grid-cols-3">
                     <SummaryRow title="命令" value={joinSummary(entry.commands.map(commandLabel), '无命令摘要')} />
                     <SummaryRow title="资产" value={joinSummary(entry.assets.map(assetLabel), '无资产摘要')} />
                     <SummaryRow title="来源" value={joinSummary(entry.sources.map(sourceLabel), '无来源摘要')} />
@@ -163,7 +163,7 @@ export function KnowledgeBrowser({ entries, total, limit, offset, loading, error
         })}
       </div>
 
-      <footer className="flex h-12 items-center justify-between border-t border-ops-border/25 text-[10px] text-ops-muted">
+      <footer className="mt-3 flex min-h-12 flex-wrap items-center justify-between gap-2 border-t border-ops-border/25 py-2 text-[11px] text-ops-muted">
         <span>第 {currentPage} / {totalPages} 页</span>
         <div className="flex items-center gap-2">
           <button type="button" className="button h-8 px-3" disabled={offset <= 0 || loading} onClick={() => handleSearch(Math.max(0, offset - effectiveLimit), false)}>上一页</button>
@@ -175,7 +175,7 @@ export function KnowledgeBrowser({ entries, total, limit, offset, loading, error
 }
 
 function DetailBlock({ title, value, fallback }: { title: string; value: string; fallback: string }) {
-  return <div><div className="mb-1.5 text-[9px] font-semibold tracking-[0.1em] text-ops-muted/55">{title}</div><p className="text-[11px] leading-5 text-ops-text/85">{compactText(value, fallback)}</p></div>
+  return <div><div className="mb-1.5 text-[10px] font-semibold tracking-[0.1em] text-ops-muted/60">{title}</div><p className="whitespace-pre-wrap text-xs leading-5 text-ops-text/85">{compactText(value, fallback)}</p></div>
 }
 
 function SummaryRow({ title, value }: { title: string; value: string }) {

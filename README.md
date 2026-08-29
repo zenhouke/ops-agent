@@ -29,6 +29,7 @@ Configure model -> Select asset -> Open terminal -> Ask AI -> Review proposed co
 ## Features
 
 - Asset management for local terminals, Linux hosts, serial devices, and network devices.
+- JumpServer integration that synchronizes only the current Access Key user's authorized assets and accounts, then connects through short-lived KoKo tokens without copying target credentials locally.
 - Terminal workspace with local PTY, SSH, serial, and network CLI support.
 - AI operations assistant that uses asset, terminal, and conversation context for investigation and troubleshooting.
 - Human approval before command execution, with traceable decisions, commands, and output.
@@ -119,6 +120,8 @@ Operations plugins are declarative JSON manifests. Built-in manifests live in
 `.ops-agent/plugins/<plugin-id>/plugin.json`. Exposed tools are namespaced as
 `ops__<plugin>__<tool>` and all plugin commands go through the same terminal
 authorization and human approval flow as the built-in command tool.
+
+JumpServer instances are configured in **Settings → JumpServer**. REST Access Key and KoKo SSH gateway authentication are both supported. For SSH gateway mode, provide the gateway address, JumpServer username, and its private key; synchronized assets also need their permitted target account before direct access. Grant the automation identity only the required assets and accounts, test the connection, and then synchronize. Synchronized assets remain managed by JumpServer and cannot be edited or deleted as ordinary local assets.
 
 Local runtime data:
 

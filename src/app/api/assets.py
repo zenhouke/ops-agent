@@ -2,6 +2,7 @@ from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlmodel import Session
 
 from app.api.schemas import AssetConnectionTestRequest, AssetConnectionTestView, AssetView
+from app.db.repositories.jumpserver import get_binding_for_asset
 from app.db.session import get_session
 from app.services.asset_service import (
     GroupNotFoundError,
@@ -86,6 +87,8 @@ def create_asset(payload: AssetCreate, session: Session = Depends(get_session)) 
 
 @router.put("/api/assets/{asset_id}")
 def update_asset(asset_id: int, payload: AssetCreate, session: Session = Depends(get_session)) -> AssetView:
+    if get_binding_for_asset(session, asset_id) is not None:
+        raise HTTPException(status_code=409, detail="JumpServer-managed assets can only be updated by synchronization.")
     try:
         asset = update_asset_record(session, asset_id, payload)
     except GroupNotFoundError as exc:
@@ -103,6 +106,8 @@ def update_asset(asset_id: int, payload: AssetCreate, session: Session = Depends
 
 @router.delete("/api/assets/{asset_id}", status_code=204)
 def delete_asset(asset_id: int, session: Session = Depends(get_session)) -> Response:
+    if get_binding_for_asset(session, asset_id) is not None:
+        raise HTTPException(status_code=409, detail="JumpServer-managed assets cannot be deleted locally; remove access in JumpServer and synchronize again.")
     try:
         deleted = delete_asset_record(session, asset_id)
     except ProxyAssetInUseError as exc:

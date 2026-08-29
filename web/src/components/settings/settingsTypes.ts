@@ -3,7 +3,7 @@ import type { Language } from '../../i18n/translations'
 import type { ResolvedTheme, ThemeMode } from '../../hooks/useAppearance'
 import type { AssetGroup, MCPApprovalPolicy, MCPServer, MCPTool, MCPTransport, ModelConfig, SSHKey, SkillPackage } from '../../types/ops'
 
-export type SettingsSection = 'appearance' | 'models' | 'prompts' | 'permissions'
+export type SettingsSection = 'appearance' | 'models' | 'prompts' | 'jumpserver' | 'permissions'
 
 export type GroupForm = {
   name: string

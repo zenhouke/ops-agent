@@ -51,6 +51,16 @@ export type { SSHKeyPayload } from './sshKeys'
 export { getSerialPorts } from './system'
 export type { SerialPort } from './system'
 export {
+  createJumpServerInstance,
+  listJumpServerAssets,
+  listJumpServerInstances,
+  selectJumpServerAccount,
+  syncJumpServerInstance,
+  testJumpServerInstance,
+  updateJumpServerInstance,
+} from './jumpserver'
+export type { JumpServerAccount, JumpServerAssetBinding, JumpServerInstance, JumpServerInstancePayload, JumpServerOperation } from './jumpserver'
+export {
   createKnowledgeEntry,
   deleteKnowledgeEntry,
   generateKnowledgeDraft,

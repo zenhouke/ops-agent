@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
+import re
 from typing import Any, Literal
+
+from textfsm import TextFSMError
 
 
 NetworkCollectionKind = Literal["facts", "interfaces", "neighbors"]
@@ -17,6 +20,14 @@ _COMMANDS: dict[str, dict[NetworkCollectionKind, tuple[NetworkCollectionCommand,
     "cisco": {
         "facts": (NetworkCollectionCommand("show version"),),
         "interfaces": (NetworkCollectionCommand("show interfaces"),),
+        "neighbors": (
+            NetworkCollectionCommand("show lldp neighbors detail", "lldp"),
+            NetworkCollectionCommand("show cdp neighbors detail", "cdp"),
+        ),
+    },
+    "cisco_nxos": {
+        "facts": (NetworkCollectionCommand("show version"),),
+        "interfaces": (NetworkCollectionCommand("show interface"),),
         "neighbors": (
             NetworkCollectionCommand("show lldp neighbors detail", "lldp"),
             NetworkCollectionCommand("show cdp neighbors detail", "cdp"),
@@ -39,12 +50,178 @@ _COMMANDS: dict[str, dict[NetworkCollectionKind, tuple[NetworkCollectionCommand,
     },
 }
 
+_TEXTFSM_PLATFORMS = {
+    "cisco": "cisco_ios",
+    "cisco_nxos": "cisco_nxos",
+    "huawei": "huawei_vrp",
+    "h3c": "hp_comware",
+    "juniper": "juniper_junos",
+}
+
 
 def collection_commands(vendor: str, kind: NetworkCollectionKind) -> tuple[NetworkCollectionCommand, ...]:
     commands = _COMMANDS.get(vendor, {}).get(kind)
     if not commands:
         raise ValueError(f"Structured {kind} collection is not available for network vendor '{vendor}'.")
     return commands
+
+
+def parse_collection_output(vendor: str, command: str, raw_output: str) -> list[dict[str, Any]]:
+    platform = _TEXTFSM_PLATFORMS.get(vendor)
+    if platform is None:
+        return []
+    from netmiko.utilities import get_structured_data_textfsm
+
+    try:
+        parsed = get_structured_data_textfsm(raw_output, platform=platform, command=command)
+    except (IndexError, ValueError, TextFSMError):
+        parsed = []
+    if isinstance(parsed, list) and parsed and all(isinstance(item, dict) for item in parsed):
+        return [dict(item) for item in parsed]
+    return _fallback_parse(vendor, command, raw_output)
+
+
+def _fallback_parse(vendor: str, command: str, raw_output: str) -> list[dict[str, Any]]:
+    if vendor in {"huawei", "h3c"} and command == "display version":
+        fields: dict[str, Any] = {}
+        hostname = re.search(r"(?m)^(\S+)\s+\S+\s+uptime is\s+(.+?)\s*$", raw_output)
+        if hostname is not None:
+            fields["uptime"] = hostname.group(2).strip()
+        model = re.search(r"(?m)^(\S+?)(?:\(\S+\))?\s+version information\s*$", raw_output)
+        if model is not None:
+            fields["model"] = model.group(1)
+        version = re.search(r"(?m)^VRP\s+\(R\)\s+software,\s+Version\s+(.+?)\s*$", raw_output)
+        if version is not None:
+            fields["version"] = version.group(1).strip()
+        return [fields] if fields else []
+    if vendor in {"huawei", "h3c"} and command == "display interface":
+        records: list[dict[str, Any]] = []
+        current: dict[str, Any] | None = None
+        for line in raw_output.splitlines():
+            match = re.match(r"^(\S+)\s+current state\s*:\s*(\S+)", line)
+            if match is not None:
+                if current is not None:
+                    records.append(current)
+                current = {"interface": match.group(1), "link_status": match.group(2)}
+                continue
+            if current is None:
+                continue
+            protocol = re.match(r"^Line protocol current state\s*:\s*(\S+)", line)
+            if protocol is not None:
+                current["protocol_status"] = protocol.group(1)
+                continue
+            description = re.match(r"^Description:\s*(.*?)\s*$", line)
+            if description is not None:
+                current["description"] = description.group(1)
+                continue
+            address = re.search(r"Hardware address is\s+(\S+)", line)
+            if address is not None:
+                current["mac_address"] = address.group(1)
+            speed = re.search(r"^Speed:\s*(\d+)", line)
+            if speed is not None:
+                current["speed"] = speed.group(1)
+            mtu = re.search(r"Maximum Frame Length is\s+(\d+)", line)
+            if mtu is not None:
+                current["mtu"] = mtu.group(1)
+        if current is not None:
+            records.append(current)
+        return records
+    if vendor == "huawei" and command == "display lldp neighbor":
+        records: list[dict[str, Any]] = []
+        local_interface = ""
+        current: dict[str, Any] | None = None
+        for line in raw_output.splitlines():
+            interface = re.match(r"^(\S+)\s+has\s+\d+\s+neighbor", line)
+            if interface is not None:
+                if current is not None:
+                    records.append(current)
+                    current = None
+                local_interface = interface.group(1)
+                continue
+            if re.match(r"^Neighbor index\s*:", line):
+                if current is not None:
+                    records.append(current)
+                current = {"local_interface": local_interface}
+                continue
+            if current is None:
+                continue
+            field = re.match(r"^([^:]+?)\s*:\s*(.*?)\s*$", line)
+            if field is None:
+                continue
+            key, value = field.group(1).strip(), field.group(2).strip()
+            if key == "Port ID":
+                current["neighbor_interface"] = value
+            elif key == "System name":
+                current["neighbor_name"] = value
+            elif key == "Management address":
+                current["management_address"] = value
+            elif key == "Chassis ID":
+                current["chassis_id"] = value
+        if current is not None:
+            records.append(current)
+        for item in records:
+            if str(item.get("neighbor_name") or "").strip().lower() in {"", "-", "--", "n/a"} and item.get("chassis_id"):
+                item["neighbor_name"] = item["chassis_id"]
+        return [item for item in records if item.get("neighbor_name")]
+    if vendor != "juniper":
+        return []
+    if command == "show version":
+        fields: dict[str, Any] = {}
+        for key, target in (("Hostname", "hostname"), ("Model", "model"), ("Junos", "version")):
+            match = re.search(rf"(?m)^{key}:\s*(\S.+?)\s*$", raw_output)
+            if match is not None:
+                fields[target] = match.group(1).strip()
+        return [fields] if fields.get("hostname") else []
+    if command == "show interfaces":
+        records: list[dict[str, Any]] = []
+        current: dict[str, Any] | None = None
+        for line in raw_output.splitlines():
+            match = re.match(
+                r"^Physical interface:\s+(\S+),\s+(\S+),\s+Physical link is\s+(\S+)",
+                line,
+            )
+            if match is not None:
+                if current is not None:
+                    records.append(current)
+                current = {
+                    "interface": match.group(1),
+                    "admin_status": match.group(2),
+                    "link_status": match.group(3),
+                }
+                continue
+            if current is None:
+                continue
+            description = re.match(r"^\s+Description:\s*(.+?)\s*$", line)
+            if description is not None:
+                current["description"] = description.group(1)
+                continue
+            link = re.search(r"Link-level type:\s*([^,]+),\s*MTU:\s*(\d+)", line)
+            if link is not None:
+                current["hardware_type"] = link.group(1).strip()
+                current["mtu"] = link.group(2)
+            address = re.search(r"Current address:\s*([^,\s]+)", line)
+            if address is not None:
+                current["mac_address"] = address.group(1)
+        if current is not None:
+            records.append(current)
+        return records
+    if command == "show lldp neighbors":
+        records = []
+        for line in raw_output.splitlines():
+            columns = re.split(r"\s{2,}", line.strip())
+            if len(columns) < 5 or columns[0].lower().startswith(("local interface", "local port")):
+                continue
+            local_interface, _parent, _chassis, remote_port = columns[:4]
+            neighbor_name = " ".join(columns[4:]).strip()
+            if not local_interface or not neighbor_name:
+                continue
+            records.append({
+                "local_interface": local_interface,
+                "neighbor_interface": remote_port,
+                "neighbor_name": neighbor_name,
+            })
+        return records
+    return []
 
 
 def normalize_collection_record(
@@ -59,7 +236,7 @@ def normalize_collection_record(
             "hostname": _pick(normalized, "hostname", "host_name"),
             "model": _pick(normalized, "hardware", "model", "platform", "chassis"),
             "serialNumber": _pick(normalized, "serial", "serial_number", "chassis_sn"),
-            "softwareVersion": _pick(normalized, "version", "software_version", "os_version", "junos_version"),
+            "softwareVersion": _pick(normalized, "version", "software_version", "os_version", "junos_version", "nxos", "os"),
             "image": _pick(normalized, "running_image", "software_image"),
             "uptime": _pick(normalized, "uptime"),
             "rawFields": normalized,

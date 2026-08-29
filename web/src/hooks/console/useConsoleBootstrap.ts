@@ -32,14 +32,14 @@ export function useConsoleBootstrap() {
   useEffect(() => {
     let active = true
 
-    void (async () => {
+    const load = async () => {
       try {
         const data = await getConsoleBootstrap()
         if (!active) {
           return
         }
         setBootstrap(data)
-        setSelectedModel(data.modelOptions[0] ?? '')
+        setSelectedModel((current) => current || data.modelOptions[0] || '')
         if (!localStorage.getItem('ops_agent_prompt') && data.initialPrompt) {
           setPrompt(data.initialPrompt)
         }
@@ -55,10 +55,15 @@ export function useConsoleBootstrap() {
             : 'Failed to load console bootstrap.'
         )
       }
-    })()
+    }
+
+    void load()
+    const handleAssetsChanged = () => { void load() }
+    window.addEventListener('ops-agent:assets-changed', handleAssetsChanged)
 
     return () => {
       active = false
+      window.removeEventListener('ops-agent:assets-changed', handleAssetsChanged)
     }
   }, [])
 

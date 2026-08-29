@@ -6,4 +6,4 @@ export type TopologySnapshot = { id: number; name: string; status: string; reque
 
 export const listTopologySnapshots = () => requestJson<TopologySnapshot[]>('/api/network-topology/snapshots')
 export const getTopologySnapshot = (id: number) => requestJson<TopologySnapshot>(`/api/network-topology/snapshots/${id}`)
-export const collectTopologySnapshot = (assetIds: number[], name = '') => requestJson<TopologySnapshot>('/api/network-topology/snapshots', { method: 'POST', body: JSON.stringify({ assetIds, name, maxConcurrency: 4 }) })
+export const collectTopologySnapshot = (assetIds: number[], name = '', maxConcurrency = 4) => requestJson<TopologySnapshot>('/api/network-topology/snapshots', { method: 'POST', body: JSON.stringify({ assetIds, name, maxConcurrency }) })

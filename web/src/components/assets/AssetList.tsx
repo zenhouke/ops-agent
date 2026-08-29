@@ -20,7 +20,8 @@ type AssetListGroup = {
 }
 
 function getAssetMeta(asset: Asset, localSystemLabel: string): string {
-  return asset.assetType === 'local_terminal' ? localSystemLabel : `${asset.host}:${asset.port}`
+  if (asset.assetType === 'local_terminal') return localSystemLabel
+  return `${asset.host}:${asset.port}${asset.authType === 'jumpserver' ? ' · JumpServer' : ''}`
 }
 
 export function AssetList({ assets, groups, selectedAssetId, onSelectAsset, onEditAsset, onDeleteAssetConfirm }: AssetListProps) {
@@ -58,7 +59,8 @@ export function AssetList({ assets, groups, selectedAssetId, onSelectAsset, onEd
             <ul className="flex flex-col list-none m-0 p-0">
               {groupAssets.map((asset) => {
                 const selected = asset.id === selectedAssetId
-                const menuOpen = asset.id === menuAssetId
+                const managedByJumpServer = asset.authType === 'jumpserver'
+                const menuOpen = !managedByJumpServer && asset.id === menuAssetId
 
                 return (
                   <li key={asset.id} className="relative group">
@@ -70,11 +72,11 @@ export function AssetList({ assets, groups, selectedAssetId, onSelectAsset, onEd
                         onClick={() => onSelectAsset(asset.id)}
                         onContextMenu={(event) => {
                           event.preventDefault()
-                          setMenuAssetId(asset.id)
+                          if (!managedByJumpServer) setMenuAssetId(asset.id)
                         }}
                       />
 
-                      <button
+                      {!managedByJumpServer ? <button
                         type="button"
                         className={`absolute right-2 rounded-[4px] p-1.5 transition-all duration-200 z-10 active:scale-90 ${menuOpen ? 'opacity-100 bg-ops-cyan/15 text-ops-cyan' : 'opacity-0 group-hover:opacity-100 text-ops-muted hover:text-ops-cyan hover:bg-ops-cyan/10'
                           }`}
@@ -89,7 +91,7 @@ export function AssetList({ assets, groups, selectedAssetId, onSelectAsset, onEd
                           <circle cx="12" cy="5" r="1"></circle>
                           <circle cx="12" cy="19" r="1"></circle>
                         </svg>
-                      </button>
+                      </button> : null}
                     </div>
 
                     {menuOpen ? (

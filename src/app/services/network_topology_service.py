@@ -3,12 +3,11 @@ from __future__ import annotations
 import json
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 from sqlmodel import Session
 
 from app.core.connectors.server import connector_factory
-from app.core.connectors.network import NetworkConnector
 from app.db.models import Asset, NetworkTopologyLink, NetworkTopologyNode, NetworkTopologySnapshot
 from app.db.repositories.assets import get_asset
 from app.db.repositories.network_topology import get_topology, list_topology_snapshots, save_topology
@@ -46,7 +45,7 @@ class NetworkTopologyService:
         nodes, links = self._build_graph(assets, results)
         snapshot = NetworkTopologySnapshot(
             name=name.strip() or f"Topology {datetime.now(UTC).strftime('%Y-%m-%d %H:%M')}",
-            status="partial" if errors else "completed",
+            status="failed" if errors and not results else "partial" if errors else "completed",
             requested_asset_ids_json=json.dumps(unique_ids),
             errors_json=json.dumps(errors, ensure_ascii=False),
         )
@@ -79,13 +78,20 @@ class NetworkTopologyService:
     def _collect_asset(self, asset: Asset) -> dict[str, Any]:
         connector = connector_factory(asset)
         try:
-            if not isinstance(connector, NetworkConnector):
-                raise ValueError("Asset did not resolve to a network connector.")
+            collector = getattr(connector, "collect_structured", None)
+            if not callable(collector):
+                raise ValueError("Asset connector does not support structured network collection.")
+            facts = cast(dict[str, Any], collector("facts"))
+            if not facts.get("records"):
+                raise ValueError("Device facts were returned but could not be parsed for this vendor.")
+            interfaces = cast(dict[str, Any], collector("interfaces"))
+            if not interfaces.get("records"):
+                raise ValueError("Device interfaces were returned but could not be parsed for this vendor.")
             return {
                 "asset": asset,
-                "facts": connector.collect_structured("facts"),
-                "interfaces": connector.collect_structured("interfaces"),
-                "neighbors": connector.collect_structured("neighbors"),
+                "facts": facts,
+                "interfaces": interfaces,
+                "neighbors": cast(dict[str, Any], collector("neighbors")),
             }
         finally:
             connector.close()
@@ -96,6 +102,8 @@ class NetworkTopologyService:
         name_index: dict[str, str] = {}
         for asset in assets:
             result = by_asset_id.get(asset.id)
+            if result is None:
+                continue
             facts = (result or {}).get("facts", {}).get("records", [])
             fact = facts[0] if facts else {}
             node_key = f"asset:{asset.id}"

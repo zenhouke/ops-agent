@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Callable, Iterable
 from io import StringIO
 from typing import Any, cast
 
@@ -17,6 +17,7 @@ from app.core.connectors.network_collection import (
     NetworkCollectionKind,
     collection_commands,
     normalize_collection_record,
+    parse_collection_output,
 )
 from app.core.connectors.network_cli import analyze_transcript, detect_mode, strip_pager_markers
 from app.core.connectors.ssh_proxy import (
@@ -28,11 +29,18 @@ from app.core.connectors.ssh_proxy import (
 
 
 class NetworkConnector:
-    def __init__(self, device_params: dict[str, Any], ssh_params: dict[str, Any] | None = None):
+    def __init__(
+        self,
+        device_params: dict[str, Any],
+        ssh_params: dict[str, Any] | None = None,
+        close_callback: Callable[[], None] | None = None,
+    ):
         self.asset_type = str(device_params.get("asset_type", "") or "")
         netmiko_params = {key: value for key, value in device_params.items() if key != "asset_type"}
         self.device_params = {"conn_timeout": 15, **netmiko_params}
         self.ssh_params = ssh_params or self._build_ssh_params(device_params)
+        self.close_callback = close_callback
+        self._close_callback_called = False
         self.shell_kind = "network"
         self.detected_device_type: str | None = None
         self.connection: Any | None = None
@@ -108,15 +116,17 @@ class NetworkConnector:
         for spec in commands:
             response = connection.send_command(spec.command, use_textfsm=True, read_timeout=read_timeout)
             parsed = isinstance(response, list) and all(isinstance(item, dict) for item in response)
+            raw = "" if parsed else str(response)
+            command_records_raw = response if parsed else parse_collection_output(vendor, spec.command, raw)
+            parsed = bool(command_records_raw)
             if parsed:
                 command_records = [
                     normalize_collection_record(kind, cast(dict[str, Any], item), protocol=spec.protocol)
-                    for item in response
+                    for item in command_records_raw
                 ]
                 records.extend(command_records)
                 sources.append({"command": spec.command, "protocol": spec.protocol, "parsed": True, "recordCount": len(command_records)})
             else:
-                raw = str(response)
                 analysis = analyze_transcript(raw, select_device_profile(self._resolve_asset_type(), self.shell_kind) or GENERIC_DEVICE_PROFILE)
                 sources.append({
                     "command": spec.command,
@@ -271,6 +281,9 @@ class NetworkConnector:
             pass
 
     def close(self) -> None:
+        if self.close_callback is not None and not self._close_callback_called:
+            self._close_callback_called = True
+            self.close_callback()
         if self.channel is not None:
             self.channel.close()
             self.channel = None

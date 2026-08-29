@@ -6,6 +6,7 @@ import { DeleteConfirmDialog } from './DeleteConfirmDialog'
 import { ModelsSection } from './ModelsSection'
 import { PermissionsSection } from './PermissionsSection'
 import { PromptsSection } from './PromptsSection'
+import { JumpServerSection } from './JumpServerSection'
 import type { PermissionsForm, SettingsDialogProps, SettingsSection } from './settingsTypes'
 import { useModelSettings } from './useModelSettings'
 import { usePromptSettings } from './usePromptSettings'
@@ -62,7 +63,7 @@ export function SettingsDialog({ selectedModel, onSelectedModelChange, onModelOp
     }
   }
 
-  const sections: SettingsSection[] = ['appearance', 'models', 'prompts', 'permissions']
+  const sections: SettingsSection[] = ['appearance', 'models', 'prompts', 'jumpserver', 'permissions']
   const sectionError = activeSection === 'models' ? model.error : activeSection === 'prompts' ? prompts.error : activeSection === 'permissions' ? permissionsError : null
 
   return (
@@ -138,6 +139,8 @@ export function SettingsDialog({ selectedModel, onSelectedModelChange, onModelOp
                   onReset={() => void prompts.reset()}
                 />
               )
+            ) : activeSection === 'jumpserver' ? (
+              <JumpServerSection />
             ) : permissionsLoading ? (
               <div className="py-16 text-center text-xs text-ops-muted">{t('settings.loading')}</div>
             ) : (

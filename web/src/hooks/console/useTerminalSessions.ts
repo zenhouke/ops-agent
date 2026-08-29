@@ -302,6 +302,11 @@ export function useTerminalSessions({
     [assets, connectAssetTerminal, setLoadError]
   )
 
+  const selectTerminalTab = useCallback((assetId: number) => {
+    setLoadError(null)
+    setActiveTerminalAssetId(assetId)
+  }, [setLoadError])
+
   useEffect(() => {
     if (!hasRestoredTerminalStateRef.current) {
       return
@@ -348,7 +353,7 @@ export function useTerminalSessions({
   return {
     terminalTabs,
     activeTerminalAssetId,
-    setActiveTerminalAssetId,
+    selectTerminalTab,
     selectedAsset,
     activeTerminalTab,
     history,

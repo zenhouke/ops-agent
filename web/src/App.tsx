@@ -65,7 +65,7 @@ export function App() {
   const {
     terminalTabs,
     activeTerminalAssetId,
-    setActiveTerminalAssetId,
+    selectTerminalTab,
     selectedAsset,
     activeTerminalTab,
     removeTerminalTab,
@@ -355,7 +355,8 @@ export function App() {
         }}
         onSelectAsset={(assetId) => {
           setManagementWorkspace(null)
-          setActiveWorkspaceSection('assets')
+          const targetAsset = bootstrap.assets.find((asset) => asset.id === assetId)
+          setActiveWorkspaceSection(targetAsset?.authType === 'jumpserver' ? 'jumpserver' : 'assets')
           selectAsset(assetId)
         }}
       />
@@ -364,7 +365,7 @@ export function App() {
         <ActivityRail
           activeWorkspace={(managementWorkspace === 'groups' ? 'assets' : managementWorkspace ?? activeWorkspaceSection) as PrimaryWorkspace}
           onSelectWorkspace={(workspace) => {
-            if (workspace === 'assets' || workspace === 'conversations') {
+            if (workspace === 'assets' || workspace === 'jumpserver' || workspace === 'conversations') {
               const isCurrentWorkspace = managementWorkspace === null && activeWorkspaceSection === workspace
               setManagementWorkspace(null)
               setActiveWorkspaceSection(workspace)
@@ -439,7 +440,7 @@ export function App() {
                 busyCommand={busyCommand}
                 onInput={sendTerminalInput}
                 onResize={resizeTerminal}
-                onSelectTab={setActiveTerminalAssetId}
+                onSelectTab={selectTerminalTab}
                 onCloseTab={removeTerminalTab}
                 onClear={clearActiveTerminal}
                 onCopy={() => {
@@ -479,7 +480,7 @@ export function App() {
                     busyCommand={busyCommand}
                     onInput={sendTerminalInput}
                     onResize={resizeTerminal}
-                    onSelectTab={setActiveTerminalAssetId}
+                    onSelectTab={selectTerminalTab}
                     onCloseTab={removeTerminalTab}
                     onClear={clearActiveTerminal}
                     onCopy={() => void copyActiveTerminalOutput()}

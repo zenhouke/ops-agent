@@ -388,7 +388,7 @@ export const AssetModals = forwardRef<AssetModalsRef, AssetModalsProps>(
     }
 
     const openEditModal = (asset: Asset) => {
-      if (asset.assetType === 'local_terminal') {
+      if (asset.assetType === 'local_terminal' || asset.authType === 'jumpserver') {
         return
       }
       setTargetAsset(asset)
@@ -421,6 +421,9 @@ export const AssetModals = forwardRef<AssetModalsRef, AssetModalsProps>(
     }
 
     const openDeleteModal = (asset: Asset) => {
+      if (asset.authType === 'jumpserver') {
+        return
+      }
       setTargetAsset(asset)
       setActiveModal('delete-asset')
     }
