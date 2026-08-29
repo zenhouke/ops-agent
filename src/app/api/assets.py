@@ -1,7 +1,7 @@
 from fastapi import APIRouter, Depends, HTTPException, Response
 from sqlmodel import Session
 
-from app.api.schemas import AssetView
+from app.api.schemas import AssetConnectionTestRequest, AssetConnectionTestView, AssetView
 from app.db.session import get_session
 from app.services.asset_service import (
     GroupNotFoundError,
@@ -15,9 +15,11 @@ from app.services.asset_service import (
     list_asset_records,
     update_asset_record,
 )
+from app.services.asset_connection_service import AssetConnectionService
 from app.shared.schemas import AssetCreate
 
 router = APIRouter()
+_asset_connection_service = AssetConnectionService()
 
 
 def to_asset_view(asset) -> AssetView:
@@ -41,6 +43,22 @@ def to_asset_view(asset) -> AssetView:
 @router.get("/api/assets")
 def list_assets(session: Session = Depends(get_session)) -> list[AssetView]:
     return [to_asset_view(asset) for asset in list_asset_records(session)]
+
+
+@router.post("/api/assets/connection-test", response_model=AssetConnectionTestView)
+def test_asset_connection(
+    payload: AssetConnectionTestRequest,
+    session: Session = Depends(get_session),
+) -> AssetConnectionTestView:
+    try:
+        result = _asset_connection_service.test(
+            session,
+            asset_id=payload.asset_id,
+            asset_data=payload.asset,
+        )
+    except Exception as exc:
+        return AssetConnectionTestView(success=False, message=str(exc))
+    return AssetConnectionTestView.model_validate(result)
 
 
 @router.get("/api/assets/{asset_id}")

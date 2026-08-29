@@ -5,8 +5,10 @@ import { AppearanceSection } from './AppearanceSection'
 import { DeleteConfirmDialog } from './DeleteConfirmDialog'
 import { ModelsSection } from './ModelsSection'
 import { PermissionsSection } from './PermissionsSection'
+import { PromptsSection } from './PromptsSection'
 import type { PermissionsForm, SettingsDialogProps, SettingsSection } from './settingsTypes'
 import { useModelSettings } from './useModelSettings'
+import { usePromptSettings } from './usePromptSettings'
 
 const emptyPermissionsForm: PermissionsForm = {
   allow: [],
@@ -18,6 +20,7 @@ const emptyPermissionsForm: PermissionsForm = {
 export function SettingsDialog({ selectedModel, onSelectedModelChange, onModelOptionsChange, onClose }: SettingsDialogProps) {
   const { language, themeMode, resolvedTheme, setLanguage, setThemeMode, t } = useAppearance()
   const model = useModelSettings({ onModelOptionsChange, onSelectedModelChange })
+  const prompts = usePromptSettings()
   const [activeSection, setActiveSection] = useState<SettingsSection>('appearance')
   const [permissionsForm, setPermissionsForm] = useState(emptyPermissionsForm)
   const [permissionsLoading, setPermissionsLoading] = useState(true)
@@ -59,8 +62,8 @@ export function SettingsDialog({ selectedModel, onSelectedModelChange, onModelOp
     }
   }
 
-  const sections: SettingsSection[] = ['appearance', 'models', 'permissions']
-  const sectionError = activeSection === 'models' ? model.error : activeSection === 'permissions' ? permissionsError : null
+  const sections: SettingsSection[] = ['appearance', 'models', 'prompts', 'permissions']
+  const sectionError = activeSection === 'models' ? model.error : activeSection === 'prompts' ? prompts.error : activeSection === 'permissions' ? permissionsError : null
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-ops-bg/70 backdrop-blur-sm" role="presentation">
@@ -115,6 +118,26 @@ export function SettingsDialog({ selectedModel, onSelectedModelChange, onModelOp
                 onDiscoverModels={() => void model.discover()}
                 onTest={() => void model.test()}
               />
+            ) : activeSection === 'prompts' ? (
+              prompts.loading ? (
+                <div className="py-16 text-center text-xs text-ops-muted">{t('settings.loading')}</div>
+              ) : !prompts.settings || !prompts.overrides ? (
+                <div className="flex flex-col items-center gap-3 py-16 text-xs text-ops-muted">
+                  <span>{prompts.error}</span>
+                  <button type="button" className="button" onClick={() => void prompts.load()}>{t('common.retry')}</button>
+                </div>
+              ) : (
+                <PromptsSection
+                  key={prompts.settings.revision}
+                  settings={prompts.settings}
+                  overrides={prompts.overrides}
+                  saving={prompts.saving}
+                  saved={prompts.saved}
+                  onChange={prompts.setOverrides}
+                  onSave={() => void prompts.save()}
+                  onReset={() => void prompts.reset()}
+                />
+              )
             ) : permissionsLoading ? (
               <div className="py-16 text-center text-xs text-ops-muted">{t('settings.loading')}</div>
             ) : (

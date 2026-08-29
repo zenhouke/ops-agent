@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hashlib
+import logging
 import secrets
 import time
 from collections import deque
@@ -24,6 +25,27 @@ from app.core.runtime.control import (
 )
 
 
+logger = logging.getLogger(__name__)
+
+
+def _user_facing_runtime_error(error: Exception) -> str:
+    message = str(error)
+    normalized = message.lower()
+    if "model is not found" in normalized or "model_not_found" in normalized:
+        return "当前模型不可用或模型名称已变更，请在模型设置中选择可用模型后重试。"
+    if "quota" in normalized or "insufficient_quota" in normalized:
+        return "模型供应商额度不足，请检查账户额度或更换模型后重试。"
+    if "concurrency limit" in normalized or "too many concurrent" in normalized:
+        return "模型供应商并发额度已满，请稍后重试。"
+    if "timed out" in normalized or "timeout" in normalized:
+        return "模型供应商响应超时，请稍后重试或适当增加模型超时时间。"
+    if "certificate" in normalized or "tls" in normalized or "ssl" in normalized:
+        return "模型供应商 TLS 连接失败，请检查端点证书和网络配置。"
+    if "connection error" in normalized or "apiconnectionerror" in normalized:
+        return "无法连接模型供应商，请检查模型端点和网络连接。"
+    return "Agent 运行失败，请检查模型配置或后端日志后重试。"
+
+
 class RuntimeExecutionMixin:
     def _request_view(
         self: Any,
@@ -41,6 +63,7 @@ class RuntimeExecutionMixin:
             "expiresAt": request.expires_at.isoformat(),
             "approvalToken": approval_token,
             "failureReason": request.failure_reason,
+            "scopeExpansionRequired": request.scope_expansion_required,
         }
 
     def _authorization_view(
@@ -100,6 +123,12 @@ class RuntimeExecutionMixin:
         self._persist_runtime(runtime, run_state="queued")
         return state
 
+    def append_task_state(self: Any, runtime_id: str) -> dict[str, Any]:
+        runtime = self.get_runtime(runtime_id)
+        if runtime is None:
+            raise ValueError("runtime not found")
+        return self._append_runtime_event(runtime, "task_state", runtime.state.context.task_state.to_payload())
+
     def get_runtime(self: Any, runtime_id: str) -> RuntimeState | None:
         self._expire_completed_runtimes()
         with self._state_lock:
@@ -109,6 +138,22 @@ class RuntimeExecutionMixin:
         self._expire_completed_runtimes()
         with self._state_lock:
             return list(self._by_conversation.get(conversation_id, {}).values())
+
+    def forget_conversation_runtimes(self: Any, conversation_id: str) -> list[str]:
+        """Remove terminal in-memory runtimes after their conversation is deleted."""
+        with self._state_lock:
+            runtimes = self._by_conversation.get(conversation_id, {})
+            active_ids = [runtime_id for runtime_id, runtime in runtimes.items() if not runtime.state.is_terminal()]
+            if active_ids:
+                raise RuntimeError("conversation still has active runtimes")
+            removed_ids = list(runtimes)
+            self._by_conversation.pop(conversation_id, None)
+            for runtime_id in removed_ids:
+                self._by_runtime.pop(runtime_id, None)
+            for terminal_id, owner_runtime_id in list(self._terminal_slots.items()):
+                if owner_runtime_id in removed_ids:
+                    self._terminal_slots.pop(terminal_id, None)
+            return removed_ids
 
     def events_since(self: Any, runtime_id: str, since: int) -> tuple[int, list[dict]]:
         runtime = self.get_runtime(runtime_id)
@@ -153,7 +198,7 @@ class RuntimeExecutionMixin:
         state.cancel_requested = True
         state.cancellation_reason = reason
         get_runtime_control().metrics.run_finished(runtime_id, status="cancelled")
-        if state.phase in {"approving", "waiting_terminal_approval"}:
+        if state.phase in {"approving", "waiting_terminal_approval", "waiting_user_input"}:
             state.phase = "failed"
             state.error_message = reason
         event = self._append_runtime_event(runtime, "error", {
@@ -197,6 +242,15 @@ class RuntimeExecutionMixin:
                 "recoverable": False,
                 "budgetExceeded": True,
             })
+        except Exception as exc:
+            logger.exception("Agent runtime loop failed runtime_id=%s", runtime.runtime_id)
+            error_message = _user_facing_runtime_error(exc)
+            runtime.state.phase = "failed"
+            runtime.state.error_message = error_message
+            yield self._append_runtime_event(runtime, "error", {
+                "text": error_message,
+                "recoverable": True,
+            })
 
     def run(self: Any, *, runtime_id: str, terminal_service: Any) -> Iterator[dict]:
         runtime = self.get_runtime(runtime_id)
@@ -212,6 +266,7 @@ class RuntimeExecutionMixin:
         runtime_id: str,
         approved: bool,
         approval_token: str | None,
+        guidance: str | None,
         terminal_service: Any,
     ) -> Iterator[dict]:
         runtime = self.get_runtime(runtime_id)
@@ -227,7 +282,62 @@ class RuntimeExecutionMixin:
             raise PermissionError("invalid approval token")
         loop = AgentLoop(tools=self._tools_factory(terminal_service), usage_callback=self._usage_callback)
         with self._execution(runtime):
+            if guidance and guidance.strip():
+                note = guidance.strip()
+                with runtime.state.message_lock:
+                    runtime.state.pending_user_messages.append(note)
+                    runtime.state.context.task_state.update({"current_request": note})
+                yield self._append_runtime_event(runtime, "user", {
+                    "text": note,
+                    "runtimeMessage": True,
+                    "deliveryStatus": "queued",
+                })
+                yield self._append_runtime_event(runtime, "task_state", runtime.state.context.task_state.to_payload())
+                get_runtime_control().metrics.increment("approvals_with_guidance")
             yield from self._iterate_loop(runtime, loop.resume_with_approval(runtime.state, approved=approved))
+
+    def submit_user_message(
+        self: Any,
+        *,
+        runtime_id: str,
+        message: str,
+        terminal_service: Any,
+    ) -> Iterator[dict]:
+        runtime = self.get_runtime(runtime_id)
+        if runtime is None:
+            raise ValueError("runtime not found")
+        text = message.strip()
+        if not text:
+            raise ValueError("message is required")
+        with runtime.state.message_lock:
+            if runtime.state.is_terminal():
+                raise ValueError("runtime is already complete")
+
+            waiting_for_answer = runtime.state.phase == "waiting_user_input"
+            if waiting_for_answer:
+                runtime.state.messages.append(LLMMessage(role="user", content=text))
+                runtime.state.pending_followup_question = None
+                runtime.state.pending_followup_message_id = None
+                runtime.state.phase = "executing"
+                get_runtime_control().metrics.increment("followup_resumes")
+            else:
+                runtime.state.pending_user_messages.append(text)
+                get_runtime_control().metrics.increment("runtime_guidance_messages")
+            runtime.state.context.task_state.update({"current_request": text})
+
+        yield self._append_runtime_event(runtime, "user", {
+            "text": text,
+            "runtimeMessage": True,
+            "deliveryStatus": "applied" if waiting_for_answer else "queued",
+        })
+        yield self._append_runtime_event(runtime, "task_state", runtime.state.context.task_state.to_payload())
+
+        if not waiting_for_answer:
+            return
+
+        loop = AgentLoop(tools=self._tools_factory(terminal_service), usage_callback=self._usage_callback)
+        with self._execution(runtime):
+            yield from self._iterate_loop(runtime, loop.run(runtime.state))
 
     def resume_after_terminal_request(
         self: Any,
@@ -241,11 +351,11 @@ class RuntimeExecutionMixin:
         if runtime is None:
             raise ValueError("runtime not found")
         runtime.state.phase = "executing"
-        runtime.state.context.default_authorization_id = (
-            authorization_id
-            or self._latest_active_authorization_id(runtime)
-            or runtime.state.context.default_authorization_id
-        )
+        if authorization_id:
+            runtime.state.context.default_authorization_id = authorization_id
+            authorization = runtime.terminal_authorizations.get(authorization_id)
+            if authorization and authorization.asset_id not in runtime.state.context.allowed_asset_ids:
+                runtime.state.context.allowed_asset_ids.append(authorization.asset_id)
         runtime.state.messages.append(
             LLMMessage(role="user", content=self._terminal_request_resume_prompt(runtime, resume_message))
         )
@@ -281,7 +391,7 @@ class RuntimeExecutionMixin:
             f"Terminal request result: {resume_message}\n\n"
             f"Original task: {runtime.state.context.user_prompt}\n\n"
             f"Active terminal authorizations for this runtime:\n{summary}\n\n"
-            "Continue the original task. Request terminal access for any missing asset, and use "
+            "Continue the original task within the conversation asset scope. Request terminal access only when the scope mode permits it, and use "
             "execute_command with the matching authorization_id for each authorized asset."
         )
 

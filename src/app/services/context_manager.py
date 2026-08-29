@@ -9,6 +9,7 @@ from tempfile import NamedTemporaryFile
 from typing import Literal, TypeAlias, cast
 
 from app.core.llm.types import LLMMessage
+from app.core.loop.task_state import AgentTaskState
 from app.shared.schemas import ModelConfig
 
 JsonValue: TypeAlias = str | int | float | bool | None | list["JsonValue"] | dict[str, "JsonValue"]
@@ -48,6 +49,7 @@ class ContextPreparationResult:
     summary_revision: str | None
     source_conversation_revision: str
     fit_status: FitStatus
+    task_state: AgentTaskState
 
 
 @dataclass(slots=True)
@@ -106,8 +108,19 @@ class ContextManager:
         safe_id = re.sub(r"[^A-Za-z0-9_-]", "_", conversation_id) or "conversation"
         return self._metadata_dir / f"{safe_id}.context.json"
 
-    def prepare_context(self, conversation_id: str, events: list[JsonObject], model_config: ModelConfig) -> ContextPreparationResult:
+    def prepare_context(
+        self,
+        conversation_id: str,
+        events: list[JsonObject],
+        model_config: ModelConfig,
+        *,
+        current_prompt: str = "",
+    ) -> ContextPreparationResult:
         source_revision = self.source_revision(events)
+        task_state = self.task_state_from_events(events)
+        if not task_state.goal:
+            task_state.goal = current_prompt.strip() or self._latest_user_text(events)
+        task_state.current_request = current_prompt.strip() or task_state.current_request
         segments = self.normalize_events(events)
         if segments and segments[-1].role == "user":
             segments = segments[:-1]
@@ -125,7 +138,7 @@ class ContextManager:
         fit_status: FitStatus = "fits" if raw_fits else "overflow"
 
         if raw_percent >= self.warning_threshold_percent and len(segments) > self.recent_segment_count:
-            compacted_messages, summary_revision = self.compact_segments(segments)
+            compacted_messages, summary_revision = self.compact_segments(segments, task_state=task_state)
             compacted_tokens = self.estimate_messages_tokens(compacted_messages)
             compacted_percent = self.context_percent_for_tokens(compacted_tokens, model_config)
             prepared_messages = compacted_messages
@@ -143,6 +156,7 @@ class ContextManager:
             summary_revision=summary_revision,
             source_conversation_revision=source_revision,
             fit_status=fit_status,
+            task_state=task_state,
         )
         self.write_metadata(conversation_id, result)
         return result
@@ -165,7 +179,7 @@ class ContextManager:
                 self._append_segment(segments, "user", "user", self._string_value(event.get("text")), event_index)
                 continue
 
-            if kind == "message" and event_type == "say":
+            if kind == "message" and event_type in {"say", "ask"}:
                 self._normalize_message_event(segments, event, event_index)
                 continue
 
@@ -203,13 +217,48 @@ class ContextManager:
                 messages.append(LLMMessage(role=segment.role, content=segment.content))
         return messages
 
-    def compact_segments(self, segments: list[MessageSegment]) -> tuple[list[LLMMessage], str]:
+    def compact_segments(self, segments: list[MessageSegment], *, task_state: AgentTaskState) -> tuple[list[LLMMessage], str]:
         older_segments = segments[:-self.recent_segment_count]
         recent_segments = segments[-self.recent_segment_count:]
         summary = self.summarize_segments(older_segments)
-        summary_content = self.format_summary(summary)
+        summary_content = f"{self.format_task_state(task_state)}\n\n{self.format_summary(summary)}"
         summary_revision = hashlib.sha256(summary_content.encode("utf-8")).hexdigest()[:16]
         return [LLMMessage(role="assistant", content=summary_content), *self.messages_from_segments(recent_segments)], summary_revision
+
+    def task_state_from_events(self, events: list[JsonObject]) -> AgentTaskState:
+        for event in reversed(events):
+            if str(event.get("kind") or "") == "task_state":
+                return AgentTaskState.from_payload(event)
+        return AgentTaskState()
+
+    def format_task_state(self, task_state: AgentTaskState) -> str:
+        payload = task_state.to_payload()
+        sections = [
+            ("Goal", [str(payload["goal"])] if payload["goal"] else []),
+            ("Current request", [str(payload["currentRequest"])] if payload["currentRequest"] else []),
+            ("Scope", payload["scope"]),
+            ("Constraints", payload["constraints"]),
+            ("Acceptance criteria", payload["acceptanceCriteria"]),
+            ("Verified facts", payload["verifiedFacts"]),
+            ("Operator decisions", payload["decisions"]),
+            ("Open items", payload["openItems"]),
+            ("Completed items", payload["completedItems"]),
+        ]
+        lines = ["Authoritative task state:"]
+        for title, items in sections:
+            if not items:
+                continue
+            lines.append(f"{title}:")
+            lines.extend(f"- {item}" for item in items)
+        return "\n".join(lines)
+
+    def _latest_user_text(self, events: list[JsonObject]) -> str:
+        for event in reversed(events):
+            if str(event.get("kind") or "") == "user":
+                text = self._string_value(event.get("text"))
+                if text:
+                    return text
+        return ""
 
     def summarize_segments(self, segments: list[MessageSegment]) -> ContextSummary:
         summary = ContextSummary()
@@ -286,6 +335,11 @@ class ContextManager:
     def _normalize_message_event(self, segments: list[MessageSegment], event: JsonObject, event_index: int) -> None:
         if bool(event.get("partial")):
             return
+        if str(event.get("type") or "") == "ask" and str(event.get("ask") or "") == "followup":
+            question = self._string_value(event.get("text"))
+            if question:
+                self._append_segment(segments, "assistant", "assistant", f"[Agent question] {question}", event_index)
+            return
         say_type = str(event.get("say") or "")
         if say_type == "text":
             self._append_segment(segments, "assistant", "assistant", self._string_value(event.get("text")), event_index)
@@ -305,11 +359,11 @@ class ContextManager:
         exit_code = event.get("exitCode") if event.get("exitCode") is not None else event.get("exit_code")
         parts: list[str] = []
         if command:
-            parts.append(f"[Executed: {command}]")
+            parts.append(f"Earlier conversation tool record (context only, not a current execution): command={command}")
         if output:
-            parts.append(f"Output:\n{self._truncate(output)}")
+            parts.append(f"Earlier recorded output:\n{self._truncate(output)}")
         if exit_code is not None:
-            parts.append(f"Exit code: {exit_code}")
+            parts.append(f"Earlier recorded status: exit_code={exit_code}")
         self._append_segment(segments, "command", "assistant", "\n".join(parts), event_index)
 
     def _normalize_approval_event(self, segments: list[MessageSegment], event: JsonObject, event_index: int) -> None:

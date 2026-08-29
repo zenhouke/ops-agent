@@ -170,3 +170,43 @@ class AgentRuntimeEventRecord(SQLModel, table=True):
     kind: str
     payload_json: str
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), index=True)
+
+
+class NetworkTopologySnapshot(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "network_topology_snapshots"  # pyright: ignore[reportIncompatibleVariableOverride]
+    id: int | None = Field(default=None, primary_key=True)
+    name: str
+    status: str = "completed"
+    requested_asset_ids_json: str = "[]"
+    errors_json: str = "[]"
+    created_at: datetime = Field(default_factory=lambda: datetime.now(UTC), index=True)
+
+
+class NetworkTopologyNode(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "network_topology_nodes"  # pyright: ignore[reportIncompatibleVariableOverride]
+    __table_args__ = (UniqueConstraint("snapshot_id", "node_key", name="uq_topology_snapshot_node"),)
+    id: int | None = Field(default=None, primary_key=True)
+    snapshot_id: int = Field(index=True)
+    node_key: str
+    asset_id: int | None = Field(default=None, index=True)
+    name: str
+    host: str = ""
+    vendor: str = ""
+    model: str = ""
+    serial_number: str = ""
+    software_version: str = ""
+    external: bool = False
+    interfaces_json: str = "[]"
+    raw_json: str = "{}"
+
+
+class NetworkTopologyLink(SQLModel, table=True):
+    __tablename__: ClassVar[str] = "network_topology_links"  # pyright: ignore[reportIncompatibleVariableOverride]
+    id: int | None = Field(default=None, primary_key=True)
+    snapshot_id: int = Field(index=True)
+    source_node_key: str
+    target_node_key: str
+    source_interface: str = ""
+    target_interface: str = ""
+    protocol: str = ""
+    raw_json: str = "{}"

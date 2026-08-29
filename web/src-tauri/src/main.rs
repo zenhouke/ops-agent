@@ -73,9 +73,23 @@ fn start_backend(app: &AppHandle) -> Option<Child> {
     };
 
     cmd.env("OPS_AGENT_BACKEND_PORT", port.to_string())
+        .env("OPS_AGENT_AUTH_DISABLED", "true")
+        .env("OPS_AGENT_DESKTOP", "true")
         .env("OPS_AGENT_RELOAD", "false")
         .stdout(Stdio::null())
         .stderr(Stdio::inherit());
+
+    if !cfg!(debug_assertions) {
+        match app.path().app_data_dir() {
+            Ok(data_dir) => {
+                cmd.env("OPS_AGENT_DATA_DIR", data_dir);
+            }
+            Err(error) => {
+                eprintln!("failed to resolve app data directory: {error}");
+                return None;
+            }
+        }
+    }
 
     match cmd.spawn() {
         Ok(child) => Some(child),

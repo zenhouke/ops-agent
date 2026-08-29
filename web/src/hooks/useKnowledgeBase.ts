@@ -239,3 +239,5 @@ export function useKnowledgeBase() {
     setDraft,
   }
 }
+
+export type KnowledgeBaseController = ReturnType<typeof useKnowledgeBase>

@@ -262,6 +262,7 @@ export type RuntimeTerminalRequest = {
   expiresAt: string
   approvalToken: string | null
   failureReason: string | null
+  scopeExpansionRequired: boolean
 }
 
 export type RuntimeTerminalAuthorization = {
@@ -282,14 +283,20 @@ export type RuntimeSnapshot = {
   runtimeId: string
   conversationId: string
   assetId: number
+  conversationScopeMode: ConversationScopeMode
+  conversationPrimaryAssetId: number | null
+  allowedAssetIds: number[]
   terminalId: string | null
   status: string
   runState: string
   loadedSkillName: string | null
+  taskState: AgentTaskState
   steps: RuntimeStep[]
   currentStepId: string | null
   pendingApprovalStepId: string | null
   pendingApprovalToken: string | null
+  pendingFollowupQuestion: string | null
+  pendingUserMessageCount: number
   lastOutputExcerpt: string
   summary: string | null
   errorMessage: string | null
@@ -298,6 +305,19 @@ export type RuntimeSnapshot = {
   createdAt: string
   updatedAt: string
   lastSequence: number
+}
+
+export type AgentTaskState = {
+  goal: string
+  currentRequest: string
+  scope: string[]
+  constraints: string[]
+  acceptanceCriteria: string[]
+  verifiedFacts: string[]
+  decisions: string[]
+  openItems: string[]
+  completedItems: string[]
+  revision: number
 }
 
 export type RuntimeEventEnvelope = {
@@ -363,11 +383,15 @@ export type TerminalAutonomyEvent = {
   revokeReason?: string
   command?: string
   approvalPolicy?: string
+  scopeExpansionRequired?: boolean
 }
+
+export type ConversationScopeMode = 'single' | 'multi'
 
 export type AgentMessage = {
   id: string
   kind: 'message'
+  runtimeId?: string
   ts: number
   type: 'say' | 'ask'
   say?: 'text' | 'tool_use' | 'error'
@@ -384,6 +408,8 @@ export type AgentMessage = {
     serverId?: string
     command?: string
     approvalToken?: string | null
+    executionProfile?: string
+    deviceVendor?: string
     args: Record<string, any>
   }
   toolOutput?: string
@@ -406,9 +432,10 @@ export type EventItem =
   | AgentMessage
   | { id: string; kind: 'message_update'; payload: AgentMessage } // For raw event wrapper if needed
   | { id: string; kind: 'final'; text: string }
+  | ({ id: string; kind: 'task_state' } & AgentTaskState)
   | { id: string; kind: 'error'; text: string }
   | { id: string; kind: 'conversation_branch'; sourceConversationId: string; sourceEventId?: string | null }
-  | { id: string; kind: 'user'; text: string; mode?: 'standard' | 'incident' }
+  | { id: string; kind: 'user'; text: string; mode?: 'standard' | 'incident'; runtimeMessage?: boolean; deliveryStatus?: 'queued' | 'applied' }
 
 export type ConversationSummary = {
   id: string
@@ -418,6 +445,9 @@ export type ConversationSummary = {
   updatedAt: string
   eventCount: number
   lastEventKind: string | null
+  assetId: number | null
+  scopeMode: ConversationScopeMode
+  allowedAssetIds: number[]
 }
 
 export type ConversationDetail = {
@@ -427,6 +457,9 @@ export type ConversationDetail = {
   createdAt: string
   updatedAt: string
   events: EventItem[]
+  assetId: number | null
+  scopeMode: ConversationScopeMode
+  allowedAssetIds: number[]
 }
 
 export type ConversationEventsPage = {

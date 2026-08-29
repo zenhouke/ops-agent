@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react'
+import { useCallback, useEffect, useState } from 'react'
 
 import { getOpsPlugins } from '../../api'
 import { useAppearance } from '../../hooks/useAppearance'
@@ -13,7 +13,7 @@ export function PluginsSection() {
   const [loading, setLoading] = useState(true)
   const [error, setError] = useState<string | null>(null)
 
-  const load = async (refresh = false) => {
+  const load = useCallback(async (refresh = false) => {
     setLoading(true)
     setError(null)
     try {
@@ -24,11 +24,11 @@ export function PluginsSection() {
     } finally {
       setLoading(false)
     }
-  }
+  }, [t])
 
   useEffect(() => {
     void load()
-  }, [])
+  }, [load])
 
   const validCount = plugins.filter((plugin) => plugin.valid).length
   const toolCount = plugins.reduce((count, plugin) => count + plugin.tools.length, 0)

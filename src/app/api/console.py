@@ -5,14 +5,16 @@ from collections.abc import Iterable, Iterator
 from uuid import uuid4
 
 from fastapi import APIRouter, Depends, HTTPException, Request
+from fastapi.exceptions import RequestValidationError
 from fastapi.responses import StreamingResponse
+from pydantic import ValidationError
 from sqlmodel import Session
 
 from app.api.assets import to_asset_view
 from app.api.conversations import get_conversation_service
 from app.api.groups import to_asset_group_view
 from app.api.ssh_keys import to_ssh_key_view
-from app.api.schemas import ConsoleApprovalRequest, ConsoleBootstrapView, ConsoleRunRequest, RuntimeEventsResponse, RuntimeSnapshotView, RuntimeSummaryView, TerminalRequestDecisionRequest
+from app.api.schemas import ConsoleApprovalRequest, ConsoleBootstrapView, ConsoleRunRequest, RuntimeEventsResponse, RuntimeMessageRequest, RuntimeSnapshotView, RuntimeSummaryView, TerminalRequestDecisionRequest
 from app.services.ssh_key_service import list_ssh_key_records
 from app.api.terminal import get_terminal_service
 from app.db.repositories.models import get_default_model_config, list_model_configs
@@ -28,13 +30,6 @@ from app.shared.enums import AssetType
 router = APIRouter()
 _console_app_service = ConsoleAppService()
 logger = logging.getLogger(__name__)
-
-INCIDENT_MODE_INSTRUCTION = """[Incident response mode]
-Treat the following request as an operational incident. Establish impact, scope, timeline, and evidence before proposing changes. Separate verified facts from hypotheses. Prefer read-only diagnostics first. For every mutating command, state risk, expected result, and rollback, and preserve the normal human approval workflow. Finish with a concise incident summary and reusable runbook steps.
-
-Operator request:
-"""
-
 
 def _sse_event(payload: dict) -> str:
     event_id = payload.get("eventId") or (
@@ -107,7 +102,10 @@ async def _parse_request_model(request: Request, model_type):
     payload = await request.json()
     if isinstance(payload, str):
         payload = json.loads(payload)
-    return model_type.model_validate(payload)
+    try:
+        return model_type.model_validate(payload)
+    except ValidationError as exc:
+        raise RequestValidationError(exc.errors()) from exc
 
 
 def get_task_orchestrator(terminal_service: TerminalService = Depends(get_terminal_service)) -> TaskOrchestrator:
@@ -163,41 +161,53 @@ async def run_console_agent(
     import time as _time
     t_start = _time.monotonic()
     payload = await _parse_request_model(request, ConsoleRunRequest)
-    effective_prompt = (
-        f"{INCIDENT_MODE_INSTRUCTION}{payload.prompt}"
-        if payload.mode == "incident"
-        else payload.prompt
-    )
+    effective_prompt = payload.prompt
     t_parse = _time.monotonic()
-    if payload.conversation_id and payload.conversation_id != "console":
-        conversation_service = get_conversation_service()
-        user_event = {
-            "id": f"user-{uuid4().hex}",
-            "kind": "user",
-            "text": payload.prompt,
-            "mode": payload.mode,
-        }
-        try:
-            conversation_service.append_events(payload.conversation_id, [user_event])
-        except FileNotFoundError as exc:
-            raise HTTPException(status_code=404, detail="Conversation not found") from exc
-    t_persist = _time.monotonic()
     asset_id = payload.asset_id
     if asset_id is None:
         local_terminal_asset = next((asset for asset in list_asset_records(session) if asset.asset_type == AssetType.LOCAL_TERMINAL.value), None)
         asset_id = local_terminal_asset.id if local_terminal_asset is not None and local_terminal_asset.id is not None else 0
     if asset_id is None:
         raise HTTPException(status_code=400, detail="Asset id is required")
+
+    conversation_scope_mode = "single"
+    conversation_primary_asset_id = asset_id
+    allowed_asset_ids = [asset_id]
+    if payload.conversation_id and payload.conversation_id != "console":
+        conversation_service = get_conversation_service()
+        user_event = {
+            "id": payload.user_event_id or f"user-{uuid4().hex}",
+            "kind": "user",
+            "text": payload.prompt,
+            "mode": payload.mode,
+            "assetId": asset_id,
+        }
+        try:
+            conversation = conversation_service.ensure_asset_access(payload.conversation_id, asset_id)
+            conversation_scope_mode = conversation.scope_mode
+            conversation_primary_asset_id = conversation.asset_id if conversation.asset_id is not None else asset_id
+            allowed_asset_ids = conversation.allowed_asset_ids
+            conversation_service.append_events(payload.conversation_id, [user_event])
+        except FileNotFoundError as exc:
+            raise HTTPException(status_code=404, detail="Conversation not found") from exc
+        except ValueError as exc:
+            raise HTTPException(status_code=409, detail=str(exc)) from exc
+    t_persist = _time.monotonic()
     
     try:
         stream = orchestrator.stream_run(
             session=session,
             prompt=effective_prompt,
+            operator_prompt=payload.prompt,
             asset_id=asset_id,
             terminal_id=payload.terminal_id,
             model_name=payload.model_name,
             selected_skill_name=payload.selected_skill_name,
+            mode=payload.mode,
             conversation_id=payload.conversation_id,
+            conversation_scope_mode=conversation_scope_mode,
+            conversation_primary_asset_id=conversation_primary_asset_id,
+            allowed_asset_ids=allowed_asset_ids,
         )
         first_event = next(stream)
     except ValueError as exc:
@@ -262,6 +272,22 @@ def cancel_runtime(runtime_id: str) -> dict:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 
 
+@router.post("/api/console/runtimes/{runtime_id}/messages")
+async def send_runtime_message(
+    runtime_id: str,
+    request: Request,
+    orchestrator: TaskOrchestrator = Depends(get_task_orchestrator),
+):
+    payload = await _parse_request_model(request, RuntimeMessageRequest)
+    runtime = _console_app_service.runtime_manager.get_runtime(runtime_id)
+    if runtime is None:
+        raise HTTPException(status_code=404, detail="Runtime not found.")
+    if runtime.state.is_terminal():
+        raise HTTPException(status_code=409, detail="Runtime is already complete.")
+    stream = orchestrator.stream_user_message(runtime_id=runtime_id, message=payload.message)
+    return _streaming_response(_persisted_stream(runtime.conversation_id, stream))
+
+
 @router.post("/api/console/terminal-requests/{request_id}/decision")
 async def decide_terminal_request(
     request_id: str,
@@ -289,6 +315,8 @@ async def decide_terminal_request(
             terminal_service=terminal_service,
             asset=asset,
         )
+        if result.get("status") == "approved" and terminal_request.scope_expansion_required:
+            get_conversation_service().allow_asset(runtime.conversation_id, terminal_request.asset_id)
     except KeyError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
     except PermissionError as exc:
@@ -315,6 +343,7 @@ async def decide_terminal_request(
         "status": result.get("status"),
         "channel": result.get("channel"),
         "reason": result.get("failureReason") or result.get("status"),
+        "scopeExpansionRequired": result.get("scopeExpansionRequired", False),
     }
     stream = orchestrator.stream_after_terminal_request(
         runtime_id=payload.runtime_id,
@@ -348,6 +377,7 @@ async def approve_console_agent(
         approved=payload.approved,
         approval_token=payload.approval_token,
         allow_prefix=payload.allow_prefix,
+        guidance=payload.guidance,
     )
 
     def event_stream():

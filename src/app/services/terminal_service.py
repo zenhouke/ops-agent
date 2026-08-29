@@ -108,13 +108,13 @@ class TerminalService:
             self._command_event_sequences[terminal_id] = 0
         return {"terminal_id": terminal_id, "channel": "terminal connected", "error": ""}
 
-    async def stream_session(self, terminal_id: str, websocket) -> None:
+    async def stream_session(self, terminal_id: str, websocket, *, subprotocol: str | None = None) -> None:
         self._expire_detached_sessions()
         runtime = self._sessions.get(terminal_id)
         if runtime is None:
             await websocket.close(code=1008)
             return
-        await websocket.accept()
+        await websocket.accept(subprotocol=subprotocol)
         connection_id = str(uuid.uuid4())
         runtime.connection_ids.add(connection_id)
         runtime.state = "attached"

@@ -13,12 +13,12 @@ type ConversationViewProps = {
   isLoadingOlder?: boolean
   pendingApprovalRuntimeId: string | null
   onLoadOlder?: () => Promise<void>
-  onApprove?: (allowPrefix?: string) => void
-  onReject?: () => void
+  onApprove?: (allowPrefix?: string, guidance?: string) => void
+  onReject?: (guidance?: string) => void
   onTerminalRequestDecision?: (input: { runtimeId: string; requestId: string; approvalToken: string; approved: boolean }) => Promise<void>
-  onForkRun?: (eventId: string, prompt: string) => Promise<void>
-  onBranch?: (eventId: string) => Promise<void>
-  branchDisabled?: boolean
+  onEditRun?: (eventId: string, prompt: string) => Promise<void>
+  onRetryRun?: (eventId: string, prompt: string) => Promise<void>
+  actionsDisabled?: boolean
 }
 
 const MAX_RENDERED_TURNS = 80
@@ -32,9 +32,9 @@ export function ConversationView({
   onApprove,
   onReject,
   onTerminalRequestDecision,
-  onForkRun,
-  onBranch,
-  branchDisabled,
+  onEditRun,
+  onRetryRun,
+  actionsDisabled,
 }: ConversationViewProps) {
   const scrollContainerRef = useRef<HTMLDivElement | null>(null)
   const shouldAutoScrollRef = useRef(true)
@@ -79,14 +79,14 @@ export function ConversationView({
 
   if (events.length === 0) {
     return (
-      <div className="flex-1 overflow-y-auto p-3" aria-label="任务执行记录">
-        <EmptyState title="准备就绪" description="输入任务后，执行记录、审批请求和最终结果会显示在这里。" />
+      <div className="flex-1 overflow-y-auto p-3" aria-label="Agent 对话">
+        <EmptyState title="准备就绪" description="描述目标或提出问题；Agent 的回答、进度和操作证据会显示在这里。" />
       </div>
     )
   }
 
   return (
-    <div className="relative flex flex-1 flex-col overflow-hidden" aria-label="任务执行记录">
+    <div className="relative flex flex-1 flex-col overflow-hidden" aria-label="Agent 对话">
       <div ref={scrollContainerRef} className="mx-auto flex w-full max-w-[980px] flex-1 flex-col gap-2 overflow-y-auto px-5 py-4">
         {hasMoreBefore || hiddenTurnCount > 0 ? (
           <div className="flex justify-center">
@@ -120,9 +120,9 @@ export function ConversationView({
                   onReject={onReject}
                   onTerminalRequestDecision={onTerminalRequestDecision}
                   settledTerminalRequestIds={settledTerminalRequestIds}
-                  onForkRun={onForkRun}
-                  onBranch={onBranch}
-                  branchDisabled={branchDisabled}
+                  onEditRun={onEditRun}
+                  onRetryRun={onRetryRun}
+                  actionsDisabled={actionsDisabled}
                 />
               ) : null}
 
@@ -172,6 +172,7 @@ export function ConversationView({
                           onReject={onReject}
                           onTerminalRequestDecision={onTerminalRequestDecision}
                           settledTerminalRequestIds={settledTerminalRequestIds}
+                          actionsDisabled={actionsDisabled}
                         />
                       )
                     }

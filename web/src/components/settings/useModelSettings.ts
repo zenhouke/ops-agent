@@ -53,7 +53,6 @@ export function useModelSettings({
   onSelectedModelChange,
 }: ModelSettingsOptions) {
   const modelOptionsChangeRef = useRef(onModelOptionsChange)
-  modelOptionsChangeRef.current = onModelOptionsChange
   const [modelConfigs, setModelConfigs] = useState<ModelConfig[]>([])
   const [modelForm, setModelForm] = useState<ModelForm>(emptyModelForm)
   const [showModelForm, setShowModelForm] = useState(false)
@@ -65,6 +64,10 @@ export function useModelSettings({
   const [discoveryMessage, setDiscoveryMessage] = useState<string | null>(null)
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
+
+  useEffect(() => {
+    modelOptionsChangeRef.current = onModelOptionsChange
+  }, [onModelOptionsChange])
 
   const loadModels = useCallback(async () => {
     try {

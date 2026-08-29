@@ -11,6 +11,9 @@ export function mapConversationSummary(dto: ConversationSummaryDto): Conversatio
     ...mapRequiredTimestamps(dto),
     eventCount: dto.event_count,
     lastEventKind: dto.last_event_kind,
+    assetId: dto.asset_id,
+    scopeMode: dto.scope_mode,
+    allowedAssetIds: dto.allowed_asset_ids,
   }
 }
 
@@ -21,6 +24,9 @@ export function mapConversationDetail(dto: ConversationDetailDto): ConversationD
     selectedModel: dto.selected_model,
     ...mapRequiredTimestamps(dto),
     events: dto.events,
+    assetId: dto.asset_id,
+    scopeMode: dto.scope_mode,
+    allowedAssetIds: dto.allowed_asset_ids,
   }
 }
 
@@ -65,10 +71,14 @@ export async function getConversations(): Promise<ConversationSummary[]> {
   return conversations.map(mapConversationSummary)
 }
 
-export async function createConversation(selectedModel: string | null): Promise<{ conversation: ConversationSummary; events: EventItem[] }> {
+export async function createConversation(
+  selectedModel: string | null,
+  assetId: number,
+  scopeMode: 'single' | 'multi' = 'single',
+): Promise<{ conversation: ConversationSummary; events: EventItem[] }> {
   const response = await requestJson<ConversationCreateResponseDto>('/api/conversations', {
     method: 'POST',
-    body: JSON.stringify({ selected_model: selectedModel }),
+    body: JSON.stringify({ selected_model: selectedModel, asset_id: assetId, scope_mode: scopeMode }),
   })
   return {
     conversation: mapConversationSummary(response.conversation),
@@ -76,16 +86,13 @@ export async function createConversation(selectedModel: string | null): Promise<
   }
 }
 
-export async function branchConversation(
+export async function rewriteConversation(
   conversationId: string,
-  boundary: { beforeEventId?: string; throughEventId?: string },
+  beforeEventId: string,
 ): Promise<{ conversation: ConversationSummary; events: EventItem[] }> {
-  const response = await requestJson<ConversationCreateResponseDto>(`/api/conversations/${conversationId}/branch`, {
+  const response = await requestJson<ConversationCreateResponseDto>(`/api/conversations/${conversationId}/rewrite`, {
     method: 'POST',
-    body: JSON.stringify({
-      before_event_id: boundary.beforeEventId ?? null,
-      through_event_id: boundary.throughEventId ?? null,
-    }),
+    body: JSON.stringify({ before_event_id: beforeEventId }),
   })
   return {
     conversation: mapConversationSummary(response.conversation),
@@ -121,8 +128,9 @@ export async function appendConversationEvents(conversationId: string, events: E
   return mapConversationAppendResponse(response)
 }
 
-export async function deleteConversation(conversationId: string): Promise<void> {
-  await requestVoid(`/api/conversations/${conversationId}`, {
+export async function deleteConversation(conversationId: string, cancelActive = false): Promise<void> {
+  const query = cancelActive ? '?cancel_active=true' : ''
+  await requestVoid(`/api/conversations/${conversationId}${query}`, {
     method: 'DELETE',
   })
 }

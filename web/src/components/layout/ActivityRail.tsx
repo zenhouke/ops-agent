@@ -1,7 +1,7 @@
 import { useAppearance } from '../../hooks/useAppearance'
 
 export type WorkspaceSection = 'assets' | 'conversations'
-export type PrimaryWorkspace = WorkspaceSection | 'knowledge' | 'credentials' | 'automation' | 'extensions'
+export type PrimaryWorkspace = WorkspaceSection | 'knowledge' | 'topology' | 'credentials' | 'automation' | 'extensions'
 
 type ActivityRailProps = {
   activeWorkspace: PrimaryWorkspace
@@ -44,6 +44,9 @@ export function ActivityRail({ activeWorkspace, onSelectWorkspace, onOpenSetting
         </RailButton>
         <RailButton active={activeWorkspace === 'knowledge'} label={t('management.knowledge')} onClick={() => onSelectWorkspace('knowledge')}>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5z" /></svg>
+        </RailButton>
+        <RailButton active={activeWorkspace === 'topology'} label="网络拓扑" onClick={() => onSelectWorkspace('topology')}>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><circle cx="5" cy="12" r="2"/><circle cx="19" cy="6" r="2"/><circle cx="19" cy="18" r="2"/><path d="m7 11 10-4M7 13l10 4"/></svg>
         </RailButton>
       </div>
 

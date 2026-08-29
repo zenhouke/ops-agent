@@ -4,6 +4,8 @@ from datetime import datetime
 
 from pydantic import BaseModel, ConfigDict, Field, SecretStr
 
+from app.shared.schemas import AssetCreate
+
 
 class AssetGroupCreate(BaseModel):
     name: str
@@ -37,6 +39,19 @@ class AssetView(BaseModel):
     tags: list[str]
     vendor: str
     description: str
+
+
+class AssetConnectionTestRequest(BaseModel):
+    asset_id: int | None = None
+    asset: AssetCreate
+
+
+class AssetConnectionTestView(BaseModel):
+    success: bool
+    message: str
+    detected_device_type: str | None = None
+    detected_asset_type: str | None = None
+    prompt: str | None = None
 
 
 class TerminalEventSummaryView(BaseModel):
@@ -215,5 +230,4 @@ class SSHKeyView(BaseModel):
     has_passphrase: bool
     created_at: datetime
     updated_at: datetime
-
 

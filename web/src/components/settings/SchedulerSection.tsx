@@ -1,4 +1,4 @@
-import { type FormEvent, useEffect, useState } from 'react'
+import { type FormEvent, useCallback, useEffect, useState } from 'react'
 import {
   createScheduledJob,
   deleteScheduledJob,
@@ -49,7 +49,7 @@ export function SchedulerSection({ assets }: SchedulerSectionProps) {
   const [enabled, setEnabled] = useState(true)
   const hasAssets = assets.length > 0
 
-  const loadJobs = async () => {
+  const loadJobs = useCallback(async () => {
     setLoading(true)
     setError(null)
     try {
@@ -60,11 +60,11 @@ export function SchedulerSection({ assets }: SchedulerSectionProps) {
     } finally {
       setLoading(false)
     }
-  }
+  }, [t])
 
   useEffect(() => {
     void loadJobs()
-  }, [])
+  }, [loadJobs])
 
   const startCreate = () => {
     if (!hasAssets) {

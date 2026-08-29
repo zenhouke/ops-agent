@@ -1,0 +1,54 @@
+name: ops-agent-local
+
+services:
+  backend:
+    build:
+      context: .
+      dockerfile: .docker/dev/backend.Dockerfile
+    restart: unless-stopped
+    environment:
+      OPS_AGENT_HOST: 0.0.0.0
+      OPS_AGENT_PORT: 8000
+      OPS_AGENT_RELOAD: "true"
+      OPS_AGENT_SECRET_KEY: ${OPS_AGENT_SECRET_KEY:?required}
+      OPS_AGENT_AUTH_DISABLED: "true"
+      OPS_AGENT_LEGACY_SECRET_KEY: ${OPS_AGENT_LEGACY_SECRET_KEY:-}
+      PYTHONUNBUFFERED: "1"
+      WATCHFILES_FORCE_POLLING: "true"
+    volumes:
+      - .:/workspace
+    ports:
+      - "0.0.0.0:${OPS_AGENT_BACKEND_PORT:-38082}:8000"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:8000/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 45s
+
+  frontend:
+    build:
+      context: .
+      dockerfile: .docker/dev/frontend.Dockerfile
+    restart: unless-stopped
+    environment:
+      VITE_API_PROXY_TARGET: http://backend:8000
+      CHOKIDAR_USEPOLLING: "true"
+    volumes:
+      - ./web:/workspace
+      - frontend_node_modules:/workspace/node_modules
+    ports:
+      - "0.0.0.0:${OPS_AGENT_FRONTEND_PORT:-35174}:5173"
+    depends_on:
+      backend:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "http://127.0.0.1:5173/"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 30s
+
+volumes:
+  frontend_node_modules:
+    name: ops_agent_dev_frontend_node_modules

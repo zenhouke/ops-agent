@@ -41,6 +41,7 @@ Configure model -> Select asset -> Open terminal -> Ask AI -> Review proposed co
 - Default posture: AI suggests; the operator approves.
 - Command output, approval decisions, and conversation events are recorded for traceability.
 - Secrets should not be logged; production deployments must set `OPS_AGENT_SECRET_KEY`.
+- Non-loopback web deployments must set a separate `OPS_AGENT_API_TOKEN`; HTTP APIs and terminal WebSockets share this authentication boundary.
 - High-risk mutating commands should not be executed automatically.
 
 ## Tech Stack
@@ -96,6 +97,9 @@ Startup scripts load `.env` from the repository root.
 | `OPS_AGENT_PORT` | `8000` | Backend port |
 | `OPS_AGENT_RELOAD` | `true` | Enable Uvicorn reload |
 | `OPS_AGENT_SECRET_KEY` | none | Required in production for secret encryption |
+| `OPS_AGENT_API_TOKEN` | `OPS_AGENT_SECRET_KEY` | Web/API access token; set a separate value for non-loopback deployments |
+| `OPS_AGENT_AUTH_DISABLED` | `false` | Disable authentication only for trusted loopback development or the Tauri backend |
+| `OPS_AGENT_LEGACY_SECRET_KEY` | none | Temporary key used only while migrating legacy v1 credentials |
 | `OPS_AGENT_PROVIDER` | `openai_compatible` | Default model provider |
 | `OPS_AGENT_MODEL` | provider default | Default model name |
 | `OPS_AGENT_BASE_URL` | provider default | Default model base URL |
@@ -128,12 +132,19 @@ Local runtime data:
 ## Development
 
 ```bash
+# Containerized frontend/backend hot reload
+docker compose up -d --build
+
 # Tauri desktop dev
 pnpm --dir web tauri:dev
 
 # Tauri desktop build
 pnpm --dir web tauri:build
 ```
+
+The repository's local development Compose explicitly sets `OPS_AGENT_AUTH_DISABLED=true`, so the web UI does not prompt for an access token; use this configuration only on a trusted development network. Other non-loopback deployments should keep authentication enabled and set `OPS_AGENT_API_TOKEN`. `/health` is the liveness endpoint; `/ready` also validates database access and credential decryption.
+
+Credentials use AES-GCM v2 with a random nonce and authentication tag. To upgrade legacy v1 data, back up the database, temporarily provide the old key, and remove `OPS_AGENT_LEGACY_SECRET_KEY` immediately after a successful startup migration.
 
 ## Desktop
 

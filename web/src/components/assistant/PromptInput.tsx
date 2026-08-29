@@ -1,6 +1,7 @@
 import { useAppearance } from '../../hooks/useAppearance'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { useSkillPackages } from '../../hooks/useSkillPackages'
+import type { BackgroundRunStatus } from '../../hooks/console/agentRunSupport'
 import type { Asset, ConversationContextStatus } from '../../types/ops'
 import { ModelSelector } from './ModelSelector'
 
@@ -15,6 +16,7 @@ type PromptInputProps = {
   onPromptChange: (prompt: string) => void
   onModelChange: (model: string) => void
   onRun: (prompt: string, selectedSkillName?: string | null, mode?: 'standard' | 'incident') => Promise<void>
+  runStatus: BackgroundRunStatus | null
   isRunning: boolean
   onCancel: () => Promise<void>
 }
@@ -79,6 +81,19 @@ function parseLeadingSkillCommand(prompt: string, validSkillNames: Set<string>) 
   }
 }
 
+function activePromptCopy(status: BackgroundRunStatus | null) {
+  if (status === 'needs_input') {
+    return { placeholder: '回复 Agent 的问题…', sendLabel: '回复 Agent', sendTitle: '回复后 Agent 将继续当前任务' }
+  }
+  if (status === 'needs_approval') {
+    return { placeholder: '补充审批说明；批准或拒绝仍需在审批卡操作…', sendLabel: '补充说明', sendTitle: '只补充说明，不会批准或执行命令' }
+  }
+  if (status === 'disconnected') {
+    return { placeholder: '连接已中断；可向后台任务补充指令…', sendLabel: '补充指令', sendTitle: '发送到仍在后台运行的 Agent' }
+  }
+  return { placeholder: '补充条件或纠正 Agent 当前方向…', sendLabel: '补充指令', sendTitle: '发送到当前 Agent 运行' }
+}
+
 export function PromptInput({
   prompt,
   models,
@@ -90,6 +105,7 @@ export function PromptInput({
   onPromptChange,
   onModelChange,
   onRun,
+  runStatus,
   isRunning,
   onCancel,
 }: PromptInputProps) {
@@ -97,6 +113,7 @@ export function PromptInput({
   const textareaRef = useRef<HTMLTextAreaElement | null>(null)
   const { skillPackages, loading: skillsLoading, loadSkillPackages } = useSkillPackages()
   const [incidentMode, setIncidentMode] = useState(false)
+  const runningCopy = activePromptCopy(runStatus)
 
   const slashSuggestionQuery = useMemo(() => getSlashSuggestionQuery(prompt), [prompt])
   const shouldShowSlashSuggestions = slashSuggestionQuery !== null
@@ -175,7 +192,7 @@ export function PromptInput({
           <textarea
             id="prompt-input"
             ref={textareaRef}
-            className="min-h-[58px] w-full resize-none bg-transparent px-4 pb-2 pr-14 pt-3.5 text-[13px] font-medium leading-relaxed text-ops-text caret-ops-text outline-none placeholder:text-ops-muted/35 scrollbar-thin"
+            className={`min-h-[58px] w-full resize-none bg-transparent px-4 pb-2 pt-3.5 text-[13px] font-medium leading-relaxed text-ops-text caret-ops-text outline-none placeholder:text-ops-muted/35 scrollbar-thin ${isRunning ? 'pr-28' : 'pr-20'}`}
             value={prompt}
             onChange={(event) => onPromptChange(event.target.value)}
             onKeyDown={(e) => {
@@ -184,28 +201,22 @@ export function PromptInput({
                 void submitPrompt()
               }
             }}
-            placeholder={t('assistant.promptPlaceholder')}
+            placeholder={isRunning ? runningCopy.placeholder : t('assistant.promptPlaceholder')}
           />
 
           <button
-            className={`absolute bottom-2 right-3 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border transition-all duration-200 active:scale-95 ${isRunning
-              ? 'border-ops-danger/45 bg-ops-danger text-white hover:bg-ops-danger/85'
-              : prompt.trim() && !blockedRun
+            className={`absolute bottom-2 right-3 flex h-8 shrink-0 items-center justify-center gap-1.5 rounded-full border px-3 text-[10px] font-bold transition-all duration-200 active:scale-95 ${prompt.trim() && !blockedRun
               ? 'border-ops-text bg-ops-text text-ops-bg hover:bg-ops-text/85'
               : 'cursor-not-allowed border-ops-border/20 bg-ops-panel/70 text-ops-muted/25'
               }`}
             type="button"
-            onClick={() => {
-              void (isRunning ? onCancel() : submitPrompt())
-            }}
-            disabled={!isRunning && (!prompt.trim() || Boolean(blockedRun))}
-            aria-label={t(isRunning ? 'common.cancel' : 'assistant.runMission')}
+            onClick={() => void submitPrompt()}
+            disabled={!prompt.trim() || Boolean(blockedRun)}
+            aria-label={isRunning ? runningCopy.sendLabel : t('assistant.runMission')}
+            title={isRunning ? runningCopy.sendTitle : undefined}
           >
-            {isRunning ? (
-              <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false" className="h-4 w-4 fill-current"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>
-            ) : (
-              <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false" className="h-4 w-4 fill-none stroke-current" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19V5" /><path d="m6.5 10.5 5.5-5.5 5.5 5.5" /></svg>
-            )}
+            <span>{isRunning ? runningCopy.sendLabel : '发送'}</span>
+            <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false" className="h-3.5 w-3.5 fill-none stroke-current" strokeWidth="2.6" strokeLinecap="round" strokeLinejoin="round"><path d="M12 19V5" /><path d="m6.5 10.5 5.5-5.5 5.5 5.5" /></svg>
           </button>
         </div>
 
@@ -240,6 +251,18 @@ export function PromptInput({
             >
               事故模式
             </button>
+            {isRunning ? (
+              <button
+                className="inline-flex shrink-0 items-center gap-1.5 rounded border border-ops-danger/30 bg-ops-danger/[0.06] px-2 py-1 text-[9px] font-semibold text-ops-danger transition hover:bg-ops-danger/[0.12] active:scale-95"
+                type="button"
+                onClick={() => void onCancel()}
+                aria-label="停止当前 Agent 运行"
+                title="停止当前 Agent 运行"
+              >
+                <svg aria-hidden="true" viewBox="0 0 24 24" focusable="false" className="h-2.5 w-2.5 fill-current"><rect x="5" y="5" width="14" height="14" rx="2" /></svg>
+                停止
+              </button>
+            ) : null}
           </div>
 
           <span

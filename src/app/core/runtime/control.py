@@ -37,6 +37,16 @@ def _positive_float(name: str, default: float) -> float:
     return value if value > 0 else default
 
 
+def _percentile(values: list[float], quantile: float) -> float:
+    if not values:
+        return 0.0
+    position = (len(values) - 1) * quantile
+    lower = int(position)
+    upper = min(lower + 1, len(values) - 1)
+    fraction = position - lower
+    return values[lower] + (values[upper] - values[lower]) * fraction
+
+
 @dataclass(frozen=True, slots=True)
 class RuntimeLimits:
     max_concurrent_runs: int
@@ -80,10 +90,20 @@ class RuntimeMetrics:
             "mcp_calls": 0,
             "scheduler_runs": 0,
             "scheduler_failures": 0,
+            "runtime_guidance_messages": 0,
+            "runtime_guidance_messages_applied": 0,
+            "followup_questions": 0,
+            "followup_resumes": 0,
+            "approvals_with_guidance": 0,
+            "task_state_updates": 0,
+            "completed_with_tool_failures": 0,
         }
         self._active_runs = 0
         self._active_tools = 0
         self._run_durations: deque[float] = deque(maxlen=256)
+        self._first_response_durations: deque[float] = deque(maxlen=256)
+        self._first_response_runtime_ids: set[str] = set()
+        self._first_response_runtime_order: deque[str] = deque()
         self._logical_runs: dict[str, float] = {}
         self._finished_runtime_ids: set[str] = set()
         self._finished_runtime_order: deque[str] = deque()
@@ -128,6 +148,16 @@ class RuntimeMetrics:
         with self._lock:
             self._active_runs += 1
 
+    def record_first_response(self, runtime_id: str, duration_seconds: float) -> None:
+        with self._lock:
+            if runtime_id in self._first_response_runtime_ids:
+                return
+            if len(self._first_response_runtime_order) >= 2048:
+                self._first_response_runtime_ids.discard(self._first_response_runtime_order.popleft())
+            self._first_response_runtime_ids.add(runtime_id)
+            self._first_response_runtime_order.append(runtime_id)
+            self._first_response_durations.append(max(0.0, duration_seconds))
+
     def run_capacity_finished(self) -> None:
         with self._lock:
             self._active_runs = max(0, self._active_runs - 1)
@@ -144,13 +174,28 @@ class RuntimeMetrics:
     def snapshot(self, limits: RuntimeLimits) -> dict[str, Any]:
         with self._lock:
             durations = sorted(self._run_durations)
-            p95_index = max(0, min(len(durations) - 1, int(len(durations) * 0.95) - 1))
+            first_response_durations = sorted(self._first_response_durations)
+            runs_started = self._counters.get("runs_started", 0)
+            guidance_messages = (
+                self._counters.get("runtime_guidance_messages", 0)
+                + self._counters.get("approvals_with_guidance", 0)
+            )
             return {
                 "startedAt": self._started_at,
                 "uptimeSeconds": max(0.0, time.time() - self._started_at),
                 "activeRuns": self._active_runs,
                 "activeTools": self._active_tools,
-                "recentRunDurationP95Seconds": durations[p95_index] if durations else 0.0,
+                "recentRunDurationP95Seconds": _percentile(durations, 0.95),
+                "dialogue": {
+                    "firstResponseSamples": len(first_response_durations),
+                    "firstResponseP50Seconds": _percentile(first_response_durations, 0.5),
+                    "firstResponseP95Seconds": _percentile(first_response_durations, 0.95),
+                    "clarificationRate": self._counters.get("followup_questions", 0) / runs_started if runs_started else 0.0,
+                    "guidanceApplyRate": min(
+                        1.0,
+                        self._counters.get("runtime_guidance_messages_applied", 0) / guidance_messages,
+                    ) if guidance_messages else 0.0,
+                },
                 "counters": dict(self._counters),
                 "limits": asdict(limits),
             }

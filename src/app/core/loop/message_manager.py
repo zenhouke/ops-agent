@@ -63,6 +63,13 @@ class MessageManager:
 
         yield self._emit()
 
+    def replace_text(self, text: str) -> Iterator[LoopEvent]:
+        """Replace streamed text when the completed response fails validation."""
+        if not self.current_message:
+            return
+        self.current_message.text = text
+        yield self._emit()
+
     def finalize(
         self,
         *,

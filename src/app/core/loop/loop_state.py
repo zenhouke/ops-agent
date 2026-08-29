@@ -1,15 +1,19 @@
 from __future__ import annotations
 
+from collections import deque
 from dataclasses import dataclass, field
 import time
+import threading
 from typing import Any, Literal
 
 from app.shared.schemas import ModelConfig
 from app.core.llm.types import LLMMessage
+from app.core.loop.task_state import AgentTaskState
 
 LoopPhase = Literal[
     "approving",
     "waiting_terminal_approval",
+    "waiting_user_input",
     "executing",
     "completed",
     "failed",
@@ -30,6 +34,9 @@ class LoopContext:
     model_config: ModelConfig
     execution_profile: str = "posix-shell"
     default_authorization_id: str | None = None
+    conversation_scope_mode: Literal["single", "multi"] = "single"
+    conversation_primary_asset_id: int | None = None
+    allowed_asset_ids: list[int] = field(default_factory=list)
     device_vendor: str | None = None
     device_context: str = ""
     recent_output: str = ""
@@ -38,6 +45,10 @@ class LoopContext:
     loaded_skill_name: str | None = None
     manual_skill_name: str | None = None
     manual_skill_content: str = ""
+    agent_behavior_prompt: str = ""
+    incident_response_prompt: str = ""
+    organization_rules_prompt: str = ""
+    task_state: AgentTaskState = field(default_factory=AgentTaskState)
 
 
 @dataclass(slots=True)
@@ -96,6 +107,11 @@ class LoopState:
     tool_calls: int = 0
     cancel_requested: bool = False
     cancellation_reason: str | None = None
+    pending_user_messages: deque[str] = field(default_factory=deque)
+    pending_followup_question: str | None = None
+    pending_followup_message_id: str | None = None
+    message_lock: threading.RLock = field(default_factory=threading.RLock, repr=False)
+    first_response_recorded: bool = False
 
     def is_terminal(self) -> bool:
         return self.phase in {"completed", "failed"}

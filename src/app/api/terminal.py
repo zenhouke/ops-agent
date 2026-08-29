@@ -7,6 +7,7 @@ from app.api.schemas import AssetContextView, TerminalEventSummaryView
 from app.core.connectors.server import connector_factory
 from app.db.session import get_session
 from app.services.asset_service import get_asset_record
+from app.services.auth_service import is_connection_authorized
 from app.utils.local_terminal_asset import build_local_terminal_asset
 from app.services.terminal_service import TerminalService
 
@@ -115,7 +116,10 @@ async def stream_terminal_session(
     terminal_id: str,
     terminal_service: TerminalService = Depends(get_terminal_service),
 ) -> None:
-    await terminal_service.stream_session(terminal_id, websocket)
+    if not is_connection_authorized(websocket, websocket_protocol=True):
+        await websocket.close(code=4401, reason="Authentication required")
+        return
+    await terminal_service.stream_session(terminal_id, websocket, subprotocol="ops-agent")
 
 
 @router.delete("/api/terminal/sessions/{terminal_id}", status_code=204)

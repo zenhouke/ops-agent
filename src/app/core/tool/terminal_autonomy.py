@@ -135,6 +135,22 @@ class RequestTerminalSessionHandler:
             if manager:
                 yield from manager.update(tool_output=output)
             return False, output
+        primary_asset_id = state.context.conversation_primary_asset_id if state.context.conversation_primary_asset_id is not None else state.context.asset_id
+        is_cross_asset = asset_id != primary_asset_id
+        if is_cross_asset and state.context.conversation_scope_mode != "multi":
+            output = _json_tool_output(
+                "request_terminal_session",
+                "scope_denied",
+                {
+                    "assetId": asset_id,
+                    "primaryAssetId": primary_asset_id,
+                    "message": "This conversation is bound to one asset. Create a multi-asset task before requesting another asset.",
+                },
+            )
+            if manager:
+                yield from manager.update(tool_output=output)
+            return False, output
+        scope_expansion_required = asset_id not in state.context.allowed_asset_ids
         with Session(engine) as session:
             asset = get_asset(session, asset_id)
             if asset is None or asset.id is None:
@@ -161,6 +177,7 @@ class RequestTerminalSessionHandler:
                 asset_id=asset.id,
                 asset_name=asset.name,
                 reason=reason,
+                scope_expansion_required=scope_expansion_required,
             )
             yield LoopEvent(
                 event_type="terminal_session_request",
@@ -176,6 +193,7 @@ class RequestTerminalSessionHandler:
                 "assetId": request.asset_id,
                 "assetName": request.asset_name,
                 "reason": request.reason,
+                "scopeExpansionRequired": request.scope_expansion_required,
             },
         )
         if manager:

@@ -23,6 +23,11 @@ fi
 
 OPS_AGENT_PORT="${OPS_AGENT_PORT:-8000}"
 export OPS_AGENT_PORT
+OPS_AGENT_HOST="${OPS_AGENT_HOST:-127.0.0.1}"
+export OPS_AGENT_HOST
+if [ -z "${OPS_AGENT_AUTH_DISABLED:-}" ] && { [ "$OPS_AGENT_HOST" = "127.0.0.1" ] || [ "$OPS_AGENT_HOST" = "localhost" ]; }; then
+    export OPS_AGENT_AUTH_DISABLED="true"
+fi
 export VITE_API_PROXY_TARGET="${VITE_API_PROXY_TARGET:-http://127.0.0.1:${OPS_AGENT_PORT}}"
 
 echo "Stopping processes on ports ${OPS_AGENT_PORT} and 5173..."

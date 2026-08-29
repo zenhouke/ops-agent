@@ -1,22 +1,19 @@
 from __future__ import annotations
 
 import hashlib
-import logging
+import json
+import re
 import secrets
+import time
 import uuid
 from collections.abc import Iterator
 from typing import Any
-
-logger = logging.getLogger(__name__)
 
 from app.core.llm.types import LLMCompletionResponse, LLMMessage, LLMTokenUsage
 from app.core.llm.factory import build_llm_provider
 from app.core.loop.agent_loop_support import AgentLoopSupportMixin
 from app.core.loop.request_builder import AgentLLMRequestBuilder
-from app.core.loop.loop_events import (
-    LoopEvent,
-    emit_failed,
-)
+from app.core.loop.loop_events import LoopEvent
 from app.core.loop.loop_state import LoopRuntimeStep, LoopState
 from app.core.loop.message_manager import MessageManager
 from app.core.loop.prompts import (
@@ -34,6 +31,15 @@ EventCallback = Any
 
 
 class AgentLoop(AgentLoopSupportMixin):
+    _UNVERIFIED_EXECUTION_PATTERNS = (
+        re.compile(r"\[Executed\s*:", re.IGNORECASE),
+        re.compile(r"\bExit code\s*:\s*-?\d+", re.IGNORECASE),
+        re.compile(r"\bHistorical verified command record\s*:", re.IGNORECASE),
+        re.compile(r"\bRecorded exit_code\s*=\s*-?\d+", re.IGNORECASE),
+        re.compile(r"\bEarlier conversation tool record\s*\(", re.IGNORECASE),
+        re.compile(r"(?:命令|指令).{0,12}(?:已执行|执行成功|已运行)"),
+    )
+
     def __init__(
         self,
         *,
@@ -72,6 +78,25 @@ class AgentLoop(AgentLoopSupportMixin):
     def run(self, state: LoopState) -> Iterator[LoopEvent]:
         manager = MessageManager(runtime_id=state.context.runtime_id)
         yield from self._tool_calling_loop(state, manager=manager)
+
+    def _drain_pending_user_messages(self, state: LoopState) -> list[str]:
+        messages: list[str] = []
+        with state.message_lock:
+            while state.pending_user_messages:
+                message = state.pending_user_messages.popleft().strip()
+                if not message:
+                    continue
+                messages.append(message)
+        return messages
+
+    def _append_user_messages(self, state: LoopState, messages: list[str]) -> None:
+        state.messages.extend(LLMMessage(role="user", content=message) for message in messages)
+        if messages:
+            get_runtime_control().metrics.increment("runtime_guidance_messages_applied", len(messages))
+
+    @classmethod
+    def _claims_unverified_execution(cls, text: str) -> bool:
+        return any(pattern.search(text) for pattern in cls._UNVERIFIED_EXECUTION_PATTERNS)
 
     def resume_with_approval(self, state: LoopState, *, approved: bool) -> Iterator[LoopEvent]:
         if state.phase != "approving":
@@ -178,11 +203,9 @@ class AgentLoop(AgentLoopSupportMixin):
         if not state.messages:
             state.messages = self._request_builder.build_initial_tool_calling_messages(state=state)
 
-        unresolved_tool_failure = any(step.status == "failed" for step in state.steps)
-
         while True:
+            self._append_user_messages(state, self._drain_pending_user_messages(state))
             response_text_parts: list[str] = []
-            response_thinking_parts: list[str] = []
             response_tool_calls = []
             finish_reason: str | None = None
             usage: LLMTokenUsage | None = None
@@ -191,17 +214,17 @@ class AgentLoop(AgentLoopSupportMixin):
             yield from manager.begin_message(message_type="say", say_type="text")
 
             self._before_llm_call(state)
-            first_chunk_logged = False
             for chunk in provider.stream_complete(
                 config=ctx.model_config,
                 request=self._request_builder.build_tool_calling_request(state=state, tools=tools),
             ):
                 self._check_runtime_budget(state)
-                if not first_chunk_logged:
-                    first_chunk_logged = True
-                if chunk.thinking_delta:
-                    response_thinking_parts.append(chunk.thinking_delta)
-                    yield from manager.update(thinking=chunk.thinking_delta)
+                if not state.first_response_recorded and (chunk.delta or chunk.tool_calls):
+                    get_runtime_control().metrics.record_first_response(
+                        ctx.runtime_id,
+                        time.monotonic() - state.started_monotonic,
+                    )
+                    state.first_response_recorded = True
                 if chunk.delta:
                     response_text_parts.append(chunk.delta)
                     yield from manager.update(text=chunk.delta)
@@ -212,17 +235,38 @@ class AgentLoop(AgentLoopSupportMixin):
                 usage = chunk.usage or usage
             self._record_usage(state, usage, call_kind="agent")
 
-            thinking_content = "".join(response_thinking_parts)
-            if thinking_content:
-                logger.info("LLM Thinking: %s (runtime_id=%s, model=%s)", thinking_content[:200], ctx.runtime_id, ctx.model_config.model_name)
-
             response = LLMCompletionResponse(
                 text="".join(response_text_parts),
                 tool_calls=response_tool_calls,
                 finish_reason=finish_reason,
-                thinking=thinking_content,
+                thinking="",
                 usage=usage,
             )
+
+            unverified_execution_claim = (
+                not response.tool_calls
+                and bool(response.text)
+                and self._claims_unverified_execution(response.text)
+            )
+
+            if unverified_execution_claim:
+                safe_text = "Agent 返回了未经工具验证的执行结果，系统已拦截并要求重新通过工具执行。"
+                state.messages.append(LLMMessage(role="assistant", content=safe_text))
+                yield from manager.replace_text(safe_text)
+                yield from manager.finalize()
+                state.messages.append(
+                    LLMMessage(
+                        role="user",
+                        content=(
+                            "Your previous response was rejected because it claimed command execution without a tool call. "
+                            "Do not repeat or paraphrase an imagined result. Use execute_command with the correct "
+                            "authorization_id and its real result, including the normal approval flow, or clearly state "
+                            "that no command was run."
+                        ),
+                    )
+                )
+                get_runtime_control().metrics.increment("unverified_execution_claims_blocked")
+                continue
 
             if response.text or response.tool_calls:
                 state.messages.append(
@@ -236,19 +280,49 @@ class AgentLoop(AgentLoopSupportMixin):
             # Finalize the assistant's text message
             yield from manager.finalize()
 
+            guidance_messages = self._drain_pending_user_messages(state)
+            if guidance_messages:
+                for tool_call in response.tool_calls:
+                    state.messages.append(
+                        LLMMessage(
+                            role="tool",
+                            content="Cancelled because the operator supplied newer guidance. Re-evaluate the task before using tools.",
+                            tool_call_id=tool_call.id,
+                            name=tool_call.name,
+                        )
+                    )
+                self._append_user_messages(state, guidance_messages)
+                continue
+
             if not response.tool_calls:
                 summary = response.text or "Task execution completed."
-                if unresolved_tool_failure:
-                    state.phase = "failed"
-                    state.error_message = summary
-                    yield emit_failed(runtime_id=ctx.runtime_id, error=summary)
-                    return False, False, summary
-                state.phase = "completed"
-                state.summary = summary
+                with state.message_lock:
+                    late_guidance = self._drain_pending_user_messages(state)
+                    if late_guidance:
+                        self._append_user_messages(state, late_guidance)
+                        continue
+                    state.phase = "completed"
+                    state.summary = summary
+                    if any(step.status == "failed" for step in state.steps):
+                        get_runtime_control().metrics.increment("completed_with_tool_failures")
                 return False, True, summary
 
             restart_tool_calling = False
             for index, tool_call in enumerate(response.tool_calls):
+                guidance_messages = self._drain_pending_user_messages(state)
+                if guidance_messages:
+                    for cancelled_tool_call in response.tool_calls[index:]:
+                        state.messages.append(
+                            LLMMessage(
+                                role="tool",
+                                content="Cancelled because the operator supplied newer guidance. Re-evaluate the task before using tools.",
+                                tool_call_id=cancelled_tool_call.id,
+                                name=cancelled_tool_call.name,
+                            )
+                        )
+                    self._append_user_messages(state, guidance_messages)
+                    restart_tool_calling = True
+                    break
                 handler = self._tools.get(tool_call.name)
                 if handler is None:
                     state.messages.append(
@@ -264,6 +338,103 @@ class AgentLoop(AgentLoopSupportMixin):
                 args = self._prepare_tool_args(handler, tool_call.arguments, state)
                 command = str(args.get("command", "")).strip()
                 working_directory = args.get("working_directory")
+
+                if tool_call.name == "update_task_state":
+                    verified_facts = args.get("verified_facts")
+                    if isinstance(verified_facts, list):
+                        missing_sources = [
+                            str(fact) for fact in verified_facts
+                            if "source:" not in str(fact).lower() and "来源" not in str(fact)
+                        ]
+                        if missing_sources:
+                            state.messages.append(
+                                LLMMessage(
+                                    role="tool",
+                                    content="Task state rejected: every verified fact must include a concise source reference.",
+                                    tool_call_id=tool_call.id,
+                                    name=tool_call.name,
+                                )
+                            )
+                            continue
+                    ctx.task_state.update(args)
+                    get_runtime_control().metrics.increment("task_state_updates")
+                    payload = ctx.task_state.to_payload()
+                    state.messages.append(
+                        LLMMessage(
+                            role="tool",
+                            content=json.dumps(payload, ensure_ascii=False, separators=(",", ":")),
+                            tool_call_id=tool_call.id,
+                            name=tool_call.name,
+                        )
+                    )
+                    yield LoopEvent(
+                        event_type="task_state",
+                        runtime_id=ctx.runtime_id,
+                        phase=state.phase,
+                        payload=payload,
+                    )
+                    continue
+
+                if tool_call.name == "ask_followup":
+                    question = str(args.get("question") or "").strip()
+                    if not question:
+                        state.messages.append(
+                            LLMMessage(
+                                role="tool",
+                                content="A non-empty question is required.",
+                                tool_call_id=tool_call.id,
+                                name=tool_call.name,
+                            )
+                        )
+                        continue
+                    with state.message_lock:
+                        guidance_messages = self._drain_pending_user_messages(state)
+                        if not guidance_messages:
+                            state.phase = "waiting_user_input"
+                            state.pending_followup_question = question
+                    get_runtime_control().metrics.increment("followup_questions")
+                    if guidance_messages:
+                        state.messages.append(
+                            LLMMessage(
+                                role="tool",
+                                content="The operator supplied newer guidance before this question was shown. Re-evaluate the task.",
+                                tool_call_id=tool_call.id,
+                                name=tool_call.name,
+                            )
+                        )
+                        for remaining_tool_call in response.tool_calls[index + 1:]:
+                            state.messages.append(
+                                LLMMessage(
+                                    role="tool",
+                                    content="Cancelled because the operator supplied newer guidance.",
+                                    tool_call_id=remaining_tool_call.id,
+                                    name=remaining_tool_call.name,
+                                )
+                            )
+                        self._append_user_messages(state, guidance_messages)
+                        restart_tool_calling = True
+                        break
+                    state.messages.append(
+                        LLMMessage(
+                            role="tool",
+                            content="Waiting for the operator's answer.",
+                            tool_call_id=tool_call.id,
+                            name=tool_call.name,
+                        )
+                    )
+                    for remaining_tool_call in response.tool_calls[index + 1:]:
+                        state.messages.append(
+                            LLMMessage(
+                                role="tool",
+                                content="Cancelled because the runtime is waiting for operator input.",
+                                tool_call_id=remaining_tool_call.id,
+                                name=remaining_tool_call.name,
+                            )
+                        )
+                    yield from manager.begin_message(message_type="ask", ask_type="followup")
+                    yield from manager.finalize(text=question)
+                    state.pending_followup_message_id = manager.last_finalized_id
+                    return True, None, ""
 
                 if self._is_missing_command(handler, args):
                     state.messages.append(
@@ -291,7 +462,6 @@ class AgentLoop(AgentLoopSupportMixin):
                 args["approval_policy"] = action
                 if action == "deny":
                     step.status = "failed"
-                    unresolved_tool_failure = True
                     state.messages.append(
                         LLMMessage(
                             role="tool",
@@ -310,7 +480,6 @@ class AgentLoop(AgentLoopSupportMixin):
                             consistency = self._build_approval_consistency(state, args, tool_call.id)
                         except ValueError as exc:
                             step.status = "failed"
-                            unresolved_tool_failure = True
                             state.messages.append(
                                 LLMMessage(
                                     role="tool",
@@ -388,7 +557,6 @@ class AgentLoop(AgentLoopSupportMixin):
                 step.status = "completed" if ok else "failed"
                 tool_content = output if ok else f"Command Failed: {output}"
                 step.output = tool_content
-                unresolved_tool_failure = any(step.status == "failed" for step in state.steps)
                 state.messages.append(
                     LLMMessage(
                         role="tool",

@@ -45,10 +45,14 @@ function mapRuntimeSnapshot(dto: RuntimeSnapshotDto): RuntimeSnapshot {
     runtimeId: dto.runtime_id,
     conversationId: dto.conversation_id,
     assetId: dto.asset_id,
+    conversationScopeMode: dto.conversation_scope_mode,
+    conversationPrimaryAssetId: dto.conversation_primary_asset_id,
+    allowedAssetIds: dto.allowed_asset_ids,
     terminalId: dto.terminal_id,
     status: dto.status,
     runState: dto.run_state,
     loadedSkillName: dto.loaded_skill_name,
+    taskState: dto.task_state,
     steps: dto.steps.map((step) => ({
       stepId: step.step_id,
       title: step.title,
@@ -64,6 +68,8 @@ function mapRuntimeSnapshot(dto: RuntimeSnapshotDto): RuntimeSnapshot {
     currentStepId: dto.current_step_id,
     pendingApprovalStepId: dto.pending_approval_step_id,
     pendingApprovalToken: dto.pending_approval_token ?? null,
+    pendingFollowupQuestion: dto.pending_followup_question ?? null,
+    pendingUserMessageCount: dto.pending_user_message_count ?? 0,
     lastOutputExcerpt: dto.last_output_excerpt,
     summary: dto.summary,
     errorMessage: dto.error_message,
@@ -78,6 +84,7 @@ function mapRuntimeSnapshot(dto: RuntimeSnapshotDto): RuntimeSnapshot {
       expiresAt: request.expiresAt,
       approvalToken: request.approvalToken ?? null,
       failureReason: request.failureReason ?? null,
+      scopeExpansionRequired: request.scopeExpansionRequired ?? false,
     })),
     terminalAuthorizations: (dto.terminalAuthorizations ?? []).map((authorization) => ({
       authorizationId: authorization.authorizationId,
@@ -174,6 +181,7 @@ function buildConsoleRunRequestDto({
   terminalId,
   modelName,
   conversationId,
+  userEventId,
   selectedSkillName,
 }: ConsoleRunRequest): ConsoleRunRequestDto {
   return {
@@ -183,6 +191,7 @@ function buildConsoleRunRequestDto({
     terminal_id: terminalId,
     model_name: modelName,
     conversation_id: conversationId,
+    user_event_id: userEventId,
     ...(selectedSkillName != null ? { selected_skill_name: selectedSkillName } : {}),
   }
 }
@@ -193,6 +202,7 @@ export async function streamRunAgent(
   terminalId?: string | null,
   modelName?: string,
   conversationId?: string,
+  userEventId?: string,
   selectedSkillName?: string | null,
   mode: 'standard' | 'incident' = 'standard',
   signal?: AbortSignal,
@@ -208,6 +218,7 @@ export async function streamRunAgent(
         terminalId,
         modelName,
         conversationId,
+        userEventId,
         selectedSkillName,
       }),
     ),
@@ -221,10 +232,21 @@ export async function cancelAgentRuntime(runtimeId: string): Promise<void> {
   })
 }
 
-export async function streamApproveAgent(runtimeId: string, approved: boolean, approvalToken?: string, allowPrefix?: string): Promise<AsyncGenerator<EventItem, void, void>> {
+export async function streamRuntimeMessage(
+  runtimeId: string,
+  message: string,
+): Promise<AsyncGenerator<EventItem, void, void>> {
+  const response = await requestEventStream(`/api/console/runtimes/${encodeURIComponent(runtimeId)}/messages`, {
+    method: 'POST',
+    body: JSON.stringify({ message }),
+  })
+  return readEventStream(response)
+}
+
+export async function streamApproveAgent(runtimeId: string, approved: boolean, approvalToken?: string, allowPrefix?: string, guidance?: string): Promise<AsyncGenerator<EventItem, void, void>> {
   const response = await requestEventStream('/api/console/approval', {
     method: 'POST',
-    body: JSON.stringify({ runtime_id: runtimeId, approved, approval_token: approvalToken ?? null, allow_prefix: allowPrefix?.trim() || null }),
+    body: JSON.stringify({ runtime_id: runtimeId, approved, approval_token: approvalToken ?? null, allow_prefix: allowPrefix?.trim() || null, guidance: guidance?.trim() || null }),
   })
   return readEventStream(response)
 }

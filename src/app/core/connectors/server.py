@@ -252,7 +252,7 @@ class ServerConnector:
             self.proxy_client = None
 
 
-def connector_factory(asset):
+def connector_factory(asset, *, credential_secret_override: str | None = None):
     from sqlmodel import Session
 
     from app.db.session import engine
@@ -267,6 +267,7 @@ def connector_factory(asset):
     from app.services.credential_service import CredentialService
     from app.services.secret_key import get_ops_agent_secret_key
     from app.services.ssh_key_service import get_ssh_key_record
+    from app.core.connectors.device_profiles import netmiko_device_type
 
     credential_service = CredentialService(secret_key=get_ops_agent_secret_key())
     asset_id = getattr(asset, "id", None)
@@ -314,26 +315,42 @@ def connector_factory(asset):
             resolved_password = None
             resolved_private_key = None
             resolved_passphrase = None
+            is_target_asset = current_asset is asset
 
             if current_auth_type in {"password", "password_and_key"}:
-                credential = get_asset_credential_record(session, current_asset_id)
-                if credential is None and current_auth_type == "password":
-                    raise ValueError("Password credential is required for password auth")
+                credential = None if is_target_asset and credential_secret_override is not None else get_asset_credential_record(session, current_asset_id)
+                if credential is None:
+                    if is_target_asset and credential_secret_override is not None:
+                        resolved_password = credential_secret_override
+                    else:
+                        raise ValueError(f"Password credential is required for {current_auth_type} auth")
                 if credential is not None:
-                    resolved_password = credential_service.decrypt_secret(credential.encrypted_blob)
+                    resolved_password = credential_service.decrypt_secret(
+                        credential.encrypted_blob,
+                        credential.encryption_version,
+                    )
             if current_auth_type in {"key", "password_and_key"}:
                 if current_ssh_key_id is None:
                     raise ValueError("SSH key is required for key auth")
                 ssh_key = get_ssh_key_record(session, current_ssh_key_id)
                 if ssh_key is None:
                     raise ValueError("SSH key not found")
-                resolved_private_key = credential_service.decrypt_secret(ssh_key.encrypted_private_key)
+                resolved_private_key = credential_service.decrypt_secret(
+                    ssh_key.encrypted_private_key,
+                    ssh_key.private_key_encryption_version,
+                )
                 if ssh_key.encrypted_passphrase:
-                    resolved_passphrase = credential_service.decrypt_secret(ssh_key.encrypted_passphrase)
+                    resolved_passphrase = credential_service.decrypt_secret(
+                        ssh_key.encrypted_passphrase,
+                        ssh_key.passphrase_encryption_version,
+                    )
             elif current_auth_type != "password":
                 credential = get_asset_credential_record(session, current_asset_id)
                 if credential is not None:
-                    resolved_password = credential_service.decrypt_secret(credential.encrypted_blob)
+                    resolved_password = credential_service.decrypt_secret(
+                        credential.encrypted_blob,
+                        credential.encryption_version,
+                    )
 
             if resolved_password is None and resolved_private_key is None:
                 raise SSHProxyAuthenticationMaterialError("SSH authentication material is required")
@@ -369,14 +386,7 @@ def connector_factory(asset):
             )
 
     if asset_type in {"network", "cisco", "huawei", "juniper", "h3c"}:
-        device_type_mapping = {
-            "network": "cisco_ios",
-            "cisco": "cisco_ios",
-            "huawei": "huawei",
-            "h3c": "huawei",
-            "juniper": "juniper",
-        }
-        device_type = device_type_mapping.get(asset_type)
+        device_type = netmiko_device_type(asset_type)
         if device_type is None:
             raise ValueError(f"Unsupported network asset type: {asset_type}")
 

@@ -17,6 +17,14 @@ export type AssetPayload = {
   description?: string
 }
 
+export type AssetConnectionTestResult = {
+  success: boolean
+  message: string
+  detected_device_type: string | null
+  detected_asset_type: string | null
+  prompt: string | null
+}
+
 type AssetDto = {
   id: number
   group_id: number | null
@@ -76,6 +84,13 @@ export function mapAsset(dto: AssetDto): Asset {
 export async function getAssets(): Promise<Asset[]> {
   const assets = await requestJson<AssetDto[]>('/api/assets')
   return assets.map(mapAsset)
+}
+
+export function testAssetConnection(asset: AssetPayload, assetId?: number | null): Promise<AssetConnectionTestResult> {
+  return requestJson<AssetConnectionTestResult>('/api/assets/connection-test', {
+    method: 'POST',
+    body: JSON.stringify({ asset_id: assetId ?? null, asset }),
+  })
 }
 
 export async function getAssetContext(assetId: number): Promise<AssetContext> {

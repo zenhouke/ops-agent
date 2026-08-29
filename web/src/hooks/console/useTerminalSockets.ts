@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, type MutableRefObject } from 'react'
 import { getDesktopApiBaseUrl } from '../../desktop'
 import type { TerminalTabState } from './terminalSessionPersistence'
 import { trimTerminalOutput } from './terminalSessionPersistence'
-import { buildTerminalWebSocketUrl } from './consoleShared'
+import { buildTerminalWebSocketProtocols, buildTerminalWebSocketUrl } from './consoleShared'
 
 type UseTerminalSocketsProps = {
   terminalTabs: TerminalTabState[]
@@ -70,7 +70,10 @@ export function useTerminalSockets({
         continue
       }
 
-      const socket = new WebSocket(buildTerminalWebSocketUrl(tabItem.sessionId, runtimeApiBaseUrlRef.current))
+      const socket = new WebSocket(
+        buildTerminalWebSocketUrl(tabItem.sessionId, runtimeApiBaseUrlRef.current),
+        buildTerminalWebSocketProtocols(),
+      )
       currentSockets[tabItem.assetId] = socket
       if (tabItem.assetId === activeTerminalAssetId) {
         activeSocketRef.current = socket
@@ -168,8 +171,8 @@ export function useTerminalSockets({
   }, [activeTerminalAssetId, activeSocketRef, firstOutputHandledRef, setLoadError, syncTerminalTabs, terminalSocketsRef, terminalTabs])
 
   useEffect(() => {
+    const currentSockets = terminalSocketsRef.current
     return () => {
-      const currentSockets = terminalSocketsRef.current
       for (const key of Object.keys(currentSockets)) {
         const socket = currentSockets[Number(key)]
         delete currentSockets[Number(key)]

@@ -37,6 +37,8 @@ class ApprovalChecker:
 
         effective_context = context or ApprovalContext()
         if effective_context.profile == NETWORK_CLI_PROFILE:
+            if is_multiline_network_command(command):
+                return "deny", "network device commands must be submitted one line at a time for per-command approval"
             level = _classify_network_command(command, effective_context)
             for prefix in self._policy.permissions.allow:
                 if _matches_command_prefix(prefix, command) and level == 0:
@@ -65,6 +67,10 @@ def create_default_policy() -> ApprovalPolicy:
     return ApprovalPolicy(permissions=ApprovalPermissions())
 
 
+def is_multiline_network_command(command: str) -> bool:
+    return len([line for line in command.splitlines() if line.strip()]) > 1
+
+
 def _classify_network_command(command: str, context: ApprovalContext) -> int:
     normalized = command.strip().lower()
     if not normalized:
@@ -74,7 +80,10 @@ def _classify_network_command(command: str, context: ApprovalContext) -> int:
     level0_prefixes = profile.read_prefixes if profile is not None else ("show", "display", "ping", "traceroute", "tracert", "?")
     level1_prefixes = profile.config_entry + profile.config_exit if profile is not None else ("configure terminal", "conf t", "system-view", "configure", "end", "return")
     level3_prefixes = profile.save_commands if profile is not None else ("write memory", "copy running-config startup-config", "save", "commit")
-    level4_prefixes = ("reload", "reset", "delete", "erase", "shutdown", "format")
+    level4_prefixes = (
+        "reload", "reset", "delete", "erase", "shutdown", "format",
+        "request system reboot", "request system halt", "reboot",
+    )
     level2_prefixes = ("interface", "vlan", "ip route", "acl", "undo", "no ")
 
     if _matches_any(level4_prefixes, normalized):

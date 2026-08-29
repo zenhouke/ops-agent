@@ -40,7 +40,7 @@ export function CredentialsWorkspace({ initialSSHKeys, onSSHKeysChange }: Creden
         if (active) setLoading(false)
       })
     return () => { active = false }
-  }, [t])
+  }, [onSSHKeysChange, t])
 
   const resetForm = () => {
     setEditingSSHKey(null)

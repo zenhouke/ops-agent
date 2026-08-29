@@ -156,7 +156,8 @@ class AgentLoopSupportMixin:
         state: LoopState,
     ) -> dict[str, Any]:
         metadata = self._get_tool_display_metadata(handler, args)
-        if metadata.extra.get("kind") != "command":
+        requires_authorization = metadata.extra.get("kind") == "command" or metadata.extra.get("requiresAuthorization") is True
+        if not requires_authorization:
             return args
         prepared = dict(args)
         if state.context.default_authorization_id and not str(prepared.get("authorization_id", "") or ""):
@@ -198,6 +199,13 @@ class AgentLoopSupportMixin:
             payload["displayText"] = metadata.display_text
         protected_keys = {"id", "name", "args", "command", "description", "displayText"}
         payload.update({key: value for key, value in metadata.extra.items() if key not in protected_keys})
+        if metadata.extra.get("kind") == "command":
+            execution_profile = str(args.get("execution_profile", "") or "").strip()
+            device_vendor = str(args.get("device_vendor", "") or "").strip()
+            if execution_profile:
+                payload["executionProfile"] = execution_profile
+            if device_vendor:
+                payload["deviceVendor"] = device_vendor
         normalized_command = (command or "").strip()
         if normalized_command:
             payload["command"] = normalized_command

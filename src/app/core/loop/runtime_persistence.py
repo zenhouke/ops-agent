@@ -55,14 +55,19 @@ class RuntimePersistenceMixin:
             "runtime_id": runtime.runtime_id,
             "conversation_id": runtime.conversation_id,
             "asset_id": runtime.asset_id,
+            "conversation_scope_mode": state.context.conversation_scope_mode,
+            "conversation_primary_asset_id": state.context.conversation_primary_asset_id,
+            "allowed_asset_ids": list(state.context.allowed_asset_ids),
             "terminal_id": runtime.terminal_id,
             "status": state.phase,
             "run_state": self._run_state(runtime),
             "loaded_skill_name": state.context.loaded_skill_name,
+            "task_state": state.context.task_state.to_payload(),
             "steps": [self._step_view(step) for step in state.steps],
             "current_step_id": current_step.step_id if current_step else None,
             "pending_approval_step_id": state.pending_approval_step_id,
             "pending_approval_token": state.pending_approval_token if include_secrets else None,
+            "pending_followup_question": state.pending_followup_question,
             "last_output_excerpt": state.last_output_excerpt,
             "summary": state.summary,
             "error_message": state.error_message,
@@ -85,6 +90,7 @@ class RuntimePersistenceMixin:
             "llm_calls": state.llm_calls,
             "tool_calls": state.tool_calls,
             "cancel_requested": state.cancel_requested,
+            "pending_user_message_count": len(state.pending_user_messages),
         }
 
     def _run_state(self: Any, runtime: RuntimeState) -> str:
@@ -93,6 +99,7 @@ class RuntimePersistenceMixin:
         if runtime.state.phase in {
             "approving",
             "waiting_terminal_approval",
+            "waiting_user_input",
         }:
             return "waiting"
         return "running" if runtime.execution_lock.locked() else "queued"

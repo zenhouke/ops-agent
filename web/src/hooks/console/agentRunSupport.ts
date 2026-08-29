@@ -4,6 +4,7 @@ import type {
   Asset,
   ConversationContextStatus,
   ConversationSummary,
+  ConversationScopeMode,
   EventItem,
   RuntimeSummary,
 } from '../../types/ops'
@@ -16,7 +17,7 @@ export interface UseAgentRunProps {
   activeConversationIdRef: RefObject<string | null>
   events: EventItem[]
   setEvents: (updater: EventItem[] | ((previous: EventItem[]) => EventItem[])) => void
-  createConversation: () => Promise<string>
+  createConversation: (assetId?: number, scopeMode?: ConversationScopeMode) => Promise<string>
   loadConversation: (conversationId: string) => Promise<ConversationSummary>
   upsertConversationSummary: (summary: ConversationSummary) => void
   refreshConversationList: () => Promise<unknown>
@@ -33,7 +34,7 @@ export interface UseAgentRunProps {
   ) => void
 }
 
-export type BackgroundRunStatus = 'running' | 'needs_approval' | 'completed' | 'failed' | 'disconnected'
+export type BackgroundRunStatus = 'running' | 'needs_approval' | 'needs_input' | 'completed' | 'failed' | 'disconnected'
 
 export type ConversationSaveStatus = 'idle' | 'saving' | 'saved' | 'failed'
 
@@ -57,8 +58,17 @@ export function isAbortError(error: unknown): boolean {
 
 export function getRunErrorMessage(error: unknown): string {
   const message = error instanceof Error ? error.message : 'Failed to run agent.'
+  if (/model is not found|model_not_found/i.test(message)) {
+    return '当前模型不可用或模型名称已变更，请在模型设置中选择可用模型后重试。'
+  }
   if (/quota_exceeded_error|\b429\b.*\b(exhausted|quota)\b/i.test(message)) {
     return '模型供应商额度已用尽（HTTP 429）。请更换模型或检查供应商账户额度后重试。'
+  }
+  if (/concurrency limit|too many concurrent/i.test(message)) {
+    return '模型供应商并发额度已满，请稍后重试。'
+  }
+  if (/timed out|timeout/i.test(message)) {
+    return '模型供应商响应超时，请稍后重试或适当增加模型超时时间。'
   }
   return message
 }
@@ -146,6 +156,9 @@ export function derivePendingApprovalState(events: EventItem[]): PendingApproval
   const settled = new Set<string>()
   for (let index = events.length - 1; index >= 0; index -= 1) {
     const event = events[index]
+    if ('type' in event && event.type === 'ask' && event.ask === 'followup') {
+      continue
+    }
     const approvalKey = getApprovalKey(event)
     const isSettled = event.kind === 'approval_decision'
       || event.kind === 'approval_granted'

@@ -5,7 +5,9 @@ import logging
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from app.api.middleware.authentication import ApiAuthenticationMiddleware
 from app.api.middleware.observability import ObservabilityMiddleware
+from app.api.auth import router as auth_router
 from app.api.assets import router as assets_router
 from app.api.approval import router as approval_router
 from app.api.groups import router as groups_router
@@ -13,7 +15,9 @@ from app.api.health import router as health_router
 from app.api.knowledge import router as knowledge_router
 from app.api.mcp import router as mcp_router
 from app.api.models import router as models_router
+from app.api.network_topology import router as network_topology_router
 from app.api.plugins import router as plugins_router
+from app.api.prompt_settings import router as prompt_settings_router
 from app.api.console import router as console_router
 from app.api.conversations import router as conversations_router
 from app.api.skills import router as skills_router
@@ -24,6 +28,7 @@ from app.api.scheduler import router as scheduler_router
 from app.api.alerts import router as alerts_router
 from app.db.session import Session, engine, init_db
 from app.services.asset_service import ensure_default_asset_group
+from app.services.credential_migration_service import migrate_legacy_credentials
 from app.services.scheduler_service import get_scheduler_service
 from app.api.console import get_console_app_service
 from app.services.observability_service import configure_telemetry, shutdown_telemetry
@@ -36,7 +41,10 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
     configure_telemetry()
     init_db()
     with Session(engine) as session:
+        migrated_credentials = migrate_legacy_credentials(session)
         ensure_default_asset_group(session)
+    if migrated_credentials:
+        logger.info("Migrated %d credential record(s) to authenticated encryption.", migrated_credentials)
     recovered = get_console_app_service().recover_persisted_runtimes()
     if recovered:
         logger.warning("Recovered %d interrupted agent runtimes after restart.", recovered)
@@ -62,9 +70,13 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(ApiAuthenticationMiddleware)
 app.include_router(health_router)
+app.include_router(auth_router)
 app.include_router(models_router)
+app.include_router(network_topology_router)
 app.include_router(plugins_router)
+app.include_router(prompt_settings_router)
 app.include_router(mcp_router)
 app.include_router(assets_router)
 app.include_router(approval_router)
@@ -82,6 +94,7 @@ app.include_router(alerts_router)
 
 __all__ = [
     "app",
+    "auth_router",
     "assets_router",
     "approval_router",
     "get_terminal_service",
@@ -94,6 +107,7 @@ __all__ = [
     "mcp_router",
     "models_router",
     "plugins_router",
+    "prompt_settings_router",
     "skills_router",
     "ssh_keys_router",
     "system_router",

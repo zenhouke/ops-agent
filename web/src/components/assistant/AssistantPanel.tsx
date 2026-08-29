@@ -9,12 +9,14 @@ import type {
 import { ConversationView } from './ConversationView'
 import { PromptInput } from './PromptInput'
 import { useAppearance } from '../../hooks/useAppearance'
-import type { BackgroundRunState, ConversationSaveStatus } from '../../hooks/console/agentRunSupport'
+import type { BackgroundRunState, BackgroundRunStatus, ConversationSaveStatus } from '../../hooks/console/agentRunSupport'
 
 type AssistantPanelProps = {
   conversationSummaries: ConversationSummary[]
   activeConversationId: string | null
   activeConversationTitle: string
+  conversationScopeMode: 'single' | 'multi'
+  allowedAssetCount: number
   backgroundRuns: BackgroundRunState[]
   events: EventItem[]
   eventWindow: { hasMoreBefore: boolean } | null
@@ -35,23 +37,28 @@ type AssistantPanelProps = {
   onPromptChange: (prompt: string) => void
   onViewBackgroundRun: (conversationId: string) => void
   onCreateConversation: () => void
+  onCreateMultiAssetConversation: () => void
   onSelectConversation: (conversationId: string) => void
   onDeleteConversation: (conversationId: string) => void
   onRun: (prompt: string, selectedSkillName?: string | null, mode?: 'standard' | 'incident') => Promise<void>
+  activeRunStatus: BackgroundRunStatus | null
   isRunActive: boolean
   onCancelRun: () => Promise<void>
-  onApprove: (allowPrefix?: string) => void
-  onReject: () => void
+  onApprove: (allowPrefix?: string, guidance?: string) => void
+  onReject: (guidance?: string) => void
   onTerminalRequestDecision?: (input: { runtimeId: string; requestId: string; approvalToken: string; approved: boolean }) => Promise<void>
   onLoadOlderEvents: () => Promise<void>
-  onForkRun: (eventId: string, prompt: string) => Promise<void>
-  onBranch: (eventId: string) => Promise<void>
-  onCreateRunbook: () => Promise<void>
+  onEditRun: (eventId: string, prompt: string) => Promise<void>
+  onRetryRun: (eventId: string, prompt: string) => Promise<void>
+  onExtractKnowledge: () => Promise<void>
 }
 
 function backgroundRunCopy(run: BackgroundRunState) {
   if (run.status === 'needs_approval') {
     return { message: `会话「${run.title}」需要审批`, action: '前往处理', tone: 'warning' as const }
+  }
+  if (run.status === 'needs_input') {
+    return { message: `会话「${run.title}」等待你的回复`, action: '继续对话', tone: 'warning' as const }
   }
   if (run.status === 'completed') {
     return { message: `会话「${run.title}」已完成`, action: '查看', tone: 'success' as const }
@@ -71,7 +78,7 @@ function ExecutionPlan({ runtime, runtimeCount }: { runtime: RuntimeSnapshot; ru
   return (
     <details className="mx-auto mt-2 w-[calc(100%-2.5rem)] max-w-[940px] shrink-0 rounded border border-ops-border/30 bg-ops-panel/35 px-3 py-2" open={Boolean(runtime.pendingApprovalStepId)}>
       <summary className="cursor-pointer select-none text-[11px] font-semibold text-ops-text">
-        执行计划 · {completedCount}/{runtime.steps.length} 完成{runtimeCount > 1 ? ` · ${runtimeCount} 次运行` : ''}
+        执行进度 · {completedCount}/{runtime.steps.length} 完成{runtimeCount > 1 ? ` · ${runtimeCount} 次运行` : ''}
       </summary>
       <ol className="mt-2 space-y-1.5 border-t border-ops-border/20 pt-2">
         {runtime.steps.map((step, index) => (
@@ -90,8 +97,47 @@ function ExecutionPlan({ runtime, runtimeCount }: { runtime: RuntimeSnapshot; ru
   )
 }
 
+function TaskStatePanel({ runtime }: { runtime: RuntimeSnapshot }) {
+  const state = runtime.taskState
+  const detailSections = [
+    ['范围', state.scope],
+    ['约束', state.constraints],
+    ['验收标准', state.acceptanceCriteria],
+    ['已验证事实', state.verifiedFacts],
+    ['用户决策', state.decisions],
+    ['未完成', state.openItems],
+    ['已完成', state.completedItems],
+  ] as const
+  const detailCount = detailSections.reduce((count, [, items]) => count + items.length, 0)
+  if (!state.goal && !state.currentRequest && detailCount === 0) return null
+  return (
+    <details className="mx-auto mt-2 w-[calc(100%-2.5rem)] max-w-[940px] shrink-0 rounded border border-ops-cyan/20 bg-ops-cyan/[0.035] px-3 py-2">
+      <summary className="cursor-pointer select-none text-[11px] font-semibold text-ops-text">
+        <span className="mr-2 text-ops-cyan">任务概览</span>
+        <span className="text-ops-muted">{state.goal || state.currentRequest}</span>
+      </summary>
+      <div className="mt-2 grid gap-2 border-t border-ops-border/20 pt-2 text-[11px] md:grid-cols-2">
+        {state.currentRequest && state.currentRequest !== state.goal ? (
+          <div className="rounded border border-ops-border/20 bg-ops-deep/35 px-2.5 py-2 md:col-span-2">
+            <div className="mb-1 text-[9px] font-bold tracking-[0.1em] text-ops-muted">当前请求</div>
+            <div className="text-ops-text/85">{state.currentRequest}</div>
+          </div>
+        ) : null}
+        {detailSections.map(([label, items]) => items.length > 0 ? (
+          <section key={label} className="rounded border border-ops-border/20 bg-ops-deep/35 px-2.5 py-2">
+            <div className="mb-1 text-[9px] font-bold tracking-[0.1em] text-ops-muted">{label}</div>
+            <ul className="space-y-1 text-ops-text/78">{items.map((item) => <li key={item}>· {item}</li>)}</ul>
+          </section>
+        ) : null)}
+      </div>
+    </details>
+  )
+}
+
 export function AssistantPanel({
   activeConversationTitle,
+  conversationScopeMode,
+  allowedAssetCount,
   backgroundRuns,
   events,
   eventWindow,
@@ -112,18 +158,20 @@ export function AssistantPanel({
   onPromptChange,
   onViewBackgroundRun,
   onCreateConversation,
+  onCreateMultiAssetConversation,
   onSelectConversation,
   onDeleteConversation,
   onRun,
+  activeRunStatus,
   isRunActive,
   onCancelRun,
   onApprove,
   onReject,
   onTerminalRequestDecision,
   onLoadOlderEvents,
-  onForkRun,
-  onBranch,
-  onCreateRunbook,
+  onEditRun,
+  onRetryRun,
+  onExtractKnowledge,
 }: AssistantPanelProps) {
   const { t } = useAppearance()
   return (
@@ -136,6 +184,9 @@ export function AssistantPanel({
           <h2 className="truncate text-[12px] font-semibold text-ops-text">
             {activeConversationTitle || t('assistant.unclassifiedMission')}
           </h2>
+          <span className={`rounded border px-1.5 py-0.5 text-[9px] font-semibold ${conversationScopeMode === 'multi' ? 'border-ops-warning/30 bg-ops-warning/[0.08] text-ops-warning' : 'border-ops-border/25 text-ops-muted/65'}`}>
+            {conversationScopeMode === 'multi' ? `多资产 · ${allowedAssetCount} 台` : '单资产'}
+          </span>
           <span className="hidden items-center gap-1.5 text-[9px] text-ops-muted/60 lg:inline-flex"><span className="h-1.5 w-1.5 rounded-full bg-ops-green" />任务工作台</span>
         </div>
         <div className="flex shrink-0 items-center gap-1">
@@ -148,11 +199,19 @@ export function AssistantPanel({
           <button
             type="button"
             className="desktop-toolbar-button"
-            disabled={events.length === 0 || isRunActive}
-            onClick={() => void onCreateRunbook()}
-            title="从当前对话生成可审核的 Runbook 草稿"
+            onClick={onCreateMultiAssetConversation}
+            title="创建需要逐台审批访问范围的多资产任务"
           >
-            提炼 Runbook
+            多资产任务
+          </button>
+          <button
+            type="button"
+            className="desktop-toolbar-button"
+            disabled={events.length === 0 || isRunActive}
+            onClick={() => void onExtractKnowledge()}
+            title="从当前对话生成可审核的知识草稿"
+          >
+            提炼知识
           </button>
           <button
             type="button"
@@ -201,6 +260,7 @@ export function AssistantPanel({
             </div>
           ) : null}
 
+          {activeRuntimeSnapshot ? <TaskStatePanel runtime={activeRuntimeSnapshot} /> : null}
           {activeRuntimeSnapshot ? <ExecutionPlan runtime={activeRuntimeSnapshot} runtimeCount={runtimeSummaries.length} /> : null}
 
           <ConversationView
@@ -212,9 +272,9 @@ export function AssistantPanel({
             onApprove={onApprove}
             onReject={onReject}
             onTerminalRequestDecision={onTerminalRequestDecision}
-            onForkRun={onForkRun}
-            onBranch={onBranch}
-            branchDisabled={isRunActive}
+            onEditRun={onEditRun}
+            onRetryRun={onRetryRun}
+            actionsDisabled={isRunActive}
           />
 
           <PromptInput
@@ -227,6 +287,7 @@ export function AssistantPanel({
             onPromptChange={onPromptChange}
             onModelChange={onModelChange}
             onRun={onRun}
+            runStatus={activeRunStatus}
             isRunning={isRunActive}
             onCancel={onCancelRun}
           />

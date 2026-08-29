@@ -111,6 +111,18 @@ class TerminalSessionManager:
             matched_error=completed_event.matched_error,
         )
 
+    def collect_network(self, kind: str, *, read_timeout: float = 30.0) -> dict:
+        collector = getattr(self._connector, "collect_structured", None)
+        if not callable(collector):
+            raise ValueError("The authorized terminal is not a supported network device session.")
+        return cast(dict, collector(kind, read_timeout=read_timeout))
+
+    def plan_network_collection(self, kind: str) -> dict:
+        planner = getattr(self._connector, "collection_plan", None)
+        if not callable(planner):
+            raise ValueError("The authorized terminal is not a supported network device session.")
+        return cast(dict, planner(kind))
+
     def cancel_execution(self, execution_id: str) -> None:
         canceller = getattr(self._connector, "cancel_execution", None)
         if callable(canceller):

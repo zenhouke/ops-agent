@@ -16,7 +16,8 @@ from app.core.loop.loop_state import LoopState
 from app.core.loop.message_manager import MessageManager
 from app.core.tool.handler import ToolDisplayMetadata
 from app.core.tool.schema import LLMToolDefinition
-from app.core.approval import ApprovalContext
+from app.core.approval import ApprovalContext, is_multiline_network_command
+from app.core.connectors.device_profiles import NETWORK_CLI_PROFILE
 from app.core.connectors.execution import ExecutionContext
 from app.services.approval_service import get_approval_service
 
@@ -129,6 +130,11 @@ class ExecuteCommandHandler:
         args["execution_profile"] = authorization.execution_profile
         if authorization.device_vendor:
             args["device_vendor"] = authorization.device_vendor
+        if authorization.execution_profile == NETWORK_CLI_PROFILE and is_multiline_network_command(command):
+            error = "Network device commands must be submitted one line at a time for per-command approval."
+            if manager:
+                yield from manager.update(text=f"\nError: {error}")
+            return False, error
         if not self._terminal.session_belongs_to_asset(terminal_id, authorization.asset_id):
             error = "Authorized terminal no longer belongs to the expected asset."
             if manager:

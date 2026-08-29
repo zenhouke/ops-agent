@@ -34,6 +34,7 @@ class PendingTerminalRequest:
     terminal_finished_at: datetime | None = None
     failure_reason: str | None = None
     approval_token: str | None = None
+    scope_expansion_required: bool = False
 
 
 @dataclass

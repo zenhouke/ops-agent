@@ -1,0 +1,14 @@
+.git
+.env
+.ops-agent
+.venv
+node_modules
+web/node_modules
+web/dist
+web/src-tauri/target
+build
+dist
+output
+logs
+__pycache__
+*.pyc

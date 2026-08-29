@@ -39,6 +39,7 @@ export function TerminalHeader({
           {tabs.map((tabAsset) => {
             const isActive = tabAsset.id === activeAssetId
             const isLocal = tabAsset.id === LOCAL_TERMINAL_ASSET_ID
+            const isNetwork = ['network', 'cisco', 'huawei', 'juniper', 'h3c'].includes(tabAsset.assetType)
             const label = isLocal ? 'localhost' : tabAsset.host || tabAsset.name || t('terminal.terminal')
             return (
               <div
@@ -56,6 +57,11 @@ export function TerminalHeader({
                   title={label}
                 >
                   <span className="truncate">{label}</span>
+                  {isNetwork ? (
+                    <span className="ml-1.5 shrink-0 rounded-[3px] border border-ops-border/30 bg-ops-deep/60 px-1 py-px text-[8px] font-bold tracking-[0.06em] text-ops-muted/65">
+                      {t('terminal.interactiveChannel')}
+                    </span>
+                  ) : null}
                 </button>
                 {isLocal ? null : (
                   <button

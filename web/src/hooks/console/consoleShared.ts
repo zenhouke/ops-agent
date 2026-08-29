@@ -1,4 +1,5 @@
 import type { AgentMessage, Asset, ConversationSummary, EventItem } from '../../types/ops'
+import { getApiAccessToken } from '../../api/client'
 
 export const LOCAL_TERMINAL_ASSET_ID = 0
 export const PENDING_ASSISTANT_MESSAGE_ID = '__pending_assistant__'
@@ -93,6 +94,16 @@ export function buildTerminalWebSocketUrl(terminalSessionId: string, runtimeApiB
 
   const protocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:'
   return `${protocol}//${window.location.host}/api/terminal/sessions/${terminalSessionId}/ws`
+}
+
+export function buildTerminalWebSocketProtocols(): string[] {
+  const accessToken = getApiAccessToken()
+  if (!accessToken) return ['ops-agent']
+  const bytes = new TextEncoder().encode(accessToken)
+  let binary = ''
+  for (const value of bytes) binary += String.fromCharCode(value)
+  const encoded = btoa(binary).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/g, '')
+  return ['ops-agent', `token.${encoded}`]
 }
 
 export function upsertConversationSummary(

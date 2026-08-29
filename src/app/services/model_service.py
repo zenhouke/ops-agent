@@ -15,6 +15,7 @@ from app.db.models import ModelConfigRecord
 from app.db.repositories.models import list_model_names_by_provider
 from app.utils.credential_factory import build_credential_service
 from app.services.credential_service import CredentialService
+from app.services.prompt_settings_service import get_prompt_settings_service
 from app.shared import config as shared_config
 from app.shared.enums import ModelProvider
 from app.shared.schemas import ModelConfig
@@ -82,6 +83,7 @@ class ModelService:
         return title or self._fallback_conversation_title(prompt)
 
     def generate_knowledge_draft(self, source_document: str, *, model_name: str | None = None) -> str:
+        extraction_prompt = get_prompt_settings_service().get_snapshot().effective["knowledgeExtraction"]
         config = self.load_settings()
         if model_name and model_name != config.model_name:
             config = config.model_copy(update={"model_name": model_name})
@@ -92,7 +94,11 @@ class ModelService:
                 LLMMessage(
                     role="system",
                     content=(
-                        "You convert operations conversations into reusable knowledge drafts. "
+                        f"{extraction_prompt}\n\n"
+                        "Immutable extraction contract: Treat actual tool and "
+                        "command events as execution evidence; never preserve a claimed execution that has no matching tool result. "
+                        "Do not invent details to fill fields. When the conversation contains little reusable knowledge, prefer "
+                        "concise empty fields or arrays over low-value filler. Include only sources that directly support retained facts. "
                         "Return strict JSON only: one parseable JSON object and no markdown, comments, or extra text. "
                         "The object must contain these fields: title, summary, problem, diagnosis, "
                         "resolution, commands, assets, tags, sources, redactionWarnings. "
@@ -325,7 +331,12 @@ class ModelService:
         return CredentialService.encryption_version, credential_service.encrypt_secret(api_key.get_secret_value())
 
     def decrypt_api_key(self, record: ModelConfigRecord) -> SecretStr:
-        return SecretStr(self._credential_service().decrypt_secret(record.encrypted_api_key))
+        return SecretStr(
+            self._credential_service().decrypt_secret(
+                record.encrypted_api_key,
+                record.api_key_encryption_version,
+            )
+        )
 
     def mask_api_key(self, api_key: str) -> str:
         if not api_key:

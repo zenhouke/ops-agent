@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react'
 import {
   appendConversationEvents,
-  branchConversation as branchConversationApi,
+  rewriteConversation as rewriteConversationApi,
   createConversation as createConversationApi,
   deleteConversation as deleteConversationApi,
   getConversationContext,
@@ -44,6 +44,8 @@ function terminalSnapshotEvents(snapshot: RuntimeSnapshot | null): EventItem[] {
       reason: request.reason,
       approvalToken: request.approvalToken,
       terminalCreationStatus: request.terminalCreationStatus,
+      userDecisionStatus: request.userDecisionStatus,
+      scopeExpansionRequired: request.scopeExpansionRequired,
     })),
     ...snapshot.terminalAuthorizations.map((authorization): EventItem => ({
       id: `snapshot:terminal-authorization:${authorization.authorizationId}:${authorization.status}`,
@@ -70,6 +72,30 @@ function mergeSnapshotTerminalEvents(events: EventItem[], snapshot: RuntimeSnaps
   return snapshotEvents.reduce(
     (nextEvents, event) => upsertStreamEvent(nextEvents, event),
     currentEvents,
+  )
+}
+
+function isTerminalRuntime(runtime: RuntimeSummary): boolean {
+  const status = runtime.status.toLowerCase()
+  return runtime.runState === 'terminal'
+    || runtime.runState === 'interrupted'
+    || status.includes('complete')
+    || status.includes('fail')
+    || status.includes('error')
+    || status.includes('cancel')
+    || status.includes('interrupt')
+}
+
+function settleTerminalRuntimeMessages(events: EventItem[], runtimes: RuntimeSummary[]): EventItem[] {
+  const terminalRuntimeIds = new Set(
+    runtimes.filter(isTerminalRuntime).map((runtime) => runtime.runtimeId)
+  )
+  if (terminalRuntimeIds.size === 0) return events
+
+  return events.map((event) =>
+    event.kind === 'message' && event.partial && event.runtimeId && terminalRuntimeIds.has(event.runtimeId)
+      ? { ...event, partial: false }
+      : event
   )
 }
 
@@ -136,7 +162,10 @@ export function useConversationState(selectedModel: string) {
       return page.conversation
     }
     setActiveRuntimeSnapshot(nextRuntimeSnapshot)
-    setEvents((currentEvents) => mergeSnapshotTerminalEvents(currentEvents, nextRuntimeSnapshot))
+    setEvents((currentEvents) => mergeSnapshotTerminalEvents(
+      settleTerminalRuntimeMessages(currentEvents, runtimes),
+      nextRuntimeSnapshot,
+    ))
     return page.conversation
   }, [])
 
@@ -172,7 +201,10 @@ export function useConversationState(selectedModel: string) {
       if (activeConversationIdRef.current !== conversationId) {
         return
       }
-      setEvents((currentEvents) => mergePrependedEvents(page.events, currentEvents))
+      setEvents((currentEvents) => mergePrependedEvents(
+        settleTerminalRuntimeMessages(page.events, runtimeSummaries),
+        currentEvents,
+      ))
       setEventWindow({
         offset: page.offset,
         total: page.total,
@@ -182,7 +214,7 @@ export function useConversationState(selectedModel: string) {
     } finally {
       setIsLoadingOlderEvents(false)
     }
-  }, [eventWindow, isLoadingOlderEvents])
+  }, [eventWindow, isLoadingOlderEvents, runtimeSummaries])
 
   const syncConversationRuntimes = useCallback(async (conversationId: string) => {
     const runtimes = await listConversationRuntimes(conversationId)
@@ -190,21 +222,22 @@ export function useConversationState(selectedModel: string) {
       return runtimes
     }
     setRuntimeSummaries(runtimes)
-    const nextRuntimeId = activeRuntimeId && runtimes.some((runtime: RuntimeSummary) => runtime.runtimeId === activeRuntimeId)
-      ? activeRuntimeId
-      : (runtimes[0]?.runtimeId ?? null)
+    const nextRuntimeId = runtimes[0]?.runtimeId ?? null
     setActiveRuntimeId(nextRuntimeId)
     const nextSnapshot = nextRuntimeId ? await getRuntimeSnapshot(nextRuntimeId) : null
     if (activeConversationIdRef.current !== conversationId) {
       return runtimes
     }
     setActiveRuntimeSnapshot(nextSnapshot)
-    setEvents((currentEvents) => mergeSnapshotTerminalEvents(currentEvents, nextSnapshot))
+    setEvents((currentEvents) => mergeSnapshotTerminalEvents(
+      settleTerminalRuntimeMessages(currentEvents, runtimes),
+      nextSnapshot,
+    ))
     return runtimes
-  }, [activeRuntimeId])
+  }, [])
 
-  const createConversation = useCallback(async () => {
-    const created = await createConversationApi(selectedModel || null)
+  const createConversation = useCallback(async (assetId = 0, scopeMode: 'single' | 'multi' = 'single') => {
+    const created = await createConversationApi(selectedModel || null, assetId, scopeMode)
     setConversationSummaries((currentItems) => {
       const nextItems = currentItems.filter((item) => item.id !== created.conversation.id)
       return [created.conversation, ...nextItems]
@@ -221,34 +254,31 @@ export function useConversationState(selectedModel: string) {
     return created.conversation.id
   }, [selectedModel])
 
-  const branchConversation = useCallback(async (
-    sourceConversationId: string,
-    boundary: { beforeEventId?: string; throughEventId?: string },
-  ) => {
-    const created = await branchConversationApi(sourceConversationId, boundary)
+  const rewriteConversation = useCallback(async (conversationId: string, beforeEventId: string) => {
+    const rewritten = await rewriteConversationApi(conversationId, beforeEventId)
     setConversationSummaries((currentItems) => [
-      created.conversation,
-      ...currentItems.filter((item) => item.id !== created.conversation.id),
+      rewritten.conversation,
+      ...currentItems.filter((item) => item.id !== rewritten.conversation.id),
     ])
-    activeConversationIdRef.current = created.conversation.id
-    setActiveConversationId(created.conversation.id)
-    setActiveConversationTitle(created.conversation.title)
-    setEvents(created.events)
-    setEventWindow({ offset: 0, total: created.events.length, hasMoreBefore: false, hasMoreAfter: false })
+    activeConversationIdRef.current = rewritten.conversation.id
+    setActiveConversationId(rewritten.conversation.id)
+    setActiveConversationTitle(rewritten.conversation.title)
+    setEvents(rewritten.events)
+    setEventWindow({ offset: 0, total: rewritten.events.length, hasMoreBefore: false, hasMoreAfter: false })
     setRuntimeSummaries([])
     setActiveRuntimeId(null)
     setActiveRuntimeSnapshot(null)
     setContextStatus(null)
-    return created.conversation.id
+    return rewritten.conversation.id
   }, [])
 
   const deleteConversation = useCallback(
-    async (conversationId: string) => {
-      await deleteConversationApi(conversationId)
+    async (conversationId: string, replacementAssetId = 0, cancelActive = false) => {
+      await deleteConversationApi(conversationId, cancelActive)
       const remainingItems = await refreshConversationList()
 
       if (remainingItems.length === 0) {
-        await createConversation()
+        await createConversation(replacementAssetId)
         return
       }
 
@@ -294,7 +324,7 @@ export function useConversationState(selectedModel: string) {
     syncConversationRuntimes,
     refreshConversationList,
     createConversation,
-    branchConversation,
+    rewriteConversation,
     deleteConversation,
     loadOlderConversationEvents,
     setActiveConversationMeta,

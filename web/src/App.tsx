@@ -1,10 +1,13 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react'
-import { Group, Panel, Separator, type Layout } from 'react-resizable-panels'
+import { Group, Panel, Separator } from 'react-resizable-panels'
+import { getStoredTaskTerminalLayout, getStoredTerminalOpen } from './appLayoutState'
 import { AssetModals, type AssetModalsRef } from './components/assets/AssetModals'
 import { AssetSidebar } from './components/assets/AssetSidebar'
 import { AssistantPanel } from './components/assistant/AssistantPanel'
+import { ManagementWorkspacePanel, type ManagementWorkspace } from './components/management/ManagementWorkspacePanel'
 import { ActivityRail, type PrimaryWorkspace, type WorkspaceSection } from './components/layout/ActivityRail'
 import { LoadingState } from './components/layout/LoadingState'
+import { ConsolePlaceholder } from './components/layout/ConsolePlaceholder'
 import { TopBar } from './components/layout/TopBar'
 import { StatusBar } from './components/layout/StatusBar'
 import { TerminalPanel } from './components/terminal/TerminalPanel'
@@ -20,34 +23,8 @@ import { useKnowledgeBase } from './hooks/useKnowledgeBase'
 const SettingsDialog = lazy(() => import('./components/settings/SettingsDialog').then((module) => ({
   default: module.SettingsDialog,
 })))
-const CredentialsWorkspace = lazy(() => import('./components/management/CredentialsWorkspace').then((module) => ({ default: module.CredentialsWorkspace })))
-const AutomationWorkspace = lazy(() => import('./components/management/AutomationWorkspace').then((module) => ({ default: module.AutomationWorkspace })))
-const ExtensionsWorkspace = lazy(() => import('./components/management/ExtensionsWorkspace').then((module) => ({ default: module.ExtensionsWorkspace })))
-const GroupsWorkspace = lazy(() => import('./components/management/GroupsWorkspace').then((module) => ({ default: module.GroupsWorkspace })))
-const KnowledgeWorkspace = lazy(() => import('./components/knowledge/KnowledgeWorkspace').then((module) => ({ default: module.KnowledgeWorkspace })))
-
-type ManagementWorkspace = 'knowledge' | 'credentials' | 'automation' | 'extensions' | 'groups'
-
-const DEFAULT_TASK_TERMINAL_LAYOUT: Layout = { task: 58, terminal: 42 }
-
-function getStoredTerminalOpen() {
-  return localStorage.getItem('ops-agent:terminal-open') === 'true'
-    || localStorage.getItem('ops-agent:workspace-view') === 'terminal'
-}
-
-function getStoredTaskTerminalLayout(): Layout {
-  try {
-    const value = JSON.parse(localStorage.getItem('ops-agent:task-terminal-layout') ?? '') as Layout
-    if (typeof value.task === 'number' && typeof value.terminal === 'number') return value
-  } catch {
-    // Ignore stale or invalid local layout state.
-  }
-  return DEFAULT_TASK_TERMINAL_LAYOUT
-}
-
 export function App() {
   const { t } = useAppearance()
-  const centerFallbackClassName = 'flex h-full items-center justify-center border-x border-ops-border/40 bg-ops-deep'
   const assetModalsRef = useRef<AssetModalsRef>(null)
 
   const {
@@ -80,7 +57,7 @@ export function App() {
     syncConversationRuntimes,
     refreshConversationList,
     createConversation,
-    branchConversation,
+    rewriteConversation,
     deleteConversation,
     upsertConversationSummary,
   } = useConversationState(selectedModel)
@@ -142,6 +119,7 @@ export function App() {
     runs,
     backgroundRuns,
     clearRunUnread,
+    activeRunStatus,
     isRunActive,
     runAgent,
     cancelRun,
@@ -167,27 +145,7 @@ export function App() {
     setContextStatus,
   })
 
-  const {
-    entries: knowledgeEntries,
-    total: knowledgeTotal,
-    limit: knowledgeLimit,
-    offset: knowledgeOffset,
-    loading: knowledgeLoading,
-    error: knowledgeError,
-    draft: knowledgeDraft,
-    draftSourceConversation: knowledgeDraftSourceConversation,
-    draftLoading: knowledgeDraftLoading,
-    draftError: knowledgeDraftError,
-    saving: knowledgeSaving,
-    reindexing: knowledgeReindexing,
-    search: searchKnowledge,
-    generateDraft: generateKnowledgeDraft,
-    clearDraft: clearKnowledgeDraft,
-    saveDraft: saveKnowledgeDraft,
-    deleteEntry: deleteKnowledgeEntry,
-    reindex: reindexKnowledge,
-    setDraft: setKnowledgeDraft,
-  } = useKnowledgeBase()
+  const knowledgeBase = useKnowledgeBase()
 
   useEffect(() => {
     localStorage.setItem('ops-agent:terminal-open', String(terminalOpen))
@@ -242,7 +200,8 @@ export function App() {
           const [latestConversation] = [...items].sort((left, right) =>
             right.updatedAt.localeCompare(left.updatedAt)
           )
-          await loadConversation(latestConversation.id)
+          const loadedConversation = await loadConversation(latestConversation.id)
+          if (loadedConversation.assetId !== null) selectAsset(loadedConversation.assetId)
 
           if (!active) {
             return
@@ -252,7 +211,7 @@ export function App() {
           return
         }
 
-        await createConversation()
+        await createConversation(selectedAsset?.id ?? 0)
 
         if (!active) {
           return
@@ -287,17 +246,22 @@ export function App() {
     loadConversation,
     loadError,
     refreshConversationList,
+    selectAsset,
+    selectedAsset?.id,
     setLoadError,
     t,
   ])
 
   const renderAssistantPanel = () => {
     if (!selectedAsset) return null
+    const activeConversation = conversationSummaries.find((item) => item.id === activeConversationId)
     return (
       <AssistantPanel
         conversationSummaries={conversationSummaries}
         activeConversationId={activeConversationId}
         activeConversationTitle={activeConversationTitle}
+        conversationScopeMode={activeConversation?.scopeMode ?? 'single'}
+        allowedAssetCount={activeConversation?.allowedAssetIds.length ?? 1}
         backgroundRuns={backgroundRuns}
         events={events}
         eventWindow={eventWindow}
@@ -320,37 +284,54 @@ export function App() {
         onModelChange={setSelectedModel}
         onPromptChange={setPrompt}
         onViewBackgroundRun={(conversationId) => {
-          void loadConversation(conversationId).then(() => clearRunUnread(conversationId))
+          void loadConversation(conversationId).then((conversation) => {
+            if (conversation.assetId !== null) selectAsset(conversation.assetId)
+            clearRunUnread(conversationId)
+          })
         }}
-        onCreateConversation={() => void createConversation()}
+        onCreateConversation={() => void createConversation(selectedAsset.id, 'single')}
+        onCreateMultiAssetConversation={() => void createConversation(selectedAsset.id, 'multi')}
         onSelectConversation={(conversationId) => {
-          void loadConversation(conversationId).then(() => clearRunUnread(conversationId))
+          void loadConversation(conversationId).then((conversation) => {
+            if (conversation.assetId !== null) selectAsset(conversation.assetId)
+            clearRunUnread(conversationId)
+          })
         }}
-        onDeleteConversation={(conversationId) => void deleteConversation(conversationId)}
+        onDeleteConversation={(conversationId) => void deleteConversation(conversationId, selectedAsset.id)}
         onRun={(nextPrompt, selectedSkillName, mode) => runAgent(nextPrompt, selectedSkillName, mode)}
+        activeRunStatus={activeRunStatus}
         isRunActive={isRunActive}
         onCancelRun={cancelRun}
-        onApprove={(allowPrefix) => void approveRun(allowPrefix)}
-        onReject={() => void rejectRun()}
+        onApprove={(allowPrefix, guidance) => void approveRun(allowPrefix, guidance)}
+        onReject={(guidance) => void rejectRun(guidance)}
         onTerminalRequestDecision={decideTerminalAccess}
         onLoadOlderEvents={loadOlderConversationEvents}
-        onForkRun={async (eventId, nextPrompt) => {
+        onEditRun={async (eventId, nextPrompt) => {
           if (!activeConversationId || isRunActive) return
           setLoadError(null)
-          await branchConversation(activeConversationId, { beforeEventId: eventId })
-          await runAgent(nextPrompt)
+          try {
+            await rewriteConversation(activeConversationId, eventId)
+            await runAgent(nextPrompt)
+          } catch (error) {
+            setLoadError(error instanceof Error ? error.message : '编辑并重新发送失败。')
+          }
         }}
-        onBranch={async (eventId) => {
+        onRetryRun={async (eventId, nextPrompt) => {
           if (!activeConversationId || isRunActive) return
           setLoadError(null)
-          await branchConversation(activeConversationId, { throughEventId: eventId })
+          try {
+            await rewriteConversation(activeConversationId, eventId)
+            await runAgent(nextPrompt)
+          } catch (error) {
+            setLoadError(error instanceof Error ? error.message : '重试失败。')
+          }
         }}
-        onCreateRunbook={async () => {
+        onExtractKnowledge={async () => {
           if (!activeConversationId || isRunActive) return
-          clearKnowledgeDraft()
+          knowledgeBase.clearDraft()
           setManagementWorkspace('knowledge')
           setSidebarCollapsed(true)
-          await generateKnowledgeDraft(activeConversationId, { modelName: selectedModel || null })
+          await knowledgeBase.generateDraft(activeConversationId, { modelName: selectedModel || null })
         }}
       />
     )
@@ -368,7 +349,9 @@ export function App() {
         onSelectConversation={(conversationId) => {
           setManagementWorkspace(null)
           setActiveWorkspaceSection('conversations')
-          void loadConversation(conversationId)
+          void loadConversation(conversationId).then((conversation) => {
+            if (conversation.assetId !== null) selectAsset(conversation.assetId)
+          })
         }}
         onSelectAsset={(assetId) => {
           setManagementWorkspace(null)
@@ -410,10 +393,15 @@ export function App() {
           }}
           onSelectConversation={(conversationId) => {
             setManagementWorkspace(null)
-            void loadConversation(conversationId)
+            void loadConversation(conversationId).then((conversation) => {
+              if (conversation.assetId !== null) selectAsset(conversation.assetId)
+            })
           }}
-          onDeleteConversation={(conversationId) => {
-            void deleteConversation(conversationId)
+          onDeleteConversation={(conversationId, cancelActive) => {
+            setLoadError(null)
+            void deleteConversation(conversationId, selectedAssetId, cancelActive).catch((error: unknown) => {
+              setLoadError(error instanceof Error ? error.message : '删除会话失败。')
+            })
           }}
           onUpdateAsset={updateAsset}
           onDeleteAsset={deleteAsset}
@@ -428,44 +416,20 @@ export function App() {
 
         <section className="flex min-w-0 flex-1 flex-col overflow-hidden bg-ops-bg" aria-label="中央工作区">
           {managementWorkspace ? (
-            <Suspense fallback={<LoadingState message={t('settings.loading')} />}>
-              {managementWorkspace === 'knowledge' ? (
-                <KnowledgeWorkspace
-                  conversationId={activeConversationId}
-                  conversationTitle={activeConversationTitle}
-                  selectedModel={selectedModel}
-                  draft={knowledgeDraft}
-                  draftSourceConversation={knowledgeDraftSourceConversation}
-                  draftLoading={knowledgeDraftLoading}
-                  draftError={knowledgeDraftError}
-                  saving={knowledgeSaving}
-                  entries={knowledgeEntries}
-                  total={knowledgeTotal}
-                  limit={knowledgeLimit}
-                  offset={knowledgeOffset}
-                  loading={knowledgeLoading}
-                  error={knowledgeError}
-                  reindexing={knowledgeReindexing}
-                  knowledgeEntriesInjected={contextStatus?.knowledgeEntriesInjected}
-                  knowledgeContextChars={contextStatus?.knowledgeContextChars}
-                  onSearch={searchKnowledge}
-                  onDeleteEntry={deleteKnowledgeEntry}
-                  onReindex={reindexKnowledge}
-                  onGenerateDraft={generateKnowledgeDraft}
-                  onSaveDraft={saveKnowledgeDraft}
-                  onClearDraft={clearKnowledgeDraft}
-                  onDraftChange={setKnowledgeDraft}
-                />
-              ) : managementWorkspace === 'credentials' ? (
-                <CredentialsWorkspace initialSSHKeys={bootstrap.sshKeys} onSSHKeysChange={replaceSSHKeys} />
-              ) : managementWorkspace === 'automation' ? (
-                <AutomationWorkspace assets={bootstrap.assets} />
-              ) : managementWorkspace === 'extensions' ? (
-                <ExtensionsWorkspace />
-              ) : (
-                <GroupsWorkspace groups={bootstrap.groups} onGroupsChange={replaceGroups} />
-              )}
-            </Suspense>
+            <ManagementWorkspacePanel
+              workspace={managementWorkspace}
+              loadingMessage={t('settings.loading')}
+              assets={bootstrap.assets}
+              groups={bootstrap.groups}
+              sshKeys={bootstrap.sshKeys}
+              conversationId={activeConversationId}
+              conversationTitle={activeConversationTitle}
+              selectedModel={selectedModel}
+              contextStatus={contextStatus}
+              knowledge={knowledgeBase}
+              onGroupsChange={replaceGroups}
+              onSSHKeysChange={replaceSSHKeys}
+            />
           ) : selectedAsset ? (
             terminalFocused && terminalOpen ? (
               <TerminalPanel
@@ -529,22 +493,7 @@ export function App() {
             ) : (
               renderAssistantPanel()
             )
-          ) : loadError ? (
-              <section className={centerFallbackClassName}>
-                <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgb(var(--ops-danger)/0.05),transparent_80%)] pointer-events-none" />
-                <p className="text-ops-danger font-bold tracking-[0.1em] text-[11px] shadow-glow">{loadError}</p>
-              </section>
-            ) : (
-              <section className={centerFallbackClassName}>
-                <div className="absolute inset-0 bg-[radial-gradient(circle_at_50%_50%,rgb(var(--ops-cyan)/0.04),transparent_80%)] pointer-events-none" />
-                <div className="flex flex-col items-center gap-4">
-                  <div className="h-12 w-12 rounded-2xl border border-ops-border/20 bg-ops-panel/40 flex items-center justify-center text-ops-muted/30">
-                    <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.5"><path d="M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /><path d="M9 10a1 1 0 011-1h4a1 1 0 011 1v4a1 1 0 01-1 1h-4a1 1 0 01-1-1v-4z" /></svg>
-                  </div>
-                  <p className="text-ops-muted/40 font-bold tracking-[0.1em] text-[10px]">{t('app.awaitingTargetSelection')}</p>
-                </div>
-              </section>
-            )}
+          ) : <ConsolePlaceholder error={loadError} emptyMessage={t('app.awaitingTargetSelection')} />}
         </section>
       </main>
 

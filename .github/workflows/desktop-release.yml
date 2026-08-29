@@ -2,6 +2,9 @@ name: Desktop Release
 
 on:
   workflow_dispatch:
+  push:
+    tags:
+      - "v*"
 
 permissions:
   contents: write
@@ -28,17 +31,17 @@ jobs:
       - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: "3.11"
+          python-version: "3.13"
 
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
-          node-version: "20"
+          node-version: "22"
 
       - name: Setup pnpm
         uses: pnpm/action-setup@v4
         with:
-          version: 10
+          version: 11
 
       - name: Install Rust toolchain
         uses: dtolnay/rust-toolchain@stable
@@ -57,11 +60,20 @@ jobs:
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install pyinstaller
+          pip install pyinstaller pyright
 
       - name: Install frontend deps
         working-directory: web
         run: pnpm install --frozen-lockfile
+
+      - name: Validate source
+        shell: bash
+        run: |
+          python -m compileall -q src/app
+          pyright
+          pnpm --dir web lint
+          pnpm --dir web build
+          cargo check --manifest-path web/src-tauri/Cargo.toml
 
       - name: Build backend binary
         run: python scripts/build_backend_binary.py --platform ${{ matrix.platform }}

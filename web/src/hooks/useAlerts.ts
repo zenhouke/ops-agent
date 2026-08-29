@@ -1,16 +1,35 @@
 import { useEffect, useState } from 'react'
 import { getAlerts, updateAlertStatus } from '../api'
-import { getDesktopApiBaseUrl } from '../desktop'
+import { requestEventStream } from '../api/client'
 import type { Alert, AlertStatus } from '../types/alerts'
 
-const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
+type AlertStreamEvent = Alert & { type: 'new_alert' }
+type AlertUpdateStreamEvent = { type: 'alert_updated'; id: number; status: AlertStatus }
 
-async function resolveApiBaseUrl() {
-  const desktopBaseUrl = await getDesktopApiBaseUrl()
-  if (desktopBaseUrl) {
-    return desktopBaseUrl
+async function readAlertStream(
+  response: Response,
+  onEvent: (event: AlertStreamEvent | AlertUpdateStreamEvent) => void,
+) {
+  const reader = response.body?.getReader()
+  if (!reader) return
+  const decoder = new TextDecoder()
+  let buffer = ''
+
+  while (true) {
+    const { done, value } = await reader.read()
+    if (done) break
+    buffer += decoder.decode(value, { stream: true })
+    const blocks = buffer.split('\n\n')
+    buffer = blocks.pop() ?? ''
+    for (const block of blocks) {
+      const data = block
+        .split('\n')
+        .filter((line) => line.startsWith('data:'))
+        .map((line) => line.slice(5).trim())
+        .join('\n')
+      if (data) onEvent(JSON.parse(data) as AlertStreamEvent | AlertUpdateStreamEvent)
+    }
   }
-  return API_BASE_URL
 }
 
 export function useAlerts() {
@@ -19,45 +38,30 @@ export function useAlerts() {
 
   useEffect(() => {
     let active = true
-    let eventSource: EventSource | null = null
+    const abortController = new AbortController()
 
     const initSSE = async () => {
       try {
-        const baseUrl = await resolveApiBaseUrl()
-        const sseUrl = `${baseUrl}/api/alerts/sse`
-        eventSource = new EventSource(sseUrl)
-
-        eventSource.addEventListener('new_alert', (e) => {
+        const response = await requestEventStream('/api/alerts/sse', {
+          signal: abortController.signal,
+        })
+        await readAlertStream(response, (data) => {
           if (!active) return
-          try {
-            const data = JSON.parse(e.data) as Alert
+          if (data.type === 'new_alert') {
             setAlerts((prev) => {
               if (prev.some((a) => a.id === data.id)) return prev
               return [data, ...prev]
             })
-          } catch (err) {
-            console.error('Failed to parse SSE new_alert event data:', err)
+            return
           }
+          setAlerts((prev) =>
+            prev.map((a) => (a.id === data.id ? { ...a, status: data.status } : a))
+          )
         })
-
-        eventSource.addEventListener('alert_updated', (e) => {
-          if (!active) return
-          try {
-            const data = JSON.parse(e.data) as { id: number; status: AlertStatus }
-            setAlerts((prev) =>
-              prev.map((a) => (a.id === data.id ? { ...a, status: data.status } : a))
-            )
-          } catch (err) {
-            console.error('Failed to parse SSE alert_updated event data:', err)
-          }
-        })
-
-        eventSource.onerror = () => {
-          // EventSource will automatically reconnect, log as info
-          console.debug('Alerts SSE connection closed/errored, retrying...')
-        }
       } catch (err) {
-        console.error('Failed to initialize Alerts SSE:', err)
+        if (!abortController.signal.aborted) {
+          console.error('Failed to initialize Alerts SSE:', err)
+        }
       }
     }
 
@@ -78,9 +82,7 @@ export function useAlerts() {
 
     return () => {
       active = false
-      if (eventSource) {
-        eventSource.close()
-      }
+      abortController.abort()
     }
   }, [])
 

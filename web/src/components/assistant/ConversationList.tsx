@@ -1,10 +1,10 @@
-import { useMemo } from 'react'
+import { useEffect, useMemo, useState } from 'react'
 import { useAppearance } from '../../hooks/useAppearance'
 import type { ConversationSummary, EventItem } from '../../types/ops'
 
 type ConversationRunBadge = {
   conversationId: string
-  status: 'running' | 'needs_approval' | 'completed' | 'failed' | 'disconnected'
+  status: 'running' | 'needs_approval' | 'needs_input' | 'completed' | 'failed' | 'disconnected'
   hasUnread: boolean
 }
 
@@ -13,7 +13,7 @@ type ConversationListProps = {
   activeConversationId: string | null
   runs: ConversationRunBadge[]
   onSelect: (conversationId: string) => void
-  onDelete: (conversationId: string) => void
+  onDelete: (conversationId: string, cancelActive: boolean) => void
 }
 
 type StatusMeta = {
@@ -62,6 +62,7 @@ function getGroupKey(value: string, todayStart: number): GroupKey {
 
 export function ConversationList({ items, activeConversationId, runs, onSelect, onDelete }: ConversationListProps) {
   const { language, t } = useAppearance()
+  const [pendingDelete, setPendingDelete] = useState<{ id: string; title: string; cancelActive: boolean } | null>(null)
   const timeFormatter = useMemo(() => new Intl.DateTimeFormat(language, {
     hour: '2-digit',
     minute: '2-digit',
@@ -75,6 +76,15 @@ export function ConversationList({ items, activeConversationId, runs, onSelect, 
   const todayStart = startOfDay(new Date())
   const runsByConversation = useMemo(() => new Map(runs.map((run) => [run.conversationId, run])), [runs])
 
+  useEffect(() => {
+    if (!pendingDelete) return
+    const closeOnEscape = (event: KeyboardEvent) => {
+      if (event.key === 'Escape') setPendingDelete(null)
+    }
+    window.addEventListener('keydown', closeOnEscape)
+    return () => window.removeEventListener('keydown', closeOnEscape)
+  }, [pendingDelete])
+
   const groupedItems = useMemo(() => {
     const groups: Record<GroupKey, ConversationSummary[]> = { today: [], yesterday: [], earlier: [] }
     items.forEach((item) => groups[getGroupKey(item.updatedAt, todayStart)].push(item))
@@ -84,6 +94,7 @@ export function ConversationList({ items, activeConversationId, runs, onSelect, 
   function getStatusMeta(item: ConversationSummary): StatusMeta {
     const run = runsByConversation.get(item.id)
     if (run?.status === 'needs_approval') return { label: t('conversation.statusNeedsApproval'), dotClassName: 'bg-ops-warning', textClassName: 'text-ops-warning' }
+    if (run?.status === 'needs_input') return { label: '等待回复', dotClassName: 'bg-ops-warning', textClassName: 'text-ops-warning' }
     if (run?.status === 'failed') return { label: t('conversation.statusFailed'), dotClassName: 'bg-ops-danger', textClassName: 'text-ops-danger' }
     if (run?.status === 'disconnected') return { label: t('conversation.statusDisconnected'), dotClassName: 'bg-ops-danger', textClassName: 'text-ops-danger' }
     if (run?.status === 'running') return { label: run.hasUnread ? t('conversation.statusNewOutput') : t('conversation.statusRunning'), dotClassName: 'bg-ops-text', textClassName: 'text-ops-text' }
@@ -139,7 +150,7 @@ export function ConversationList({ items, activeConversationId, runs, onSelect, 
                   {groupItems.map((item) => {
                     const isActive = item.id === activeConversationId
                     const run = runsByConversation.get(item.id)
-                    const isRunLocked = run?.status === 'running' || run?.status === 'needs_approval' || run?.status === 'disconnected'
+                    const isRunLocked = run?.status === 'running' || run?.status === 'needs_approval' || run?.status === 'needs_input' || run?.status === 'disconnected'
                     const isUntitled = !item.title || item.title.trim() === '' || item.title.trim() === 'New'
                     const displayTitle = isUntitled ? t('conversation.untitledTask') : item.title
                     const status = getStatusMeta(item)
@@ -182,11 +193,10 @@ export function ConversationList({ items, activeConversationId, runs, onSelect, 
                           className="absolute right-1.5 top-1.5 rounded p-1 text-ops-muted opacity-0 transition-all duration-200 hover:bg-ops-danger/10 hover:text-ops-danger group-hover:opacity-100 focus:opacity-100 active:scale-95"
                           onClick={(event) => {
                             event.stopPropagation()
-                            onDelete(item.id)
+                            setPendingDelete({ id: item.id, title: displayTitle, cancelActive: isRunLocked })
                           }}
-                          disabled={isRunLocked}
                           aria-label={t('conversation.deleteTask', { title: displayTitle })}
-                          title={isRunLocked ? '请先取消或完成当前运行' : undefined}
+                          title={isRunLocked ? '停止任务并删除会话' : '删除会话'}
                         >
                           <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true"><path d="M18 6 6 18M6 6l12 12" /></svg>
                         </button>
@@ -209,6 +219,49 @@ export function ConversationList({ items, activeConversationId, runs, onSelect, 
           </div>
         )}
       </div>
+
+      {pendingDelete ? (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-ops-bg/65 p-4 backdrop-blur-sm" role="presentation" onMouseDown={() => setPendingDelete(null)}>
+          <section
+            className="w-[420px] max-w-[92vw] rounded-2xl border border-ops-border/45 bg-ops-panel/95 p-6 shadow-2xl"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-conversation-title"
+            aria-describedby="delete-conversation-description"
+            onMouseDown={(event) => event.stopPropagation()}
+          >
+            <div className="flex items-start gap-3">
+              <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-ops-danger/10 text-ops-danger" aria-hidden="true">
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.3"><path d="M12 9v4M12 17h.01" /><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0Z" /></svg>
+              </span>
+              <div className="min-w-0">
+                <h3 id="delete-conversation-title" className="text-sm font-bold text-ops-text">
+                  {pendingDelete.cancelActive ? '停止任务并删除会话？' : '删除会话？'}
+                </h3>
+                <p id="delete-conversation-description" className="mt-2 text-xs leading-5 text-ops-muted">
+                  {pendingDelete.cancelActive
+                    ? `会话“${pendingDelete.title}”仍有未结束的 Agent 任务。确认后将先停止任务，再删除会话。`
+                    : `会话“${pendingDelete.title}”将被永久删除，此操作无法撤销。`}
+                </p>
+              </div>
+            </div>
+            <div className="mt-6 flex justify-end gap-2">
+              <button type="button" className="button px-4" autoFocus onClick={() => setPendingDelete(null)}>取消</button>
+              <button
+                type="button"
+                className="button button-danger px-4"
+                onClick={() => {
+                  const target = pendingDelete
+                  setPendingDelete(null)
+                  onDelete(target.id, target.cancelActive)
+                }}
+              >
+                {pendingDelete.cancelActive ? '停止并删除' : '删除'}
+              </button>
+            </div>
+          </section>
+        </div>
+      ) : null}
     </div>
   )
 }

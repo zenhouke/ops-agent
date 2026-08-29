@@ -17,10 +17,13 @@ from app.core.loop.loop_state import LoopContext, LoopState
 from app.core.loop.runtime_manager import LoopRuntimeManager, new_runtime_id
 from app.core.runtime.control import get_runtime_control
 from app.core.tool.execute_command import ExecuteCommandHandler
+from app.core.tool.ask_followup import AskFollowupHandler
+from app.core.tool.update_task_state import UpdateTaskStateHandler
 from app.core.tool.load_skill import LoadSkillHandler
 from app.core.tool.terminal_autonomy import ListAssetsHandler, RequestTerminalSessionHandler
+from app.core.tool.network_collection import build_network_collection_handlers
 from app.db.repositories.assets import get_asset
-from app.db.repositories.models import get_default_model_config
+from app.db.repositories.models import get_default_model_config, list_model_configs
 from app.db.repositories.model_usage import create_model_usage, sum_conversation_usage
 from app.db.session import Session as DbSession, engine
 from app.services.approval_service import get_approval_service
@@ -31,6 +34,7 @@ from app.services.mcp_service import McpService
 from app.services.model_service import ModelService
 from app.services.observability_service import trace_detached_operation
 from app.services.ops_plugin_service import get_ops_plugin_service
+from app.services.prompt_settings_service import get_prompt_settings_service
 from app.services.skill_service import SkillService
 from app.services.terminal_service import TerminalService
 
@@ -58,10 +62,13 @@ class ConsoleAppService:
     def _build_tool_handlers(self, ts: TerminalService) -> list[Any]:
         terminal = TerminalSessionAdapter(ts, self.runtime_manager)
         return [
+            AskFollowupHandler(),
+            UpdateTaskStateHandler(),
             LoadSkillHandler(self._skill_service),
             ListAssetsHandler(),
             RequestTerminalSessionHandler(self.runtime_manager),
             ExecuteCommandHandler(terminal),
+            *build_network_collection_handlers(terminal),
             *self._ops_plugin_service.build_tool_handlers(terminal),
             *self._mcp_service.build_tool_handlers(),
         ]
@@ -144,11 +151,16 @@ class ConsoleAppService:
         *,
         session: Session,
         prompt: str,
+        operator_prompt: str | None = None,
         asset_id: int,
         terminal_id: str | None = None,
         model_name: str | None = None,
         selected_skill_name: str | None = None,
+        mode: str = "standard",
         conversation_id: str = "console",
+        conversation_scope_mode: str = "single",
+        conversation_primary_asset_id: int | None = None,
+        allowed_asset_ids: list[int] | None = None,
         terminal_service: TerminalService,
     ) -> Iterator[dict]:
         asset = self._resolve_asset(session, asset_id)
@@ -170,10 +182,14 @@ class ConsoleAppService:
         os_type = infer_os_type(shell_type, execution_profile=execution_profile)
         device_context = build_device_context(execution_profile, device_profile)
 
-        context_result = self._prepare_conversation_context(conversation_id, model_config)
+        prompt_settings = get_prompt_settings_service().get_snapshot()
+        task_prompt = (operator_prompt or prompt).strip()
+        context_result = self._prepare_conversation_context(conversation_id, model_config, current_prompt=task_prompt)
         conversation_history = context_result.prepared_messages
+        task_state = context_result.task_state
         knowledge_entries_injected = 0
         knowledge_context_chars = 0
+        knowledge_context = ""
         try:
             from app.services.knowledge_factory import get_knowledge_service
 
@@ -185,19 +201,16 @@ class ConsoleAppService:
             )
             knowledge_service = get_knowledge_service()
             knowledge_entries = knowledge_service.search_for_agent(
-                prompt,
+                task_state.retrieval_query(task_prompt),
                 asset_label=asset_label,
                 asset_group=asset_group,
                 conversation_id=conversation_id,
             )
-            knowledge_context = knowledge_service.format_agent_context(knowledge_entries)
-            if knowledge_context.strip():
-                conversation_history = self._append_knowledge_context(
-                    conversation_history,
-                    knowledge_context,
-                )
-                knowledge_entries_injected = len(knowledge_entries)
-                knowledge_context_chars = len(knowledge_context)
+            knowledge_context = knowledge_service.format_agent_context(
+                knowledge_entries,
+                usage_prompt=prompt_settings.effective["memoryUsage"],
+            )
+            knowledge_entries_injected = len(knowledge_entries)
         except Exception:
             logger.warning(
                 "Failed to load knowledge context conversation_id=%s asset_id=%s",
@@ -205,6 +218,17 @@ class ConsoleAppService:
                 asset_id,
                 exc_info=True,
             )
+            knowledge_context = (
+                "Long-term memory preflight:\n"
+                "Status: unavailable\n"
+                "Relevant memories: unknown\n"
+                "Rules: Continue without memory, do not invent remembered facts, and rely on current evidence."
+            )
+        conversation_history = self._append_knowledge_context(
+            conversation_history,
+            knowledge_context,
+        )
+        knowledge_context_chars = len(knowledge_context)
 
         runtime_id = new_runtime_id()
         skill_packages = self._skill_service.list_skills()
@@ -247,6 +271,15 @@ class ConsoleAppService:
             loaded_skill_name=loaded_skill_name,
             manual_skill_name=manual_skill_name,
             manual_skill_content=manual_skill_content,
+            agent_behavior_prompt=prompt_settings.effective["agentBehavior"],
+            incident_response_prompt=(
+                prompt_settings.effective["incidentResponse"] if mode == "incident" else ""
+            ),
+            organization_rules_prompt=prompt_settings.effective["organizationRules"],
+            task_state=task_state,
+            conversation_scope_mode="multi" if conversation_scope_mode == "multi" else "single",
+            conversation_primary_asset_id=conversation_primary_asset_id if conversation_primary_asset_id is not None else asset_id,
+            allowed_asset_ids=list(allowed_asset_ids or [asset_id]),
         )
 
         self.runtime_manager.create_runtime(
@@ -255,7 +288,7 @@ class ConsoleAppService:
             terminal_id=terminal_id,
             context=context,
         )
-        initial_runtime_events: list[dict[str, Any]] = []
+        self.runtime_manager.append_task_state(runtime_id)
         if terminal_id:
             authorization = self.runtime_manager.create_initial_terminal_authorization(
                 runtime_id,
@@ -265,7 +298,7 @@ class ConsoleAppService:
                 terminal_id=terminal_id,
             )
             context.default_authorization_id = authorization.authorization_id
-            _, initial_runtime_events = self.runtime_manager.events_since(runtime_id, 0)
+        _, initial_runtime_events = self.runtime_manager.events_since(runtime_id, 0)
 
         token_usage = self._conversation_token_usage_payload(conversation_id)
         context_percent = self._context_percent_for_status_event(
@@ -307,6 +340,7 @@ class ConsoleAppService:
         approved: bool,
         approval_token: str | None,
         allow_prefix: str | None,
+        guidance: str | None,
         terminal_service: TerminalService,
     ) -> Iterator[dict]:
         _ = session
@@ -322,6 +356,7 @@ class ConsoleAppService:
                 runtime_id=runtime_id,
                 approved=approved,
                 approval_token=approval_token,
+                guidance=guidance,
                 terminal_service=terminal_service,
             )
 
@@ -329,6 +364,24 @@ class ConsoleAppService:
             runtime_id=runtime_id,
             log_message="stream_approve failed runtime_id=%s",
             event_iter_factory=resume_events,
+            runtime_id_log=runtime_id,
+        )
+
+    def stream_user_message(
+        self,
+        *,
+        runtime_id: str,
+        message: str,
+        terminal_service: TerminalService,
+    ) -> Iterator[dict]:
+        yield from self._stream_events_with_error_handling(
+            runtime_id=runtime_id,
+            log_message="stream_user_message failed runtime_id=%s",
+            event_iter_factory=lambda: self.runtime_manager.submit_user_message(
+                runtime_id=runtime_id,
+                message=message,
+                terminal_service=terminal_service,
+            ),
             runtime_id_log=runtime_id,
         )
 
@@ -402,8 +455,7 @@ class ConsoleAppService:
         **log_context: Any,
     ) -> Iterator[dict]:
         control = get_runtime_control()
-        started = time.monotonic()
-        status = "failed"
+        terminal_status: str | None = None
         control.metrics.run_started(runtime_id)
         try:
             iterator = iter(event_iter_factory())
@@ -413,18 +465,18 @@ class ConsoleAppService:
                         with trace_detached_operation("agent.runtime.step", {"ops.runtime_id": runtime_id}):
                             event = next(iterator)
                 except StopIteration:
-                    status = "completed"
                     return
                 yield event
         except Exception as exc:
             logger.exception(log_message, *log_context.values())
+            terminal_status = "failed"
             yield self._runtime_error_event(runtime_id, str(exc), recoverable=True)
         finally:
-            control.metrics.run_finished(
-                runtime_id,
-                status=status,
-                duration_seconds=time.monotonic() - started,
-            )
+            runtime = self.runtime_manager.get_runtime(runtime_id)
+            if runtime is not None and runtime.state.is_terminal():
+                terminal_status = "completed" if runtime.state.phase == "completed" else "failed"
+            if terminal_status is not None:
+                control.metrics.run_finished(runtime_id, status=terminal_status)
 
     def _runtime_error_event(self, runtime_id: str, text: str, *, recoverable: bool) -> dict[str, Any]:
         return {
@@ -446,6 +498,14 @@ class ConsoleAppService:
         return asset
 
     def _resolve_model_config(self, session: Session, model_name: str | None):
+        if model_name:
+            selected_record = next(
+                (record for record in list_model_configs(session) if record.model_name == model_name),
+                None,
+            )
+            if selected_record is not None:
+                return self._model_service.from_record(selected_record)
+
         default_record = get_default_model_config(session)
         default_config = (
             self._model_service.from_record(default_record)
@@ -465,10 +525,10 @@ class ConsoleAppService:
                 shell_type = "unknown"
         return shell_type
 
-    def _prepare_conversation_context(self, conversation_id: str, model_config):
+    def _prepare_conversation_context(self, conversation_id: str, model_config, *, current_prompt: str = ""):
         context_manager = self._context_manager()
         if not conversation_id or conversation_id == "console":
-            return context_manager.prepare_context(conversation_id or "console", [], model_config)
+            return context_manager.prepare_context(conversation_id or "console", [], model_config, current_prompt=current_prompt)
 
         from app.api.conversations import get_conversation_service
         service = get_conversation_service()
@@ -476,10 +536,10 @@ class ConsoleAppService:
             detail = service.get_conversation(conversation_id)
         except FileNotFoundError:
             logger.warning("Conversation not found while preparing context conversation_id=%s", conversation_id)
-            return context_manager.prepare_context(conversation_id, [], model_config)
+            return context_manager.prepare_context(conversation_id, [], model_config, current_prompt=current_prompt)
 
         events = cast(list[JsonObject], detail.events or [])
-        result = context_manager.prepare_context(conversation_id, events, model_config)
+        result = context_manager.prepare_context(conversation_id, events, model_config, current_prompt=current_prompt)
         logger.info(
             "Prepared conversation context: %d messages from %d events, %d%%, fit=%s",
             len(result.prepared_messages),

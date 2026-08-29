@@ -1,7 +1,20 @@
 import { getDesktopApiBaseUrl } from '../desktop'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
+const API_TOKEN_STORAGE_KEY = 'ops-agent:api-token'
 let runtimeApiBaseUrl: string | null = null
+
+export function getApiAccessToken(): string {
+  return sessionStorage.getItem(API_TOKEN_STORAGE_KEY) ?? ''
+}
+
+export function setApiAccessToken(token: string | null): void {
+  if (token) {
+    sessionStorage.setItem(API_TOKEN_STORAGE_KEY, token)
+  } else {
+    sessionStorage.removeItem(API_TOKEN_STORAGE_KEY)
+  }
+}
 
 async function resolveApiBaseUrl() {
   if (runtimeApiBaseUrl !== null) {
@@ -17,13 +30,26 @@ async function resolveApiBaseUrl() {
 
 async function buildRequest(path: string, init?: RequestInit) {
   const baseUrl = await resolveApiBaseUrl()
+  const accessToken = getApiAccessToken()
   return fetch(`${baseUrl}${path}`, {
+    ...init,
     headers: {
       'Content-Type': 'application/json',
+      ...(accessToken ? { Authorization: `Bearer ${accessToken}` } : {}),
       ...(init?.headers ?? {}),
     },
-    ...init,
   })
+}
+
+export async function getAuthenticationStatus(): Promise<{ required: boolean }> {
+  const response = await buildRequest('/api/auth/status')
+  if (!response.ok) throw new Error(await getErrorMessage(response))
+  return (await response.json()) as { required: boolean }
+}
+
+export async function verifyApiAccessToken(): Promise<void> {
+  const response = await buildRequest('/api/auth/verify', { method: 'POST' })
+  if (!response.ok) throw new Error(await getErrorMessage(response))
 }
 
 async function getErrorMessage(response: Response) {

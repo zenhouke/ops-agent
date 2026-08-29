@@ -27,12 +27,33 @@ type TerminalToolOutput =
       reason?: string
       message?: string
     }
+  | {
+      tool: 'get_network_device_facts' | 'get_network_interfaces' | 'get_network_l2_neighbors'
+      status: string
+      kind?: 'facts' | 'interfaces' | 'neighbors'
+      vendor?: string
+      deviceType?: string
+      records?: Array<Record<string, unknown>>
+      sources?: Array<{
+        command?: string
+        protocol?: string | null
+        parsed?: boolean
+        recordCount?: number
+        error?: string | null
+      }>
+    }
 
 function parseTerminalToolOutput(output: string): TerminalToolOutput | null {
   if (!output.trim()) return null
   try {
     const parsed = JSON.parse(output) as TerminalToolOutput
-    if (parsed?.tool === 'list_assets' || parsed?.tool === 'request_terminal_session') return parsed
+    if (
+      parsed?.tool === 'list_assets'
+      || parsed?.tool === 'request_terminal_session'
+      || parsed?.tool === 'get_network_device_facts'
+      || parsed?.tool === 'get_network_interfaces'
+      || parsed?.tool === 'get_network_l2_neighbors'
+    ) return parsed
   } catch {
     return null
   }
@@ -71,6 +92,45 @@ function StructuredTerminalToolOutput({ output }: { output: TerminalToolOutput }
     )
   }
 
+  if (output.tool !== 'request_terminal_session') {
+    const records = output.records ?? []
+    return (
+      <div className="rounded-[4px] border border-ops-cyan/20 bg-ops-deep/70 p-2.5 shadow-inner">
+        <div className="mb-2 flex flex-wrap items-center justify-between gap-2 border-b border-ops-border/20 pb-2">
+          <div className="flex items-center gap-2">
+            <span className="text-[9px] font-bold uppercase tracking-[0.1em] text-ops-cyan/85">{output.kind ?? 'network'} collection</span>
+            {output.vendor ? <span className="rounded-[3px] border border-ops-cyan/20 bg-ops-cyan/8 px-1.5 py-0.5 text-[9px] font-bold text-ops-cyan/80">{output.vendor}</span> : null}
+          </div>
+          <span className="text-[9px] font-bold text-ops-muted/60">{records.length} records · {output.deviceType ?? 'unknown driver'}</span>
+        </div>
+        <div className="mb-2 flex flex-wrap gap-1.5">
+          {(output.sources ?? []).map((source, index) => (
+            <span key={`${source.command}-${index}`} className={`rounded-[3px] border px-1.5 py-0.5 font-mono text-[9px] ${source.parsed ? 'border-ops-green/20 text-ops-green/75' : 'border-ops-warning/25 text-ops-warning/80'}`}>
+              {source.command ?? 'command'} · {source.parsed ? `${source.recordCount ?? 0} parsed` : source.error || 'raw fallback'}
+            </span>
+          ))}
+        </div>
+        {records.length ? (
+          <div className="grid max-h-72 gap-1.5 overflow-y-auto md:grid-cols-2">
+            {records.slice(0, 100).map((record, index) => {
+              const visibleEntries = Object.entries(record).filter(([key, value]) => key !== 'rawFields' && value !== null && value !== undefined && value !== '')
+              return (
+                <div key={index} className="rounded-[4px] border border-ops-border/20 bg-ops-panel/30 px-2.5 py-2">
+                  {visibleEntries.map(([key, value]) => (
+                    <div key={key} className="flex gap-2 text-[10px] leading-relaxed">
+                      <span className="w-28 shrink-0 truncate text-ops-muted/55">{key}</span>
+                      <span className="min-w-0 break-all font-mono text-ops-text/78">{Array.isArray(value) ? value.join(', ') : String(value)}</span>
+                    </div>
+                  ))}
+                </div>
+              )
+            })}
+          </div>
+        ) : <div className="text-[10px] text-ops-muted/58">No structured records; inspect source status above.</div>}
+      </div>
+    )
+  }
+
   const isError = output.status === 'error'
   return (
     <div className={`rounded-[4px] border p-2.5 shadow-inner ${isError ? 'border-ops-danger/30 bg-ops-danger/8' : 'border-ops-warning/30 bg-ops-warning/8'}`}>
@@ -96,8 +156,8 @@ type CommandExecutionCardProps = {
   chunkEvents?: CommandChunk[]
   endEvent?: CommandEnd
   pendingApprovalRuntimeId: string | null
-  onApprove?: (allowPrefix?: string) => void
-  onReject?: () => void
+  onApprove?: (allowPrefix?: string, guidance?: string) => void
+  onReject?: (guidance?: string) => void
 }
 
 export function CommandExecutionCard({
@@ -114,6 +174,7 @@ export function CommandExecutionCard({
   const [isExpanded, setIsExpanded] = useState(false)
   const [showWhitelistOptions, setShowWhitelistOptions] = useState(false)
   const [allowPrefix, setAllowPrefix] = useState('')
+  const [decisionNote, setDecisionNote] = useState('')
 
   // Derived state from AgentMessage or Legacy events
   const toolCall = message?.toolCall
@@ -126,6 +187,11 @@ export function CommandExecutionCard({
   const args = toolCall?.args ?? {}
   const targetAssetName = typeof args.asset_name === 'string' ? args.asset_name : undefined
   const targetTerminalId = typeof args.terminal_id === 'string' ? args.terminal_id : ((startEvent as any)?.terminalId ?? (startEvent as any)?.terminal_id)
+  const executionProfile = toolCall?.executionProfile
+    || (typeof args.execution_profile === 'string' ? args.execution_profile : undefined)
+  const deviceVendor = toolCall?.deviceVendor
+    || (typeof args.device_vendor === 'string' ? args.device_vendor : undefined)
+  const usesNetworkManagementChannel = executionProfile === 'network-cli'
   const targetLabel = [targetAssetName, targetTerminalId ? `terminal ${String(targetTerminalId).slice(0, 8)}` : undefined]
     .filter(Boolean)
     .join(' · ')
@@ -155,6 +221,8 @@ export function CommandExecutionCard({
   const structuredOutput = parseTerminalToolOutput(outputText)
   const exitCode = message ? message.exitCode : ((endEvent as any)?.exitCode ?? (endEvent as any)?.exit_code)
   const hasExecutionResult = message ? message.type === 'say' && message.say === 'tool_use' && !message.partial : !!endEvent
+  const executionSucceeded = hasExecutionResult && (exitCode === null || exitCode === undefined || exitCode === 0)
+  const executionFailed = hasExecutionResult && !executionSucceeded
   const commandTokens = displayCommand.trim().split(/\s+/).filter(Boolean)
   const allowPrefixOptions = Array.from(new Set([displayCommand.trim(), commandTokens[0]].filter(Boolean)))
   
@@ -177,10 +245,10 @@ export function CommandExecutionCard({
   }, [showApprovalActions, approvalStatus])
 
   return (
-    <div className={`group/card my-1.5 overflow-hidden rounded-[5px] border bg-ops-panel/30 shadow-inner transition-all duration-200 ${approvalStatus === 'pending' ? 'border-ops-warning/35' : 'border-ops-border/30'} ${isExpanded ? 'p-3' : 'px-2.5 py-2'}`}>
+    <div className={`group/card my-1.5 overflow-hidden rounded-[5px] border bg-ops-panel/30 shadow-inner transition-all duration-200 ${approvalStatus === 'pending' ? 'border-ops-warning/35' : executionSucceeded ? 'border-ops-green/35' : executionFailed ? 'border-ops-danger/35' : 'border-ops-border/30'} ${isExpanded ? 'p-3' : 'px-2.5 py-2'}`}>
       <div className="flex items-center justify-between gap-3">
         <div className="flex min-w-0 flex-1 items-center gap-2.5">
-          <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-[4px] border transition-colors duration-200 ${isRunning ? 'border-ops-cyan/35 bg-ops-cyan/10 text-ops-cyan' : approvalStatus === 'pending' ? 'border-ops-warning/35 bg-ops-warning/10 text-ops-warning' : 'border-ops-border/35 bg-ops-deep/60 text-ops-muted'}`}>
+          <div className={`flex h-6 w-6 shrink-0 items-center justify-center rounded-[4px] border transition-colors duration-200 ${isRunning ? 'border-ops-cyan/35 bg-ops-cyan/10 text-ops-cyan' : approvalStatus === 'pending' ? 'border-ops-warning/35 bg-ops-warning/10 text-ops-warning' : executionSucceeded ? 'border-ops-green/40 bg-ops-green/10 text-ops-green' : executionFailed ? 'border-ops-danger/40 bg-ops-danger/10 text-ops-danger' : 'border-ops-border/35 bg-ops-deep/60 text-ops-muted'}`}>
             <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><polyline points="4 17 10 11 4 5"></polyline><line x1="12" y1="19" x2="20" y2="19"></line></svg>
           </div>
 
@@ -190,14 +258,19 @@ export function CommandExecutionCard({
               {toolSummary || (isCommandTool ? t('conversation.unknownCommand') : t('conversation.unknownTool'))}
             </code>
             {targetLabel ? <span className="truncate text-[10px] font-semibold text-ops-muted/60">目标：{targetLabel}</span> : null}
+            {usesNetworkManagementChannel ? (
+              <span className="truncate text-[10px] font-semibold text-ops-cyan/70">
+                {t('conversation.agentManagementChannel')}{deviceVendor ? ` · ${deviceVendor}` : ''}
+              </span>
+            ) : null}
           </div>
         </div>
 
         <div className="flex items-center gap-3">
-          {(message ? !message.partial : !!endEvent) ? (
-            <div className={`flex items-center gap-1.5 rounded-[4px] border px-2 py-0.5 text-[9px] font-bold tracking-[0.08em] ${exitCode === null || exitCode === 0 ? 'border-ops-green/25 bg-ops-green/8 text-ops-green' : 'border-ops-danger/30 bg-ops-danger/8 text-ops-danger'}`}>
-              <div className={`h-1.5 w-1.5 rounded-full ${exitCode === null || exitCode === 0 ? 'bg-ops-green' : 'bg-ops-danger'}`} />
-              {exitCode === null || exitCode === 0 ? t('conversation.success') : t('conversation.errorCode', { code: String(exitCode) })}
+          {hasExecutionResult ? (
+            <div className={`flex items-center gap-1.5 rounded-[4px] border px-2 py-0.5 text-[9px] font-bold tracking-[0.08em] ${executionSucceeded ? 'border-ops-green/25 bg-ops-green/8 text-ops-green' : 'border-ops-danger/30 bg-ops-danger/8 text-ops-danger'}`}>
+              <div className={`h-1.5 w-1.5 rounded-full ${executionSucceeded ? 'bg-ops-green' : 'bg-ops-danger'}`} />
+              {executionSucceeded ? t('conversation.success') : t('conversation.errorCode', { code: String(exitCode) })}
             </div>
           ) : approvalStatus ? (
             <div className={`flex items-center gap-1.5 rounded-[4px] border px-2 py-0.5 text-[9px] font-bold tracking-[0.08em] ${approvalStatus === 'approved' ? 'border-ops-green/25 bg-ops-green/8 text-ops-green' : approvalStatus === 'rejected' ? 'border-ops-danger/30 bg-ops-danger/8 text-ops-danger' : 'border-ops-warning/35 bg-ops-warning/10 text-ops-warning'}`}>
@@ -257,6 +330,14 @@ export function CommandExecutionCard({
 
               {(message?.text || approvalEvent?.reason) && <div className="mb-3 rounded-[4px] border border-ops-warning/20 bg-ops-deep/55 px-3 py-2 text-[12px] leading-relaxed text-ops-text/78">{message?.text || approvalEvent?.reason}</div>}
 
+              <textarea
+                className="mb-3 min-h-16 w-full resize-y rounded-[4px] border border-ops-border/30 bg-ops-deep/65 px-3 py-2 text-[12px] leading-relaxed text-ops-text outline-none placeholder:text-ops-muted/45 focus:border-ops-cyan/40"
+                value={decisionNote}
+                onChange={(event) => setDecisionNote(event.target.value)}
+                placeholder="可选：说明批准条件、拒绝原因或替代方向，Agent 会据此继续"
+                aria-label="审批说明"
+              />
+
               {isCommandTool && showWhitelistOptions ? (
                 <div className="mb-3 rounded-[4px] border border-ops-border/25 bg-ops-deep/55 p-2.5">
                   <div className="mb-2 text-[10px] font-black uppercase tracking-[0.14em] text-ops-muted/68">{t('conversation.whitelistPrefix')}</div>
@@ -291,7 +372,7 @@ export function CommandExecutionCard({
                         setShowWhitelistOptions(true)
                         return
                       }
-                      onApprove?.(allowPrefix)
+                      onApprove?.(allowPrefix, decisionNote.trim() || undefined)
                     }}
                     className="rounded-[4px] border border-ops-cyan/30 bg-ops-cyan/8 px-3 py-1.5 text-[10px] font-bold tracking-[0.08em] text-ops-cyan transition-all duration-200 hover:border-ops-cyan/45 hover:bg-ops-cyan/14 active:scale-95 disabled:cursor-not-allowed disabled:opacity-45"
                     disabled={showWhitelistOptions && !allowPrefix.trim()}
@@ -300,8 +381,8 @@ export function CommandExecutionCard({
                   </button>
                 ) : <span />}
                 <div className="flex items-center gap-2">
-                  <button type="button" onClick={onReject} className="rounded-[4px] border border-ops-danger/30 bg-ops-danger/8 px-3 py-1.5 text-[10px] font-bold tracking-[0.08em] text-ops-danger transition-all duration-200 hover:border-ops-danger/45 hover:bg-ops-danger/12 active:scale-95">{t('conversation.reject')}</button>
-                  <button type="button" onClick={() => onApprove?.()} className="rounded-[4px] border border-ops-warning/45 bg-ops-warning px-3 py-1.5 text-[10px] font-bold tracking-[0.08em] text-ops-deep transition-all duration-200 hover:bg-ops-warning/85 active:scale-95">{t('conversation.approveOnce')}</button>
+                  <button type="button" onClick={() => onReject?.(decisionNote.trim() || undefined)} className="rounded-[4px] border border-ops-danger/30 bg-ops-danger/8 px-3 py-1.5 text-[10px] font-bold tracking-[0.08em] text-ops-danger transition-all duration-200 hover:border-ops-danger/45 hover:bg-ops-danger/12 active:scale-95">{t('conversation.reject')}</button>
+                  <button type="button" onClick={() => onApprove?.(undefined, decisionNote.trim() || undefined)} className="rounded-[4px] border border-ops-warning/45 bg-ops-warning px-3 py-1.5 text-[10px] font-bold tracking-[0.08em] text-ops-deep transition-all duration-200 hover:bg-ops-warning/85 active:scale-95">{t('conversation.approveOnce')}</button>
                 </div>
               </div>
             </section>

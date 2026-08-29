@@ -14,6 +14,7 @@ LoopEventType = Literal[
     "terminal_session_rejected",
     "terminal_command_submitted",
     "terminal_authorization_revoked",
+    "task_state",
 ]
 
 

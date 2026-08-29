@@ -1,18 +1,21 @@
 from __future__ import annotations
 
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 import json
 import logging
 from datetime import UTC, datetime
 from pathlib import Path
 import re
 import threading
+from typing import Any, Literal
 from uuid import uuid4
 
 from app.utils.file_store import atomic_write_json
 
 logger = logging.getLogger(__name__)
 CONVERSATION_ID_PATTERN = re.compile(r"^conv_[A-Za-z0-9]+$")
+LEGACY_OPTIMISTIC_USER_EVENT_ID_PATTERN = re.compile(r"^user-\d{13}$")
+ConversationScopeMode = Literal["single", "multi"]
 
 
 @dataclass
@@ -24,6 +27,9 @@ class ConversationSummary:
     updated_at: str
     event_count: int
     last_event_kind: str | None
+    asset_id: int | None = None
+    scope_mode: ConversationScopeMode = "single"
+    allowed_asset_ids: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -36,6 +42,9 @@ class ConversationDetail:
     event_count: int
     last_event_kind: str | None
     events: list[dict]
+    asset_id: int | None = None
+    scope_mode: ConversationScopeMode = "single"
+    allowed_asset_ids: list[int] = field(default_factory=list)
 
 
 @dataclass
@@ -64,7 +73,15 @@ class ConversationService:
     def base_dir(self) -> Path:
         return self._base_dir
 
-    def create_conversation(self, selected_model: str | None) -> ConversationSummary:
+    def create_conversation(
+        self,
+        selected_model: str | None,
+        *,
+        asset_id: int = 0,
+        scope_mode: ConversationScopeMode = "single",
+    ) -> ConversationSummary:
+        if scope_mode not in {"single", "multi"}:
+            raise ValueError("Conversation scope mode must be single or multi.")
         conversation_id = f"conv_{uuid4().hex}"
         timestamp = self._utc_now()
         detail = ConversationDetail(
@@ -76,6 +93,9 @@ class ConversationService:
             event_count=0,
             last_event_kind=None,
             events=[],
+            asset_id=asset_id,
+            scope_mode=scope_mode,
+            allowed_asset_ids=[asset_id],
         )
         with self._lock:
             self._ensure_base_dir()
@@ -83,51 +103,33 @@ class ConversationService:
             self._upsert_summary(detail)
         return self._to_summary(detail)
 
-    def branch_conversation(
-        self,
-        conversation_id: str,
-        *,
-        before_event_id: str | None = None,
-        through_event_id: str | None = None,
-    ) -> ConversationDetail:
-        if before_event_id and through_event_id:
-            raise ValueError("Choose either before_event_id or through_event_id.")
+    def truncate_before_event(self, conversation_id: str, event_id: str) -> ConversationDetail:
+        """Rewrite the current conversation so the target event and everything after it are removed."""
         with self._lock:
-            source = self.get_conversation(conversation_id)
-            boundary_id = before_event_id or through_event_id
-            boundary_index = len(source.events) - 1
-            if boundary_id:
+            detail = self.get_conversation(conversation_id)
+            boundary_index = next(
+                (
+                    index
+                    for index, event in enumerate(detail.events)
+                    if event.get("id") == event_id or event.get("eventId") == event_id
+                ),
+                -1,
+            )
+            if boundary_index < 0 and LEGACY_OPTIMISTIC_USER_EVENT_ID_PATTERN.fullmatch(event_id):
                 boundary_index = next(
                     (
                         index
-                        for index, event in enumerate(source.events)
-                        if event.get("id") == boundary_id or event.get("eventId") == boundary_id
+                        for index in range(len(detail.events) - 1, -1, -1)
+                        if detail.events[index].get("kind") == "user"
                     ),
                     -1,
                 )
-                if boundary_index < 0:
-                    raise ValueError("Branch event not found.")
-            copied_end = boundary_index if before_event_id else boundary_index + 1
-            timestamp = self._utc_now()
-            branch_event = {
-                "id": f"branch-{uuid4().hex}",
-                "kind": "conversation_branch",
-                "sourceConversationId": source.id,
-                "sourceEventId": boundary_id,
-            }
-            copied_events = [self._sanitize_event(dict(event)) for event in source.events[:copied_end]]
-            events = [branch_event, *copied_events]
-            detail = ConversationDetail(
-                id=f"conv_{uuid4().hex}",
-                title=f"{source.title} · 分支",
-                selected_model=source.selected_model,
-                created_at=timestamp,
-                updated_at=timestamp,
-                event_count=len(events),
-                last_event_kind=events[-1].get("kind") if events else None,
-                events=events,
-            )
-            self._ensure_base_dir()
+            if boundary_index < 0:
+                raise ValueError("Rewrite event not found.")
+            detail.events = [self._sanitize_event(dict(event)) for event in detail.events[:boundary_index]]
+            detail.event_count = len(detail.events)
+            detail.last_event_kind = detail.events[-1].get("kind") if detail.events else None
+            detail.updated_at = self._utc_now()
             self._write_detail(detail)
             self._upsert_summary(detail)
             return detail
@@ -138,13 +140,49 @@ class ConversationService:
             if not index_path.exists():
                 return []
             payload = json.loads(index_path.read_text(encoding="utf-8"))
-        summaries = [ConversationSummary(**item) for item in payload]
+        summaries = [self._summary_from_payload(item) for item in payload]
         return self._sort_summaries(summaries)
 
     def get_conversation(self, conversation_id: str) -> ConversationDetail:
         with self._lock:
             payload = json.loads(self._detail_path(conversation_id).read_text(encoding="utf-8"))
-        return ConversationDetail(**payload)
+        return self._detail_from_payload(payload)
+
+    def ensure_asset_access(self, conversation_id: str, asset_id: int) -> ConversationDetail:
+        """Bind legacy conversations on first use and enforce the persisted asset scope."""
+        with self._lock:
+            detail = self.get_conversation(conversation_id)
+            if detail.asset_id is None:
+                detail.asset_id = asset_id
+                detail.allowed_asset_ids = [asset_id]
+                detail.scope_mode = "single"
+                detail.updated_at = self._utc_now()
+                self._write_detail(detail)
+                self._upsert_summary(detail)
+                return detail
+            if asset_id not in self._normalized_allowed_asset_ids(detail):
+                if detail.scope_mode == "single":
+                    raise ValueError(
+                        f"Conversation is bound to asset {detail.asset_id}; create a new task for asset {asset_id}."
+                    )
+                raise ValueError(
+                    f"Asset {asset_id} is not in this multi-asset task scope; approve access from the primary asset first."
+                )
+            return detail
+
+    def allow_asset(self, conversation_id: str, asset_id: int) -> ConversationDetail:
+        """Persist a user-approved scope expansion for a multi-asset conversation."""
+        with self._lock:
+            detail = self.get_conversation(conversation_id)
+            if detail.scope_mode != "multi":
+                raise ValueError("Single-asset conversations cannot expand their asset scope.")
+            allowed_asset_ids = self._normalized_allowed_asset_ids(detail)
+            if asset_id not in allowed_asset_ids:
+                detail.allowed_asset_ids = sorted({*allowed_asset_ids, asset_id})
+                detail.updated_at = self._utc_now()
+                self._write_detail(detail)
+                self._upsert_summary(detail)
+            return detail
 
     def get_events_page(self, conversation_id: str, *, offset: int, limit: int) -> ConversationEventsPage:
         detail = self.get_conversation(conversation_id)
@@ -319,7 +357,32 @@ class ConversationService:
             updated_at=detail.updated_at,
             event_count=detail.event_count,
             last_event_kind=detail.last_event_kind,
+            asset_id=detail.asset_id,
+            scope_mode=detail.scope_mode,
+            allowed_asset_ids=self._normalized_allowed_asset_ids(detail),
         )
+
+    def _summary_from_payload(self, payload: dict[str, Any]) -> ConversationSummary:
+        normalized = dict(payload)
+        normalized.setdefault("scope_mode", "single")
+        normalized.setdefault("allowed_asset_ids", [])
+        summary = ConversationSummary(**normalized)
+        summary.allowed_asset_ids = self._normalized_allowed_asset_ids(summary)
+        return summary
+
+    def _detail_from_payload(self, payload: dict[str, Any]) -> ConversationDetail:
+        normalized = dict(payload)
+        normalized.setdefault("scope_mode", "single")
+        normalized.setdefault("allowed_asset_ids", [])
+        detail = ConversationDetail(**normalized)
+        detail.allowed_asset_ids = self._normalized_allowed_asset_ids(detail)
+        return detail
+
+    def _normalized_allowed_asset_ids(self, conversation: ConversationSummary | ConversationDetail) -> list[int]:
+        allowed = [int(asset_id) for asset_id in conversation.allowed_asset_ids]
+        if conversation.asset_id is not None and conversation.asset_id not in allowed:
+            allowed.insert(0, conversation.asset_id)
+        return list(dict.fromkeys(allowed))
 
     def _ensure_base_dir(self) -> None:
         self._base_dir.mkdir(parents=True, exist_ok=True)

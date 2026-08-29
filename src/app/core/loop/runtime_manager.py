@@ -181,6 +181,7 @@ class LoopRuntimeManager(RuntimeExecutionMixin, RuntimePersistenceMixin):
         asset_id: int,
         asset_name: str,
         reason: str,
+        scope_expansion_required: bool = False,
         ttl_seconds: int = 300,
     ) -> tuple[PendingTerminalRequest, str, dict[str, Any]]:
         runtime = self._by_runtime.get(runtime_id)
@@ -203,6 +204,7 @@ class LoopRuntimeManager(RuntimeExecutionMixin, RuntimePersistenceMixin):
             created_at=now,
             expires_at=now + timedelta(seconds=ttl_seconds),
             approval_token=approval_token,
+            scope_expansion_required=scope_expansion_required,
         )
         runtime.terminal_requests[request.request_id] = request
         event = self._append_runtime_event(
@@ -252,6 +254,7 @@ class LoopRuntimeManager(RuntimeExecutionMixin, RuntimePersistenceMixin):
             "terminalCreationStatus": request.terminal_creation_status,
             "channel": "terminal connected" if authorization else None,
             "failureReason": request.failure_reason,
+            "scopeExpansionRequired": request.scope_expansion_required,
         }
 
     async def decide_terminal_request(
@@ -376,6 +379,7 @@ class LoopRuntimeManager(RuntimeExecutionMixin, RuntimePersistenceMixin):
                 f"Terminal access approved for asset {request.asset_name}. "
                 f"Use authorization_id {authorization.authorization_id} when executing commands on this asset."
             ),
+            "scopeExpansionRequired": request.scope_expansion_required,
         }
 
     def append_terminal_command_submitted(

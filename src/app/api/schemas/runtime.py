@@ -25,6 +25,7 @@ class ConsoleRunRequest(BaseModel):
     asset_id: int | None = None
     terminal_id: str | None = None
     conversation_id: str = "console"
+    user_event_id: str | None = Field(default=None, pattern=r"^user-[A-Za-z0-9_-]{8,100}$")
     model_name: str | None = None
     selected_skill_name: str | None = None
     terminal_context: dict | None = None
@@ -35,6 +36,11 @@ class ConsoleApprovalRequest(BaseModel):
     approved: bool
     approval_token: str | None = None
     allow_prefix: str | None = None
+    guidance: str | None = None
+
+
+class RuntimeMessageRequest(BaseModel):
+    message: str = Field(min_length=1, max_length=20_000)
 
 
 class RuntimeStepView(BaseModel):
@@ -50,6 +56,21 @@ class RuntimeStepView(BaseModel):
     exit_code: int | None = None
 
 
+class AgentTaskStateView(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
+
+    goal: str = ""
+    current_request: str = Field(default="", alias="currentRequest")
+    scope: list[str] = Field(default_factory=list)
+    constraints: list[str] = Field(default_factory=list)
+    acceptance_criteria: list[str] = Field(default_factory=list, alias="acceptanceCriteria")
+    verified_facts: list[str] = Field(default_factory=list, alias="verifiedFacts")
+    decisions: list[str] = Field(default_factory=list)
+    open_items: list[str] = Field(default_factory=list, alias="openItems")
+    completed_items: list[str] = Field(default_factory=list, alias="completedItems")
+    revision: int = 1
+
+
 class TerminalRequestView(BaseModel):
     model_config = ConfigDict(populate_by_name=True)
 
@@ -63,6 +84,7 @@ class TerminalRequestView(BaseModel):
     expires_at: str = Field(alias="expiresAt")
     approval_token: str | None = Field(default=None, alias="approvalToken")
     failure_reason: str | None = Field(default=None, alias="failureReason")
+    scope_expansion_required: bool = Field(default=False, alias="scopeExpansionRequired")
 
 
 class TerminalAuthorizationView(BaseModel):
@@ -106,6 +128,7 @@ class TerminalRequestDecisionResponse(BaseModel):
     terminal_creation_status: str | None = Field(default=None, alias="terminalCreationStatus")
     channel: str | None = None
     failure_reason: str | None = Field(default=None, alias="failureReason")
+    scope_expansion_required: bool = Field(default=False, alias="scopeExpansionRequired")
 
 
 class RuntimeSummaryView(BaseModel):
@@ -127,14 +150,20 @@ class RuntimeSnapshotView(BaseModel):
     runtime_id: str
     conversation_id: str
     asset_id: int
+    conversation_scope_mode: Literal["single", "multi"] = "single"
+    conversation_primary_asset_id: int | None = None
+    allowed_asset_ids: list[int] = Field(default_factory=list)
     terminal_id: str | None = None
     status: str
     run_state: str = "queued"
     loaded_skill_name: str | None = None
+    task_state: AgentTaskStateView = Field(default_factory=AgentTaskStateView)
     steps: list[RuntimeStepView] = Field(default_factory=list)
     current_step_id: str | None = None
     pending_approval_step_id: str | None = None
     pending_approval_token: str | None = None
+    pending_followup_question: str | None = None
+    pending_user_message_count: int = 0
     last_output_excerpt: str = ""
     summary: str | None = None
     error_message: str | None = None
@@ -167,6 +196,9 @@ class ConversationSummaryView(BaseModel):
     updated_at: datetime
     event_count: int
     last_event_kind: str | None = None
+    asset_id: int | None = None
+    scope_mode: Literal["single", "multi"] = "single"
+    allowed_asset_ids: list[int] = Field(default_factory=list)
 
 
 class ConversationDetailView(BaseModel):
@@ -176,10 +208,15 @@ class ConversationDetailView(BaseModel):
     created_at: datetime
     updated_at: datetime
     events: list[dict] = Field(default_factory=list)
+    asset_id: int | None = None
+    scope_mode: Literal["single", "multi"] = "single"
+    allowed_asset_ids: list[int] = Field(default_factory=list)
 
 
 class ConversationCreateRequest(BaseModel):
     selected_model: str | None = None
+    asset_id: int = 0
+    scope_mode: Literal["single", "multi"] = "single"
 
 
 class ConversationCreateResponse(BaseModel):
@@ -187,12 +224,11 @@ class ConversationCreateResponse(BaseModel):
     events: list[dict] = Field(default_factory=list)
 
 
-class ConversationBranchRequest(BaseModel):
-    before_event_id: str | None = None
-    through_event_id: str | None = None
+class ConversationRewriteRequest(BaseModel):
+    before_event_id: str
 
 
-class ConversationBranchResponse(BaseModel):
+class ConversationRewriteResponse(BaseModel):
     conversation: ConversationSummaryView
     events: list[dict] = Field(default_factory=list)
 

@@ -7,8 +7,8 @@ from fastapi import APIRouter, HTTPException, Response, status
 from app.api.schemas import (
     ConversationAppendEventsRequest,
     ConversationAppendEventsResponse,
-    ConversationBranchRequest,
-    ConversationBranchResponse,
+    ConversationRewriteRequest,
+    ConversationRewriteResponse,
     ConversationContextStatusView,
     ConversationEventsPageView,
     ConversationTokenUsageView,
@@ -41,7 +41,11 @@ def list_conversations() -> list[ConversationSummaryView]:
 @router.post("/api/conversations", response_model=ConversationCreateResponse)
 def create_conversation(payload: ConversationCreateRequest) -> ConversationCreateResponse:
     service = get_conversation_service()
-    summary = service.create_conversation(selected_model=payload.selected_model)
+    summary = service.create_conversation(
+        selected_model=payload.selected_model,
+        asset_id=payload.asset_id,
+        scope_mode=payload.scope_mode,
+    )
     return ConversationCreateResponse(
         conversation=ConversationSummaryView.model_validate(summary.__dict__),
         events=[],
@@ -126,30 +130,61 @@ def get_conversation_context(conversation_id: str) -> ConversationContextStatusV
     )
 
 
-@router.post("/api/conversations/{conversation_id}/branch", response_model=ConversationBranchResponse)
-def branch_conversation(conversation_id: str, payload: ConversationBranchRequest) -> ConversationBranchResponse:
+@router.post("/api/conversations/{conversation_id}/rewrite", response_model=ConversationRewriteResponse)
+def rewrite_conversation(conversation_id: str, payload: ConversationRewriteRequest) -> ConversationRewriteResponse:
+    from app.api.console import get_console_app_service
+
+    active_runtimes = [
+        runtime
+        for runtime in get_console_app_service().runtime_manager.list_runtimes(conversation_id)
+        if not runtime.state.is_terminal()
+    ]
+    if active_runtimes:
+        raise HTTPException(status_code=409, detail="当前 Agent 任务尚未结束，不能改写会话历史。")
     service = get_conversation_service()
     try:
-        detail = service.branch_conversation(
-            conversation_id,
-            before_event_id=payload.before_event_id,
-            through_event_id=payload.through_event_id,
-        )
+        detail = service.truncate_before_event(conversation_id, payload.before_event_id)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Conversation not found") from exc
     except ValueError as exc:
         raise HTTPException(status_code=400, detail=str(exc)) from exc
-    return ConversationBranchResponse(
+    return ConversationRewriteResponse(
         conversation=ConversationSummaryView.model_validate(service.to_summary(detail).__dict__),
         events=detail.events,
     )
 
 
 @router.delete("/api/conversations/{conversation_id}", status_code=status.HTTP_204_NO_CONTENT, response_class=Response)
-def delete_conversation(conversation_id: str) -> Response:
+def delete_conversation(conversation_id: str, cancel_active: bool = False) -> Response:
     service = get_conversation_service()
+    try:
+        service.get_conversation(conversation_id)
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="Conversation not found") from exc
+
+    # Imported lazily because console routes also use get_conversation_service.
+    from app.api.console import get_console_app_service
+
+    runtime_manager = get_console_app_service().runtime_manager
+    active_runtimes = [runtime for runtime in runtime_manager.list_runtimes(conversation_id) if not runtime.state.is_terminal()]
+    if active_runtimes and not cancel_active:
+        raise HTTPException(
+            status_code=409,
+            detail="该会话仍有未结束的 Agent 任务。确认停止任务后才能删除。",
+        )
+    for runtime in active_runtimes:
+        runtime_manager.cancel(runtime.runtime_id, reason="Conversation deleted by operator.")
+
+    remaining_active = [runtime for runtime in runtime_manager.list_runtimes(conversation_id) if not runtime.state.is_terminal()]
+    if remaining_active:
+        raise HTTPException(
+            status_code=409,
+            detail="已请求停止 Agent 任务；任务完全停止后请再次删除。",
+        )
+
     try:
         service.delete_conversation(conversation_id)
     except FileNotFoundError as exc:
         raise HTTPException(status_code=404, detail="Conversation not found") from exc
+    runtime_manager.forget_conversation_runtimes(conversation_id)
     return Response(status_code=status.HTTP_204_NO_CONTENT)

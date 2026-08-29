@@ -1,5 +1,5 @@
 import { type FormEvent, forwardRef, useEffect, useImperativeHandle, useState } from 'react'
-import { getSerialPorts, type SerialPort } from '../../api'
+import { getSerialPorts, testAssetConnection, type AssetPayload, type SerialPort } from '../../api'
 import type { Asset, AssetGroup, SSHKey } from '../../types/ops'
 import { useAppearance } from '../../hooks/useAppearance'
 
@@ -67,6 +67,41 @@ function buildConnectionTags(form: AddAssetForm): string[] {
   return ['connection:ssh']
 }
 
+function buildAssetPayload(form: AddAssetForm, targetAsset: Asset | null): AssetPayload {
+  if (form.mode === 'serial') {
+    return {
+      name: form.name,
+      asset_type: 'serial',
+      group_id: form.groupId ? Number(form.groupId) : null,
+      host: form.serialPort.trim(),
+      port: Number(form.baudRate),
+      username: '',
+      auth_type: '',
+      proxy_asset_id: null,
+      tags: buildConnectionTags(form),
+      vendor: targetAsset?.vendor || '',
+      description: targetAsset?.description || '',
+    }
+  }
+
+  const networkKinds: AssetKind[] = ['network', 'cisco', 'huawei', 'juniper', 'h3c']
+  return {
+    name: form.name,
+    asset_type: form.assetKind,
+    group_id: form.groupId ? Number(form.groupId) : null,
+    host: form.host.trim(),
+    port: Number(form.port),
+    username: form.username.trim(),
+    auth_type: form.authType,
+    ssh_key_id: ['key', 'password_and_key'].includes(form.authType) ? (form.sshKeyId ? Number(form.sshKeyId) : null) : null,
+    proxy_asset_id: supportsSshProxyTarget(form.assetKind) && form.proxyAssetId ? Number(form.proxyAssetId) : null,
+    credential_secret: form.credentialSecret.trim() || undefined,
+    tags: buildConnectionTags(form),
+    vendor: targetAsset?.vendor || (networkKinds.includes(form.assetKind) ? form.assetKind : ''),
+    description: targetAsset?.description || '',
+  }
+}
+
 export interface AssetModalsRef {
   openAddModal: () => void
   openEditModal: (asset: Asset) => void
@@ -91,9 +126,12 @@ type AssetFormModalProps = {
   sshKeys: SSHKey[]
   serialPorts: SerialPort[]
   error: string | null
+  connectionTestResult: string | null
+  testingConnection: boolean
   onChange: (field: keyof AddAssetForm, value: string) => void
   onClose: () => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
+  onTestConnection: () => void
 }
 
 type DeleteAssetModalProps = {
@@ -103,7 +141,7 @@ type DeleteAssetModalProps = {
   onDelete: () => Promise<void>
 }
 
-function AssetFormModal({ mode, form, assets, targetAsset, groups, sshKeys, serialPorts, error, onChange, onClose, onSubmit }: AssetFormModalProps) {
+function AssetFormModal({ mode, form, assets, targetAsset, groups, sshKeys, serialPorts, error, connectionTestResult, testingConnection, onChange, onClose, onSubmit, onTestConnection }: AssetFormModalProps) {
   const { t } = useAppearance()
   const isUsedAsProxy = targetAsset ? assets.some((a) => a.proxyAssetId === targetAsset.id) : false
   const proxyCandidates = assets.filter((asset) => isProxyCandidate(asset, targetAsset?.id ?? null))
@@ -257,7 +295,9 @@ function AssetFormModal({ mode, form, assets, targetAsset, groups, sshKeys, seri
           ) : null}
         </div>
         {error ? <div className="settings-error text-center py-2 px-4 bg-ops-danger/10 border border-ops-danger/20 rounded-lg">{error}</div> : null}
+        {connectionTestResult ? <div className="rounded-lg border border-ops-border/25 bg-ops-deep/40 px-4 py-2 text-center text-[11px] text-ops-muted">{connectionTestResult}</div> : null}
         <div className="flex items-center justify-end gap-3 pt-4 border-t border-ops-border/20">
+          <button type="button" className="button mr-auto" disabled={testingConnection} onClick={onTestConnection}>{testingConnection ? t('assets.testingConnection') : t('assets.testConnection')}</button>
           <button type="button" className="button px-6" onClick={onClose}>{t('common.cancel')}</button>
           <button type="submit" className="button button-primary px-8 shadow-glow">{t('assets.authorizeAndSave')}</button>
         </div>
@@ -299,6 +339,8 @@ export const AssetModals = forwardRef<AssetModalsRef, AssetModalsProps>(
     const [targetAsset, setTargetAsset] = useState<Asset | null>(null)
     const [addAssetForm, setAddAssetForm] = useState<AddAssetForm>(emptyAddAssetForm)
     const [addAssetError, setAddAssetError] = useState<string | null>(null)
+    const [connectionTestResult, setConnectionTestResult] = useState<string | null>(null)
+    const [testingConnection, setTestingConnection] = useState(false)
     const [systemSerialPorts, setSystemSerialPorts] = useState<SerialPort[]>([])
 
     useEffect(() => {
@@ -320,6 +362,7 @@ export const AssetModals = forwardRef<AssetModalsRef, AssetModalsProps>(
     }, [activeModal, addAssetForm.mode])
 
     const updateAddAssetForm = (field: keyof AddAssetForm, value: string) => {
+      setConnectionTestResult(null)
       setAddAssetForm((currentForm) => {
         const nextForm = { ...currentForm, [field]: value }
         if (field === 'mode' && value !== 'ssh') {
@@ -335,6 +378,7 @@ export const AssetModals = forwardRef<AssetModalsRef, AssetModalsProps>(
     const closeModal = () => {
       setAddAssetForm(emptyAddAssetForm)
       setAddAssetError(null)
+      setConnectionTestResult(null)
       setTargetAsset(null)
       setActiveModal(null)
     }
@@ -391,35 +435,7 @@ export const AssetModals = forwardRef<AssetModalsRef, AssetModalsProps>(
       event.preventDefault()
       setAddAssetError(null)
       try {
-        const payload = addAssetForm.mode === 'serial'
-          ? {
-            name: addAssetForm.name,
-            asset_type: 'serial' as const,
-            group_id: addAssetForm.groupId ? Number(addAssetForm.groupId) : null,
-            host: addAssetForm.serialPort.trim(),
-            port: Number(addAssetForm.baudRate),
-            username: '',
-            auth_type: '',
-            proxy_asset_id: null,
-            tags: buildConnectionTags(addAssetForm),
-            vendor: targetAsset?.vendor || '',
-            description: targetAsset?.description || '',
-          }
-          : {
-            name: addAssetForm.name,
-            asset_type: addAssetForm.assetKind,
-            group_id: addAssetForm.groupId ? Number(addAssetForm.groupId) : null,
-            host: addAssetForm.host.trim(),
-            port: Number(addAssetForm.port),
-            username: addAssetForm.username.trim(),
-            auth_type: addAssetForm.authType,
-            ssh_key_id: ['key', 'password_and_key'].includes(addAssetForm.authType) ? (addAssetForm.sshKeyId ? Number(addAssetForm.sshKeyId) : null) : null,
-            proxy_asset_id: supportsSshProxyTarget(addAssetForm.assetKind) && addAssetForm.proxyAssetId ? Number(addAssetForm.proxyAssetId) : null,
-            credential_secret: addAssetForm.credentialSecret.trim() || undefined,
-            tags: buildConnectionTags(addAssetForm),
-            vendor: targetAsset?.vendor || '',
-            description: targetAsset?.description || '',
-          }
+        const payload = buildAssetPayload(addAssetForm, targetAsset)
 
         if (activeModal === 'edit-asset' && targetAsset) {
           await onUpdateAsset(targetAsset.id, payload)
@@ -429,6 +445,21 @@ export const AssetModals = forwardRef<AssetModalsRef, AssetModalsProps>(
         closeModal()
       } catch (error) {
         setAddAssetError(error instanceof Error ? error.message : 'Failed to save infrastructure')
+      }
+    }
+
+    const handleConnectionTest = async () => {
+      setAddAssetError(null)
+      setConnectionTestResult(null)
+      setTestingConnection(true)
+      try {
+        const result = await testAssetConnection(buildAssetPayload(addAssetForm, targetAsset), targetAsset?.id)
+        const details = [result.detected_device_type, result.prompt].filter(Boolean).join(' · ')
+        setConnectionTestResult(`${result.success ? '✓' : '✕'} ${result.message}${details ? ` (${details})` : ''}`)
+      } catch (error) {
+        setConnectionTestResult(`✕ ${error instanceof Error ? error.message : 'Connection test failed'}`)
+      } finally {
+        setTestingConnection(false)
       }
     }
 
@@ -457,9 +488,12 @@ export const AssetModals = forwardRef<AssetModalsRef, AssetModalsProps>(
             sshKeys={sshKeys}
             serialPorts={systemSerialPorts}
             error={addAssetError}
+            connectionTestResult={connectionTestResult}
+            testingConnection={testingConnection}
             onChange={updateAddAssetForm}
             onClose={closeModal}
             onSubmit={handleAssetSubmit}
+            onTestConnection={() => void handleConnectionTest()}
           />
         ) : null}
 

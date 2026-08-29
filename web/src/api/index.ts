@@ -1,5 +1,5 @@
-export { createAsset, deleteAsset, getAssetContext, getAssets, mapAsset, updateAsset } from './assets'
-export type { AssetPayload } from './assets'
+export { createAsset, deleteAsset, getAssetContext, getAssets, mapAsset, testAssetConnection, updateAsset } from './assets'
+export type { AssetConnectionTestResult, AssetPayload } from './assets'
 export {
   cancelAgentRuntime,
   getConsoleBootstrap,
@@ -10,10 +10,13 @@ export {
   listConversationRuntimes,
   streamApproveAgent,
   streamRunAgent,
+  streamRuntimeMessage,
 } from './console'
 export { getApprovalPolicy, updateApprovalPolicy } from './approval'
 export type { ApprovalPolicy } from './approval'
-export { appendConversationEvents, branchConversation, createConversation, deleteConversation, getConversation, getConversationContext, getConversationEventsPage, getConversationEventsTail, getConversations } from './conversations'
+export { getPromptSettings, resetPromptSettings, updatePromptSettings } from './promptSettings'
+export type { PromptOverrides, PromptSettingKey, PromptSettings } from './promptSettings'
+export { appendConversationEvents, createConversation, deleteConversation, getConversation, getConversationContext, getConversationEventsPage, getConversationEventsTail, getConversations, rewriteConversation } from './conversations'
 export { closeTerminalSession, createTerminalSession, reconnectTerminalSession } from './terminal'
 export { createGroup, deleteGroup, getGroups, mapAssetGroup, updateGroup } from './groups'
 export type { AssetGroupDto, AssetGroupPayload } from './groups'

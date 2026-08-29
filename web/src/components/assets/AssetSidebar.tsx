@@ -7,7 +7,7 @@ import type { WorkspaceSection } from '../layout/ActivityRail'
 
 type ConversationRunBadge = {
   conversationId: string
-  status: 'running' | 'needs_approval' | 'completed' | 'failed' | 'disconnected'
+  status: 'running' | 'needs_approval' | 'needs_input' | 'completed' | 'failed' | 'disconnected'
   hasUnread: boolean
 }
 
@@ -23,7 +23,7 @@ type AssetSidebarProps = {
   onToggleCollapse: () => void
   onSelectAsset: (assetId: number) => void
   onSelectConversation: (conversationId: string) => void
-  onDeleteConversation: (conversationId: string) => void
+  onDeleteConversation: (conversationId: string, cancelActive: boolean) => void
   onUpdateAsset: (assetId: number, payload: AssetPayload) => Promise<Asset>
   onDeleteAsset: (assetId: number) => Promise<void>
   onAddAsset: () => void

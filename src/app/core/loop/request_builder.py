@@ -20,6 +20,8 @@ class AgentLLMRequestBuilder:
 
     def build_tool_calling_request(self, *, state: LoopState, tools: list[LLMToolDefinition]) -> LLMCompletionRequest:
         messages = self._annotate_state_messages(state)
+        if messages and messages[0].role == "system":
+            messages[0] = replace(messages[0], content=build_tool_calling_system_prompt(state.context))
         sorted_tools = sorted(tools, key=lambda tool: tool.name)
         return LLMCompletionRequest(
             messages=messages,

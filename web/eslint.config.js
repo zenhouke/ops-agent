@@ -24,7 +24,10 @@ export default tseslint.config(
       '@typescript-eslint/no-unused-vars': 'off',
       'no-control-regex': 'off',
       'react-hooks/set-state-in-effect': 'off',
-      'react-refresh/only-export-components': ['warn', { allowConstantExport: true }],
+      'react-refresh/only-export-components': ['warn', {
+        allowConstantExport: true,
+        allowExportNames: ['normalizeHexColor', 'useAppearance'],
+      }],
     },
   },
 );

@@ -8,6 +8,9 @@ export type ConversationSummaryDto = {
   updated_at: string
   event_count: number
   last_event_kind: string | null
+  asset_id: number | null
+  scope_mode: 'single' | 'multi'
+  allowed_asset_ids: number[]
 }
 
 export type ConversationDetailDto = {
@@ -17,6 +20,9 @@ export type ConversationDetailDto = {
   created_at: string
   updated_at: string
   events: EventItem[]
+  asset_id: number | null
+  scope_mode: 'single' | 'multi'
+  allowed_asset_ids: number[]
 }
 
 export type ConversationEventsPageDto = {
@@ -75,6 +81,7 @@ export type ConsoleRunRequest = {
   terminalId?: string | null
   modelName?: string
   conversationId?: string
+  userEventId?: string
   selectedSkillName?: string | null
 }
 
@@ -85,6 +92,7 @@ export type ConsoleRunRequestDto = {
   terminal_id?: string | null
   model_name?: string
   conversation_id?: string
+  user_event_id?: string
   selected_skill_name?: string
 }
 
@@ -123,10 +131,25 @@ export type RuntimeSnapshotDto = {
   runtime_id: string
   conversation_id: string
   asset_id: number
+  conversation_scope_mode: 'single' | 'multi'
+  conversation_primary_asset_id: number | null
+  allowed_asset_ids: number[]
   terminal_id: string | null
   status: string
   run_state: string
   loaded_skill_name: string | null
+  task_state: {
+    goal: string
+    currentRequest: string
+    scope: string[]
+    constraints: string[]
+    acceptanceCriteria: string[]
+    verifiedFacts: string[]
+    decisions: string[]
+    openItems: string[]
+    completedItems: string[]
+    revision: number
+  }
   steps: Array<{
     step_id: string
     title: string
@@ -142,6 +165,8 @@ export type RuntimeSnapshotDto = {
   current_step_id: string | null
   pending_approval_step_id: string | null
   pending_approval_token?: string | null
+  pending_followup_question?: string | null
+  pending_user_message_count?: number
   last_output_excerpt: string
   summary: string | null
   error_message: string | null
@@ -156,6 +181,7 @@ export type RuntimeSnapshotDto = {
     expiresAt: string
     approvalToken?: string | null
     failureReason?: string | null
+    scopeExpansionRequired?: boolean
   }>
   terminalAuthorizations?: Array<{
     authorizationId: string

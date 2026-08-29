@@ -28,7 +28,9 @@ ops-agent-backend.spec
 # Desktop bundle resources
 web/bin/
 logs/
+output/
 .playwright-mcp/
+.playwright-cli/
 .codegraph/
 .agents/
 .pnpm-store/

@@ -4,6 +4,7 @@ from app.core.approval.policy import (
     ApprovalPermissions,
     ApprovalPolicy,
     create_default_policy,
+    is_multiline_network_command,
 )
 
 __all__ = [
@@ -12,4 +13,5 @@ __all__ = [
     "ApprovalPermissions",
     "ApprovalPolicy",
     "create_default_policy",
+    "is_multiline_network_command",
 ]

@@ -45,7 +45,7 @@ export function KnowledgeDraftReview({ conversationId, selectedModel, draft, dra
         </div>
         <h2 className="text-sm font-semibold text-ops-text">从当前任务提炼知识</h2>
         <p className="mt-2 max-w-[440px] text-[11px] leading-5 text-ops-muted/70">
-          系统会根据任务事件生成可审核草稿。保存前可以修改标题、诊断、处置方案和标签，不会自动写入知识库。
+          系统会根据任务事件生成可审核草稿。确认保存后，重要信息会同步写入后端 Markdown 文件；生成草稿时不会自动落盘。
         </p>
         <div className="mt-4 flex items-center gap-2 text-[10px] text-ops-muted/55">
           <span>当前任务</span><span>·</span><span>{conversationId ? compactText(draftSourceConversation?.title ?? '', '已选择') : '未选择'}</span><span>·</span><span>{selectedModel || '未选择模型'}</span>
@@ -90,7 +90,7 @@ export function KnowledgeDraftReview({ conversationId, selectedModel, draft, dra
       </div>
 
       <div className="mt-5 flex items-center justify-between border-t border-ops-border/25 pt-4">
-        <p className="text-[10px] text-ops-muted/60">保存后将进入全局知识检索，可供后续任务引用。</p>
+        <p className="text-[10px] text-ops-muted/60">保存后将生成 Markdown 文件并进入全局知识检索，可供后续任务引用。</p>
         <button type="button" className="button button-primary h-9 px-5" disabled={disabled} onClick={() => void onSaveDraft({
           title: form.title,
           summary: form.summary,
