@@ -193,6 +193,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
           RELEASE_INPUT: ${{ inputs.version }}
         run: |
           release_version="$RELEASE_INPUT"
@@ -215,6 +216,7 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: |
           mapfile -d '' release_assets < <(find artifacts -type f -print0)
           if (( ${#release_assets[@]} == 0 )); then
@@ -227,4 +229,5 @@ jobs:
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
         run: gh release edit "$RELEASE_TAG" --draft=false --latest
