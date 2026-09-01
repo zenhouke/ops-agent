@@ -52,6 +52,7 @@ class NetworkConnector:
         self.ssh_proxy_channel: Any | None = None
         self._execution_events: dict[str, list[ExecutionEvent]] = {}
         self._execution_results: dict[str, ExecutionResult] = {}
+        self._cancelled_executions: set[str] = set()
 
     def connect(self) -> None:
         proxy_config = self.ssh_params.get("proxy_config")
@@ -202,14 +203,17 @@ class NetworkConnector:
             success = False
             needs_attention = True
 
+        cancelled = execution_id in self._cancelled_executions
+        if cancelled:
+            transcript = f"{transcript}\nCommand cancelled by operator.".strip()
         result = ExecutionResult(
             execution_id=execution_id,
             output=transcript,
             completed=completed,
-            success=success,
-            needs_attention=needs_attention or analysis.prompt is None,
+            success=success and not cancelled,
+            needs_attention=cancelled or needs_attention or analysis.prompt is None,
             exit_code=None,
-            completion_reason=completion_reason,
+            completion_reason="manual_stop" if cancelled else completion_reason,
             mode=detect_mode(prompt_after),
             pager_detected=pager_detected,
             profile=NETWORK_CLI_PROFILE,
@@ -238,6 +242,16 @@ class NetworkConnector:
                 matched_error=result.matched_error,
             ),
         ]
+        self._cancelled_executions.discard(execution_id)
+
+    def cancel_execution(self, execution_id: str) -> None:
+        self._cancelled_executions.add(execution_id)
+        connection = self.connection
+        if connection is not None:
+            try:
+                connection.write_channel("\x03")
+            except Exception:
+                pass
 
     def read_execution_events(self, execution_id: str) -> Iterable[ExecutionEvent]:
         return list(self._execution_events.get(execution_id, []))
@@ -307,6 +321,7 @@ class NetworkConnector:
             self.ssh_proxy_client = None
         self._execution_events.clear()
         self._execution_results.clear()
+        self._cancelled_executions.clear()
 
     def _connect_ssh(self) -> None:
         proxy_config = self.ssh_params.get("proxy_config")

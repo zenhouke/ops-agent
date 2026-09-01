@@ -31,12 +31,10 @@ export function NotificationCenter({
   }, [])
 
   const handleAlertClick = (alert: Alert) => {
-    if (alert.assetId) {
-      onSelectAsset(alert.assetId)
-    }
-
     if (alert.conversationId) {
       onSelectConversation(alert.conversationId)
+    } else if (alert.assetId) {
+      onSelectAsset(alert.assetId)
     }
 
     setIsOpen(false)

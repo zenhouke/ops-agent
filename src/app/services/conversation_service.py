@@ -79,9 +79,14 @@ class ConversationService:
         *,
         asset_id: int = 0,
         scope_mode: ConversationScopeMode = "single",
+        allowed_asset_ids: list[int] | None = None,
     ) -> ConversationSummary:
         if scope_mode not in {"single", "multi"}:
             raise ValueError("Conversation scope mode must be single or multi.")
+        normalized_allowed_asset_ids = sorted({
+            asset_id,
+            *(int(candidate) for candidate in (allowed_asset_ids or [])),
+        }) if scope_mode == "multi" else [asset_id]
         conversation_id = f"conv_{uuid4().hex}"
         timestamp = self._utc_now()
         detail = ConversationDetail(
@@ -95,7 +100,7 @@ class ConversationService:
             events=[],
             asset_id=asset_id,
             scope_mode=scope_mode,
-            allowed_asset_ids=[asset_id],
+            allowed_asset_ids=normalized_allowed_asset_ids,
         )
         with self._lock:
             self._ensure_base_dir()

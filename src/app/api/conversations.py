@@ -2,7 +2,8 @@ import os
 from pathlib import Path
 from typing import cast
 
-from fastapi import APIRouter, HTTPException, Response, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
+from sqlmodel import Session
 
 from app.api.schemas import (
     ConversationAppendEventsRequest,
@@ -18,7 +19,8 @@ from app.api.schemas import (
     ConversationSummaryView,
 )
 from app.db.repositories.model_usage import sum_conversation_usage
-from app.db.session import Session, engine
+from app.db.session import engine, get_session
+from app.services.asset_service import get_asset_record
 from app.services.context_manager import ContextManager, JsonObject
 from app.services.conversation_service import ConversationService
 from app.services.model_service import ModelService
@@ -39,12 +41,31 @@ def list_conversations() -> list[ConversationSummaryView]:
 
 
 @router.post("/api/conversations", response_model=ConversationCreateResponse)
-def create_conversation(payload: ConversationCreateRequest) -> ConversationCreateResponse:
+def create_conversation(
+    payload: ConversationCreateRequest,
+    session: Session = Depends(get_session),
+) -> ConversationCreateResponse:
+    allowed_asset_ids = (
+        sorted({payload.asset_id, *payload.allowed_asset_ids})
+        if payload.scope_mode == "multi"
+        else [payload.asset_id]
+    )
+    missing_asset_ids = [
+        asset_id
+        for asset_id in allowed_asset_ids
+        if asset_id != 0 and get_asset_record(session, asset_id) is None
+    ]
+    if missing_asset_ids:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Assets not found: {', '.join(str(asset_id) for asset_id in missing_asset_ids)}",
+        )
     service = get_conversation_service()
     summary = service.create_conversation(
         selected_model=payload.selected_model,
         asset_id=payload.asset_id,
         scope_mode=payload.scope_mode,
+        allowed_asset_ids=allowed_asset_ids,
     )
     return ConversationCreateResponse(
         conversation=ConversationSummaryView.model_validate(summary.__dict__),

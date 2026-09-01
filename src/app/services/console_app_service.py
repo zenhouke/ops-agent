@@ -430,8 +430,8 @@ class ConsoleAppService:
             runtime_id_log=runtime_id,
         )
 
-    def cancel_runtime(self, runtime_id: str) -> dict[str, Any]:
-        return self.runtime_manager.cancel(runtime_id)
+    def cancel_runtime(self, runtime_id: str, terminal_service: TerminalService | None = None) -> dict[str, Any]:
+        return self.runtime_manager.cancel(runtime_id, terminal_service=terminal_service)
 
     def stream_after_terminal_request(self, *, runtime_id: str, resume_message: str, terminal_service: TerminalService, authorization_id: str | None = None) -> Iterator[dict]:
         yield from self._stream_events_with_error_handling(

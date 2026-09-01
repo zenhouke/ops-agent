@@ -39,8 +39,14 @@ class TerminalSessionManager:
     def resize(self, cols: int, rows: int) -> None:
         self._connector.resize(cols, rows)
 
-    def start_execution(self, command: str, context: ExecutionContext | None = None) -> str:
-        execution_id = str(uuid.uuid4())
+    def start_execution(
+        self,
+        command: str,
+        context: ExecutionContext | None = None,
+        *,
+        execution_id: str | None = None,
+    ) -> str:
+        execution_id = execution_id or str(uuid.uuid4())
         effective_context = context or ExecutionContext()
         starter = getattr(self._connector, "start_execution", None)
         if callable(starter):

@@ -416,13 +416,11 @@ class LoopRuntimeManager(RuntimeExecutionMixin, RuntimePersistenceMixin):
             raise ValueError("runtime not found")
         self._expire_terminal_requests(runtime)
         authorization = runtime.terminal_authorizations.get(authorization_id)
-        if authorization is None:
-            for candidate in self._by_conversation.get(runtime.conversation_id, {}).values():
-                self._expire_terminal_requests(candidate)
-                authorization = candidate.terminal_authorizations.get(authorization_id)
-                if authorization is not None:
-                    break
-        if authorization is None or authorization.status != "active":
+        if (
+            authorization is None
+            or authorization.runtime_id != runtime_id
+            or authorization.status != "active"
+        ):
             raise ValueError("terminal authorization is not active")
         return authorization
 

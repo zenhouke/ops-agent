@@ -6,6 +6,7 @@ import sys
 from collections.abc import Callable, Iterator
 from pathlib import Path
 from tempfile import TemporaryDirectory
+from types import SimpleNamespace
 from typing import Any
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
@@ -20,6 +21,7 @@ from app.core.loop.loop_state import LoopContext, LoopRuntimeStep, LoopState
 from app.core.tool.ask_followup import AskFollowupHandler
 from app.core.tool.handler import ToolDisplayMetadata
 from app.core.tool.schema import LLMToolCall, LLMToolDefinition
+from app.core.tool.terminal_autonomy import RequestTerminalSessionHandler
 from app.core.tool.update_task_state import UpdateTaskStateHandler
 from app.services.context_manager import ContextManager
 from app.shared.enums import ModelProvider
@@ -282,6 +284,148 @@ def scenario_semantic_task_state_round_trip() -> None:
     assert state.context.task_state.revision == 4
 
 
+def scenario_unverified_execution_claim_is_rejected() -> None:
+    state = loop_state("eval-unverified-execution", "检查服务状态")
+
+    class Provider:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def stream_complete(self, *, config, request):
+            _ = config
+            self.calls += 1
+            if self.calls == 1:
+                yield LLMCompletionChunk(delta="命令已执行成功，Exit code: 0", finish_reason="stop")
+                return
+            assert "rejected" in request.messages[-1].content
+            yield LLMCompletionChunk(delta="没有执行命令，当前没有可验证结果。", finish_reason="stop")
+
+    provider = Provider()
+    agent_loop_module.build_llm_provider = lambda config: provider
+    events = list(AgentLoop(tools=[]).run(state))
+    assert provider.calls == 2
+    assert state.phase == "completed"
+    assert state.summary == "没有执行命令，当前没有可验证结果。"
+    assert any("未经工具验证" in str(event.payload.get("text") or "") for event in events)
+
+
+def scenario_single_asset_scope_denies_cross_asset_terminal() -> None:
+    state = loop_state("eval-single-asset-scope", "检查当前设备")
+    state.context.asset_id = 1
+    state.context.conversation_primary_asset_id = 1
+    state.context.allowed_asset_ids = [1]
+    state.context.conversation_scope_mode = "single"
+
+    class Provider:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def stream_complete(self, *, config, request):
+            _ = config
+            self.calls += 1
+            if self.calls == 1:
+                yield LLMCompletionChunk(
+                    tool_calls=[LLMToolCall(
+                        id="terminal-request-1",
+                        name="request_terminal_session",
+                        arguments={
+                            "asset_id": 2,
+                            "reason": "尝试访问其他资产",
+                            "intent": "remote_execution_required",
+                        },
+                    )],
+                    finish_reason="tool_calls",
+                )
+                return
+            tool_messages = [message.content for message in request.messages if message.role == "tool"]
+            assert any('"status":"scope_denied"' in content for content in tool_messages)
+            yield LLMCompletionChunk(delta="当前对话不能访问其他资产。", finish_reason="stop")
+
+    provider = Provider()
+    agent_loop_module.build_llm_provider = lambda config: provider
+    handler = RequestTerminalSessionHandler(None)  # type: ignore[arg-type]
+    list(AgentLoop(tools=[handler]).run(state))
+    assert provider.calls == 2
+    assert state.phase == "completed"
+    assert state.context.allowed_asset_ids == [1]
+
+
+def scenario_approval_rechecks_terminal_consistency() -> None:
+    state = loop_state("eval-approval-consistency", "执行受控命令")
+    authorization = SimpleNamespace(
+        authorization_id="auth-1",
+        status="active",
+        asset_id=1,
+        asset_name="asset-1",
+        terminal_id="terminal-1",
+        asset_type="linux",
+        shell_type="bash",
+        execution_profile="posix-shell",
+        device_vendor=None,
+    )
+
+    class Terminal:
+        def resolve_terminal_authorization(self, runtime_id: str, authorization_id: str):
+            assert runtime_id == state.context.runtime_id
+            assert authorization_id == authorization.authorization_id
+            return authorization
+
+        def session_belongs_to_asset(self, terminal_id: str, asset_id: int) -> bool:
+            return terminal_id == authorization.terminal_id and asset_id == authorization.asset_id
+
+    class ApprovalTool(DummyTool):
+        def __init__(self) -> None:
+            super().__init__()
+            self._terminal = Terminal()
+
+        @property
+        def definition(self) -> LLMToolDefinition:
+            return LLMToolDefinition(
+                name="execute_command",
+                description="Evaluation command tool.",
+                input_schema={"type": "object", "properties": {}},
+            )
+
+        def needs_approval(self, args: dict[str, Any]) -> tuple[str, str]:
+            _ = args
+            return "ask", "evaluation approval"
+
+        def display_metadata(self, args: dict[str, Any]) -> ToolDisplayMetadata:
+            _ = args
+            return ToolDisplayMetadata(display_text="echo safe", extra={"kind": "command"})
+
+    class Provider:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def stream_complete(self, *, config, request):
+            _ = config, request
+            self.calls += 1
+            if self.calls == 1:
+                yield LLMCompletionChunk(
+                    tool_calls=[LLMToolCall(
+                        id="approval-consistency-1",
+                        name="execute_command",
+                        arguments={"authorization_id": "auth-1", "command": "echo safe"},
+                    )],
+                    finish_reason="tool_calls",
+                )
+                return
+            yield LLMCompletionChunk(delta="授权目标变化，命令未执行。", finish_reason="stop")
+
+    provider = Provider()
+    tool = ApprovalTool()
+    agent_loop_module.build_llm_provider = lambda config: provider
+    loop = AgentLoop(tools=[tool])
+    list(loop.run(state))
+    assert state.phase == "approving"
+    authorization.terminal_id = "terminal-changed"
+    list(loop.resume_with_approval(state, approved=True))
+    assert tool.calls == 0
+    assert state.phase == "completed"
+    assert state.steps[0].status == "failed"
+
+
 def main() -> int:
     scenarios: list[tuple[str, Callable[[], None]]] = [
         ("followup_resume_and_hidden_reasoning", scenario_followup_resume_and_hidden_reasoning),
@@ -289,6 +433,9 @@ def main() -> int:
         ("tool_failure_can_be_recovered", scenario_tool_failure_can_be_recovered),
         ("approval_guidance_reaches_continuation", scenario_approval_guidance_reaches_continuation),
         ("semantic_task_state_round_trip", scenario_semantic_task_state_round_trip),
+        ("unverified_execution_claim_is_rejected", scenario_unverified_execution_claim_is_rejected),
+        ("single_asset_scope_denies_cross_asset_terminal", scenario_single_asset_scope_denies_cross_asset_terminal),
+        ("approval_rechecks_terminal_consistency", scenario_approval_rechecks_terminal_consistency),
     ]
     original_provider_factory = agent_loop_module.build_llm_provider
     results: list[dict[str, str]] = []

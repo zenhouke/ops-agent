@@ -6,6 +6,7 @@ from typing import Any, Literal
 
 LoopEventType = Literal[
     "message_update",  # The primary event for sync
+    "delta",
     "loop_final",
     "loop_failed",
     "context_status",
@@ -64,6 +65,16 @@ def emit_message_update(*, runtime_id: str, message: AgentMessage) -> LoopEvent:
         runtime_id=runtime_id,
         phase=message.type,
         payload=payload,
+    )
+
+
+def emit_message_delta(*, runtime_id: str, message_id: str, text: str) -> LoopEvent:
+    return LoopEvent(
+        event_type="delta",
+        runtime_id=runtime_id,
+        phase="streaming",
+        message_id=message_id,
+        payload={"text": text},
     )
 
 

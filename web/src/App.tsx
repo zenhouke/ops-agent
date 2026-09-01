@@ -1,9 +1,10 @@
-import { lazy, Suspense, useEffect, useRef, useState } from 'react'
+import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { Group, Panel, Separator } from 'react-resizable-panels'
 import { getStoredTaskTerminalLayout, getStoredTerminalOpen } from './appLayoutState'
 import { AssetModals, type AssetModalsRef } from './components/assets/AssetModals'
 import { AssetSidebar } from './components/assets/AssetSidebar'
 import { AssistantPanel } from './components/assistant/AssistantPanel'
+import { MultiAssetTaskDialog } from './components/assistant/MultiAssetTaskDialog'
 import { ManagementWorkspacePanel, type ManagementWorkspace } from './components/management/ManagementWorkspacePanel'
 import { ActivityRail, type PrimaryWorkspace, type WorkspaceSection } from './components/layout/ActivityRail'
 import { LoadingState } from './components/layout/LoadingState'
@@ -105,6 +106,9 @@ export function App() {
   const [taskTerminalLayout, setTaskTerminalLayout] = useState(getStoredTaskTerminalLayout)
   const [activeWorkspaceSection, setActiveWorkspaceSection] = useState<WorkspaceSection>('assets')
   const [managementWorkspace, setManagementWorkspace] = useState<ManagementWorkspace | null>(null)
+  const [multiAssetDialogOpen, setMultiAssetDialogOpen] = useState(false)
+  const [multiAssetCreating, setMultiAssetCreating] = useState(false)
+  const [multiAssetError, setMultiAssetError] = useState<string | null>(null)
   const {
     activeModal,
     setActiveModal,
@@ -146,6 +150,35 @@ export function App() {
   })
 
   const knowledgeBase = useKnowledgeBase()
+
+  const selectAssetWithConversation = useCallback(async (
+    assetId: number,
+    activateAsset: (nextAssetId: number) => void = selectAsset,
+  ) => {
+    setLoadError(null)
+    const activeConversation = conversationSummaries.find(
+      (conversation) => conversation.id === activeConversationId
+    )
+    const staysInMultiAssetTask = activeConversation?.scopeMode === 'multi'
+      && activeConversation.allowedAssetIds.includes(assetId)
+    const alreadyBoundToSingleAsset = activeConversation?.scopeMode === 'single'
+      && activeConversation.assetId === assetId
+
+    try {
+      if (!staysInMultiAssetTask && !alreadyBoundToSingleAsset) {
+        await createConversation(assetId, 'single')
+      }
+      activateAsset(assetId)
+    } catch (error: unknown) {
+      setLoadError(error instanceof Error ? error.message : '切换资产并创建会话失败。')
+    }
+  }, [
+    activeConversationId,
+    conversationSummaries,
+    createConversation,
+    selectAsset,
+    setLoadError,
+  ])
 
   useEffect(() => {
     localStorage.setItem('ops-agent:terminal-open', String(terminalOpen))
@@ -290,7 +323,10 @@ export function App() {
           })
         }}
         onCreateConversation={() => void createConversation(selectedAsset.id, 'single')}
-        onCreateMultiAssetConversation={() => void createConversation(selectedAsset.id, 'multi')}
+        onCreateMultiAssetConversation={() => {
+          setMultiAssetError(null)
+          setMultiAssetDialogOpen(true)
+        }}
         onSelectConversation={(conversationId) => {
           void loadConversation(conversationId).then((conversation) => {
             if (conversation.assetId !== null) selectAsset(conversation.assetId)
@@ -357,7 +393,7 @@ export function App() {
           setManagementWorkspace(null)
           const targetAsset = bootstrap.assets.find((asset) => asset.id === assetId)
           setActiveWorkspaceSection(targetAsset?.authType === 'jumpserver' ? 'jumpserver' : 'assets')
-          selectAsset(assetId)
+          void selectAssetWithConversation(assetId)
         }}
       />
 
@@ -390,7 +426,7 @@ export function App() {
           onToggleCollapse={() => setSidebarCollapsed((current) => !current)}
           onSelectAsset={(assetId) => {
             setManagementWorkspace(null)
-            selectAsset(assetId)
+            void selectAssetWithConversation(assetId)
           }}
           onSelectConversation={(conversationId) => {
             setManagementWorkspace(null)
@@ -440,7 +476,7 @@ export function App() {
                 busyCommand={busyCommand}
                 onInput={sendTerminalInput}
                 onResize={resizeTerminal}
-                onSelectTab={selectTerminalTab}
+                onSelectTab={(assetId) => void selectAssetWithConversation(assetId, selectTerminalTab)}
                 onCloseTab={removeTerminalTab}
                 onClear={clearActiveTerminal}
                 onCopy={() => {
@@ -480,7 +516,7 @@ export function App() {
                     busyCommand={busyCommand}
                     onInput={sendTerminalInput}
                     onResize={resizeTerminal}
-                    onSelectTab={selectTerminalTab}
+                    onSelectTab={(assetId) => void selectAssetWithConversation(assetId, selectTerminalTab)}
                     onCloseTab={removeTerminalTab}
                     onClear={clearActiveTerminal}
                     onCopy={() => void copyActiveTerminalOutput()}
@@ -517,6 +553,35 @@ export function App() {
         }}
         onDeleteAsset={deleteAsset}
       />
+
+      {multiAssetDialogOpen && selectedAsset ? (
+        <MultiAssetTaskDialog
+          assets={bootstrap.assets}
+          initialPrimaryAssetId={selectedAsset.id}
+          creating={multiAssetCreating}
+          error={multiAssetError}
+          onClose={() => {
+            if (multiAssetCreating) return
+            setMultiAssetDialogOpen(false)
+            setMultiAssetError(null)
+          }}
+          onCreate={async (primaryAssetId, allowedAssetIds) => {
+            setMultiAssetCreating(true)
+            setMultiAssetError(null)
+            try {
+              await createConversation(primaryAssetId, 'multi', allowedAssetIds)
+              selectAsset(primaryAssetId)
+              setManagementWorkspace(null)
+              setActiveWorkspaceSection('assets')
+              setMultiAssetDialogOpen(false)
+            } catch (error: unknown) {
+              setMultiAssetError(error instanceof Error ? error.message : '创建多资产任务失败。')
+            } finally {
+              setMultiAssetCreating(false)
+            }
+          }}
+        />
+      ) : null}
 
       {activeModal === 'settings' ? (
         <Suspense fallback={null}><SettingsDialog

@@ -75,10 +75,16 @@ export async function createConversation(
   selectedModel: string | null,
   assetId: number,
   scopeMode: 'single' | 'multi' = 'single',
+  allowedAssetIds: number[] = [assetId],
 ): Promise<{ conversation: ConversationSummary; events: EventItem[] }> {
   const response = await requestJson<ConversationCreateResponseDto>('/api/conversations', {
     method: 'POST',
-    body: JSON.stringify({ selected_model: selectedModel, asset_id: assetId, scope_mode: scopeMode }),
+    body: JSON.stringify({
+      selected_model: selectedModel,
+      asset_id: assetId,
+      scope_mode: scopeMode,
+      allowed_asset_ids: scopeMode === 'multi' ? allowedAssetIds : [assetId],
+    }),
   })
   return {
     conversation: mapConversationSummary(response.conversation),

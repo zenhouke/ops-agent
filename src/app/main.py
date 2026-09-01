@@ -16,7 +16,14 @@ def main() -> None:
     port = int(os.environ.get("OPS_AGENT_PORT", os.environ.get("OPS_AGENT_BACKEND_PORT", "8000")))
     default_reload = "false" if getattr(sys, "frozen", False) else "true"
     reload = os.environ.get("OPS_AGENT_RELOAD", default_reload).lower() == "true"
-    import_module("uvicorn").run("app.api:app", host=host, port=port, reload=reload)
+    run_options: dict[str, object] = {
+        "host": host,
+        "port": port,
+        "reload": reload,
+    }
+    if reload:
+        run_options["reload_dirs"] = [str(ROOT_SRC / "app")]
+    import_module("uvicorn").run("app.api:app", **run_options)
 
 if __name__ == "__main__":
     main()

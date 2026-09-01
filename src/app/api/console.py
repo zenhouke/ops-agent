@@ -265,9 +265,12 @@ def reconnect_runtime_stream(
 
 
 @router.post("/api/console/runtimes/{runtime_id}/cancel")
-def cancel_runtime(runtime_id: str) -> dict:
+def cancel_runtime(
+    runtime_id: str,
+    terminal_service: TerminalService = Depends(get_terminal_service),
+) -> dict:
     try:
-        return _console_app_service.cancel_runtime(runtime_id)
+        return _console_app_service.cancel_runtime(runtime_id, terminal_service)
     except ValueError as exc:
         raise HTTPException(status_code=404, detail=str(exc)) from exc
 

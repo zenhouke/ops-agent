@@ -1,7 +1,9 @@
 import os
 import platform
 import select
+import signal
 import subprocess
+import threading
 from pathlib import Path
 
 from app.core.connectors.execution import ExecutionContext, ExecutionEvent, ExecutionResult
@@ -67,10 +69,27 @@ class LocalPtyConnector:
         self._pid = None
         self._fd = None
         self._execution_results: dict[str, ExecutionResult] = {}
+        self._execution_processes: dict[str, subprocess.Popen[str]] = {}
+        self._cancelled_executions: set[str] = set()
+        self._execution_lock = threading.RLock()
 
     def start_execution(self, command: str, context: ExecutionContext, execution_id: str) -> None:
-        output = self.run_command(command, context=context)
+        output = self._run_cancellable_command(command, context=context, execution_id=execution_id)
         self._execution_results[execution_id] = output
+
+    def cancel_execution(self, execution_id: str) -> None:
+        with self._execution_lock:
+            self._cancelled_executions.add(execution_id)
+            process = self._execution_processes.get(execution_id)
+        if process is None or process.poll() is not None:
+            return
+        try:
+            if platform.system() == "Windows":
+                process.terminate()
+            else:
+                os.killpg(process.pid, signal.SIGTERM)
+        except (OSError, ProcessLookupError):
+            return
 
     def read_execution_events(self, execution_id: str) -> list[ExecutionEvent]:
         result = self._execution_results.get(execution_id)
@@ -152,6 +171,69 @@ class LocalPtyConnector:
         except subprocess.TimeoutExpired as exc:
             return _timeout_result(command, exc)
 
+    def _run_cancellable_command(
+        self,
+        command: str,
+        *,
+        context: ExecutionContext,
+        execution_id: str,
+    ) -> ExecutionResult:
+        timeout = _resolve_timeout(context)
+        if platform.system() == "Windows":
+            shell = _resolve_windows_shell()
+            shell_name = Path(shell).name.lower()
+            argv = (
+                [shell, "-NoLogo", "-NoProfile", "-Command", command]
+                if "pwsh" in shell_name or shell_name == "powershell.exe"
+                else [shell, "/c", command]
+            )
+            process = subprocess.Popen(
+                argv,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                cwd=_resolve_working_directory(context),
+                creationflags=getattr(subprocess, "CREATE_NEW_PROCESS_GROUP", 0),
+            )
+        else:
+            process = subprocess.Popen(
+                command,
+                shell=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                cwd=_resolve_working_directory(context),
+                executable=os.environ.get("SHELL") or "/bin/sh",
+                start_new_session=True,
+            )
+        with self._execution_lock:
+            self._execution_processes[execution_id] = process
+        try:
+            stdout, stderr = process.communicate(timeout=timeout)
+            cancelled = execution_id in self._cancelled_executions
+            output = f"{stdout}{stderr}".strip()
+            if cancelled:
+                output = f"{output}\nCommand cancelled by operator.".strip()
+            return ExecutionResult(
+                execution_id=execution_id,
+                output=output,
+                completed=True,
+                success=not cancelled and process.returncode == 0,
+                needs_attention=cancelled or process.returncode != 0,
+                exit_code=process.returncode,
+                completion_reason="manual_stop" if cancelled else "exit_code",
+            )
+        except subprocess.TimeoutExpired as exc:
+            self.cancel_execution(execution_id)
+            process.communicate()
+            result = _timeout_result(command, exc)
+            result.execution_id = execution_id
+            return result
+        finally:
+            with self._execution_lock:
+                self._execution_processes.pop(execution_id, None)
+                self._cancelled_executions.discard(execution_id)
+
     def open_interactive(self) -> str:
         if platform.system() == "Windows":
             return self._open_windows()
@@ -180,6 +262,10 @@ class LocalPtyConnector:
         self._resize_posix(cols, rows)
 
     def close(self) -> None:
+        with self._execution_lock:
+            active_execution_ids = list(self._execution_processes)
+        for execution_id in active_execution_ids:
+            self.cancel_execution(execution_id)
         if platform.system() == "Windows":
             if self._process is not None:
                 self._process.terminate()

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { appendConversationEvents, cancelAgentRuntime, getRuntimeSnapshot, listConversationRuntimes, streamApproveAgent, streamReconnectRuntime, streamRunAgent, streamRuntimeMessage } from '../../api'
 import type { AgentMessage, EventItem, RuntimeSummary } from '../../types/ops'
-import { flushDeltaBuffer, LOCAL_TERMINAL_ASSET_ID, mergeEventsBySequence, PENDING_ASSISTANT_MESSAGE_ID, upsertMessageEvent, upsertStreamEvent } from './consoleShared'
+import { finalizeStreamMessages, flushDeltaBuffer, LOCAL_TERMINAL_ASSET_ID, mergeEventsBySequence, PENDING_ASSISTANT_MESSAGE_ID, upsertMessageEvent, upsertStreamEvent } from './consoleShared'
 import { createDeltaBatcher, derivePendingApprovalState, getRunErrorMessage, isAbortError, type BackgroundRunState, type BackgroundRunStatus, type ConversationSaveStatus, type UseAgentRunProps } from './agentRunSupport'
 import { useTerminalRequestDecision } from './useTerminalRequestDecision'
 
@@ -221,13 +221,12 @@ export function useAgentRun({
         }
       }
       batcher.flush()
-      const finalizedMessages = Array.from(messages.values()).map((message) =>
-        runtimeFailed && message.partial ? { ...message, partial: false } : message
-      )
+      const finalizedMessages = finalizeStreamMessages(messages.values(), deltaBuffer, runtimeFailed)
+      const finalizedMessageIds = new Set(finalizedMessages.map((message) => message.id))
       const finalEvents = mergeEventsBySequence([
         ...persisted,
         ...finalizedMessages as EventItem[],
-        ...flushDeltaBuffer(deltaBuffer, eventCacheRef.current.get(conversationId) ?? []),
+        ...flushDeltaBuffer(deltaBuffer, eventCacheRef.current.get(conversationId) ?? [], finalizedMessageIds),
       ])
       if (finalEvents.length > 0) {
         const response = await appendConversationEvents(conversationId, finalEvents)

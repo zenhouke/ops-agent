@@ -17,6 +17,16 @@ from app.services.instance_service import get_instance_info
 TERMINAL_RUN_STATES = {"terminal", "interrupted"}
 
 
+def interruption_recovery(status: str) -> tuple[str, str]:
+    if status == "approving":
+        return "restart_and_reapprove", "command_approval"
+    if status == "waiting_terminal_approval":
+        return "restart_and_request_terminal", "terminal_approval"
+    if status == "waiting_user_input":
+        return "restart_with_operator_reply", "operator_input"
+    return "restart_from_conversation", "agent_execution"
+
+
 def _now() -> datetime:
     return datetime.now(UTC)
 
@@ -152,6 +162,9 @@ class RuntimeStore:
             ).all()
             for record in records:
                 snapshot = _decode(record.snapshot_json)
+                recovery_action, recovery_checkpoint = interruption_recovery(
+                    str(snapshot.get("status") or record.status)
+                )
                 sequence = max(record.sequence, int(snapshot.get("last_sequence") or 0)) + 1
                 occurred_at = _now()
                 message = "Runtime was interrupted by an application restart."
@@ -171,6 +184,8 @@ class RuntimeStore:
                     "last_sequence": sequence,
                     "updated_at": occurred_at.isoformat(),
                     "cancel_requested": False,
+                    "recovery_action": recovery_action,
+                    "recovery_checkpoint": recovery_checkpoint,
                 })
                 event_id = str(uuid.uuid4())
                 event = {
@@ -184,6 +199,8 @@ class RuntimeStore:
                     "text": message,
                     "recoverable": True,
                     "interrupted": True,
+                    "recoveryAction": recovery_action,
+                    "recoveryCheckpoint": recovery_checkpoint,
                 }
                 record.status = "failed"
                 record.run_state = "interrupted"

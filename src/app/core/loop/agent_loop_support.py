@@ -5,6 +5,7 @@ from typing import Any
 
 from app.core.llm.types import LLMMessage, LLMTokenUsage
 from app.core.loop.loop_state import LoopState
+from app.core.loop.state_machine import clear_pending_approval_state
 from app.core.tool.handler import ToolDisplayMetadata, ToolHandler
 
 
@@ -44,14 +45,7 @@ class AgentLoopSupportMixin:
         return value
 
     def _clear_pending_approval(self: Any, state: LoopState) -> None:
-        state.pending_tool_call_id = None
-        state.pending_tool_name = None
-        state.pending_tool_args = None
-        state.pending_message_id = None
-        state.pending_approval_token_hash = None
-        state.pending_approval_token = None
-        state.pending_approval_step_id = None
-        state.pending_approval_consistency = None
+        clear_pending_approval_state(state)
 
     def _append_pending_tool_result(self: Any, state: LoopState, *, content: str) -> None:
         message = LLMMessage(

@@ -167,6 +167,8 @@ class RuntimeSnapshotView(BaseModel):
     last_output_excerpt: str = ""
     summary: str | None = None
     error_message: str | None = None
+    recovery_action: str | None = None
+    recovery_checkpoint: str | None = None
     terminal_requests: list[TerminalRequestView] = Field(default_factory=list, alias="terminalRequests")
     terminal_authorizations: list[TerminalAuthorizationView] = Field(default_factory=list, alias="terminalAuthorizations")
     created_at: datetime
@@ -217,6 +219,7 @@ class ConversationCreateRequest(BaseModel):
     selected_model: str | None = None
     asset_id: int = 0
     scope_mode: Literal["single", "multi"] = "single"
+    allowed_asset_ids: list[int] = Field(default_factory=list, max_length=200)
 
 
 class ConversationCreateResponse(BaseModel):

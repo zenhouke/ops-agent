@@ -236,8 +236,12 @@ export function useConversationState(selectedModel: string) {
     return runtimes
   }, [])
 
-  const createConversation = useCallback(async (assetId = 0, scopeMode: 'single' | 'multi' = 'single') => {
-    const created = await createConversationApi(selectedModel || null, assetId, scopeMode)
+  const createConversation = useCallback(async (
+    assetId = 0,
+    scopeMode: 'single' | 'multi' = 'single',
+    allowedAssetIds: number[] = [assetId],
+  ) => {
+    const created = await createConversationApi(selectedModel || null, assetId, scopeMode, allowedAssetIds)
     setConversationSummaries((currentItems) => {
       const nextItems = currentItems.filter((item) => item.id !== created.conversation.id)
       return [created.conversation, ...nextItems]

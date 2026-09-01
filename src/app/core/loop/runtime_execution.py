@@ -18,6 +18,7 @@ from app.core.loop.runtime_models import (
     RuntimeState,
     RuntimeTerminalAuthorization,
 )
+from app.core.loop.state_machine import fail_runtime_state, transition_runtime_state
 from app.core.runtime.control import (
     RuntimeBudgetExceededError,
     RuntimeCancelledError,
@@ -161,8 +162,13 @@ class RuntimeExecutionMixin:
             return self._runtime_store.events_since(runtime_id, since)
         self._expire_terminal_requests(runtime)
         with self._state_lock:
+            earliest_sequence = int(runtime.events[0].get("sequence", 0)) if runtime.events else runtime.sequence + 1
+            needs_durable_fallback = since < earliest_sequence - 1
             events = [event for event in runtime.events if int(event.get("sequence", 0)) > since]
-            return runtime.sequence, events
+            latest_sequence = runtime.sequence
+        if needs_durable_fallback:
+            return self._runtime_store.events_since(runtime_id, since)
+        return latest_sequence, events
 
     def get_snapshot(self: Any, runtime_id: str) -> dict:
         runtime = self.get_runtime(runtime_id)
@@ -188,7 +194,12 @@ class RuntimeExecutionMixin:
             "exit_code": step.exit_code,
         }
 
-    def cancel(self: Any, runtime_id: str, reason: str = "Cancelled by operator.") -> dict[str, Any]:
+    def cancel(
+        self: Any,
+        runtime_id: str,
+        reason: str = "Cancelled by operator.",
+        terminal_service: Any | None = None,
+    ) -> dict[str, Any]:
         runtime = self.get_runtime(runtime_id)
         if runtime is None:
             raise ValueError("runtime not found")
@@ -197,10 +208,29 @@ class RuntimeExecutionMixin:
             return {"runtimeId": runtime_id, "status": state.phase, "alreadyTerminal": True}
         state.cancel_requested = True
         state.cancellation_reason = reason
+        active_terminal_id = state.active_terminal_id
+        active_execution_id = state.active_execution_id
+        if terminal_service is not None and active_terminal_id and active_execution_id:
+            session_manager = terminal_service.get_session(active_terminal_id)
+            if session_manager is not None:
+                session_manager.cancel_execution(active_execution_id)
+        state.active_terminal_id = None
+        state.active_execution_id = None
+        fail_runtime_state(state, reason)
+        cancelled_at = self._now()
+        for request in runtime.terminal_requests.values():
+            if request.user_decision_status == "pending":
+                request.user_decision_status = "expired"
+                request.failure_reason = reason
+                request.decided_at = cancelled_at
+            request.approval_token = None
+        for authorization in runtime.terminal_authorizations.values():
+            if authorization.status == "active":
+                authorization.status = "revoked"
+                authorization.revoked_at = cancelled_at
+                authorization.updated_at = cancelled_at
+                authorization.revoke_reason = reason
         get_runtime_control().metrics.run_finished(runtime_id, status="cancelled")
-        if state.phase in {"approving", "waiting_terminal_approval", "waiting_user_input"}:
-            state.phase = "failed"
-            state.error_message = reason
         event = self._append_runtime_event(runtime, "error", {
             "text": reason,
             "recoverable": False,
@@ -227,16 +257,14 @@ class RuntimeExecutionMixin:
                 if usage_event is not None:
                     yield usage_event
         except RuntimeCancelledError as exc:
-            runtime.state.phase = "failed"
-            runtime.state.error_message = str(exc)
+            fail_runtime_state(runtime.state, str(exc))
             yield self._append_runtime_event(runtime, "error", {
                 "text": str(exc),
                 "recoverable": False,
                 "cancelled": True,
             })
         except RuntimeBudgetExceededError as exc:
-            runtime.state.phase = "failed"
-            runtime.state.error_message = str(exc)
+            fail_runtime_state(runtime.state, str(exc))
             yield self._append_runtime_event(runtime, "error", {
                 "text": str(exc),
                 "recoverable": False,
@@ -245,8 +273,7 @@ class RuntimeExecutionMixin:
         except Exception as exc:
             logger.exception("Agent runtime loop failed runtime_id=%s", runtime.runtime_id)
             error_message = _user_facing_runtime_error(exc)
-            runtime.state.phase = "failed"
-            runtime.state.error_message = error_message
+            fail_runtime_state(runtime.state, error_message)
             yield self._append_runtime_event(runtime, "error", {
                 "text": error_message,
                 "recoverable": True,
@@ -318,7 +345,7 @@ class RuntimeExecutionMixin:
                 runtime.state.messages.append(LLMMessage(role="user", content=text))
                 runtime.state.pending_followup_question = None
                 runtime.state.pending_followup_message_id = None
-                runtime.state.phase = "executing"
+                transition_runtime_state(runtime.state, "executing", reason="operator answered follow-up")
                 get_runtime_control().metrics.increment("followup_resumes")
             else:
                 runtime.state.pending_user_messages.append(text)
@@ -350,7 +377,7 @@ class RuntimeExecutionMixin:
         runtime = self.get_runtime(runtime_id)
         if runtime is None:
             raise ValueError("runtime not found")
-        runtime.state.phase = "executing"
+        transition_runtime_state(runtime.state, "executing", reason="terminal request resolved")
         if authorization_id:
             runtime.state.context.default_authorization_id = authorization_id
             authorization = runtime.terminal_authorizations.get(authorization_id)

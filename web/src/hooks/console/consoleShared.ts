@@ -148,11 +148,13 @@ export function mergeDeltaEvent(
  */
 export function flushDeltaBuffer(
   deltaBuffer: Map<string, string>,
-  existingEvents: EventItem[]
+  existingEvents: EventItem[],
+  excludedMessageIds: ReadonlySet<string> = new Set(),
 ): EventItem[] {
   const finalEvents: EventItem[] = []
   
   for (const [messageId, text] of deltaBuffer.entries()) {
+    if (excludedMessageIds.has(messageId)) continue
     const existingEvent = existingEvents.find((e) => e.id === messageId)
     const finalEvent: EventItem = {
       id: messageId,
@@ -165,6 +167,18 @@ export function flushDeltaBuffer(
   }
   
   return finalEvents
+}
+
+export function finalizeStreamMessages(
+  messages: Iterable<AgentMessage>,
+  deltaBuffer: ReadonlyMap<string, string>,
+  settlePartial = false,
+): AgentMessage[] {
+  return Array.from(messages, (message) => ({
+    ...message,
+    text: message.partial ? deltaBuffer.get(message.id) ?? message.text : message.text,
+    partial: settlePartial && message.partial ? false : message.partial,
+  }))
 }
 
 export function upsertStreamEvent(

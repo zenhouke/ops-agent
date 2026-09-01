@@ -2,6 +2,7 @@ import { useCallback, type RefObject } from 'react'
 import { appendConversationEvents, streamDecideTerminalRequest } from '../../api'
 import type { AgentMessage, ConversationSummary, EventItem, RuntimeSummary } from '../../types/ops'
 import {
+  finalizeStreamMessages,
   flushDeltaBuffer,
   mergeEventsBySequence,
   upsertMessageEvent,
@@ -79,10 +80,12 @@ export function useTerminalRequestDecision({
         persisted.push(event)
       }
       batcher.flush()
+      const finalizedMessages = finalizeStreamMessages(messages.values(), deltaBuffer)
+      const finalizedMessageIds = new Set(finalizedMessages.map((message) => message.id))
       const finalEvents = mergeEventsBySequence([
         ...persisted,
-        ...Array.from(messages.values()) as EventItem[],
-        ...flushDeltaBuffer(deltaBuffer, latestEventsRef.current ?? []),
+        ...finalizedMessages as EventItem[],
+        ...flushDeltaBuffer(deltaBuffer, latestEventsRef.current ?? [], finalizedMessageIds),
       ])
       if (finalEvents.length > 0) {
         const response = await appendConversationEvents(activeConversationId, finalEvents)

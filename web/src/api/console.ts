@@ -73,6 +73,8 @@ function mapRuntimeSnapshot(dto: RuntimeSnapshotDto): RuntimeSnapshot {
     lastOutputExcerpt: dto.last_output_excerpt,
     summary: dto.summary,
     errorMessage: dto.error_message,
+    recoveryAction: dto.recovery_action ?? null,
+    recoveryCheckpoint: dto.recovery_checkpoint ?? null,
     terminalRequests: (dto.terminalRequests ?? []).map((request) => ({
       requestId: request.requestId,
       runtimeId: request.runtimeId,

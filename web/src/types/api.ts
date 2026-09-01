@@ -170,6 +170,8 @@ export type RuntimeSnapshotDto = {
   last_output_excerpt: string
   summary: string | null
   error_message: string | null
+  recovery_action?: string | null
+  recovery_checkpoint?: string | null
   terminalRequests?: Array<{
     requestId: string
     runtimeId: string

@@ -43,6 +43,8 @@ jobs:
       - name: Validate source
         run: |
           python -m compileall -q src/app
+          python scripts/eval_agent_dialogue.py
+          python scripts/eval_runtime_events.py
           pyright
           pnpm --dir web lint
           pnpm --dir web build

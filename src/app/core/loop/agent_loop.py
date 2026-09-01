@@ -16,6 +16,7 @@ from app.core.loop.request_builder import AgentLLMRequestBuilder
 from app.core.loop.loop_events import LoopEvent
 from app.core.loop.loop_state import LoopRuntimeStep, LoopState
 from app.core.loop.message_manager import MessageManager
+from app.core.loop.state_machine import transition_runtime_state
 from app.core.loop.prompts import (
     build_manual_skill_system_prompt,
 )
@@ -125,6 +126,7 @@ class AgentLoop(AgentLoopSupportMixin):
             current_step.output = "Command execution rejected by user."
             self._append_pending_tool_result(state, content=current_step.output)
             self._clear_pending_approval(state)
+            transition_runtime_state(state, "executing", reason="approval rejected")
             yield from self._tool_calling_loop(state, manager=manager)
             return
 
@@ -140,11 +142,12 @@ class AgentLoop(AgentLoopSupportMixin):
                 yield from manager.finalize(text=consistency_error)
             self._append_pending_tool_result(state, content=consistency_error)
             self._clear_pending_approval(state)
+            transition_runtime_state(state, "executing", reason="approval consistency check failed")
             yield from self._tool_calling_loop(state, manager=manager)
             return
 
         current_step.status = "running"
-        state.phase = "executing"
+        transition_runtime_state(state, "executing", reason="approval granted")
 
         tool_name = state.pending_tool_name
         args = state.pending_tool_args or {}
@@ -301,8 +304,8 @@ class AgentLoop(AgentLoopSupportMixin):
                     if late_guidance:
                         self._append_user_messages(state, late_guidance)
                         continue
-                    state.phase = "completed"
                     state.summary = summary
+                    transition_runtime_state(state, "completed", reason="agent returned final response")
                     if any(step.status == "failed" for step in state.steps):
                         get_runtime_control().metrics.increment("completed_with_tool_failures")
                 return False, True, summary
@@ -390,8 +393,12 @@ class AgentLoop(AgentLoopSupportMixin):
                     with state.message_lock:
                         guidance_messages = self._drain_pending_user_messages(state)
                         if not guidance_messages:
-                            state.phase = "waiting_user_input"
                             state.pending_followup_question = question
+                            transition_runtime_state(
+                                state,
+                                "waiting_user_input",
+                                reason="agent requested operator input",
+                            )
                     get_runtime_control().metrics.increment("followup_questions")
                     if guidance_messages:
                         state.messages.append(
@@ -491,7 +498,6 @@ class AgentLoop(AgentLoopSupportMixin):
                             continue
                     step.reason = reason
                     step.risk_level = "high"
-                    state.phase = "approving"
                     approval_token = secrets.token_urlsafe(32)
                     state.pending_tool_call_id = tool_call.id
                     state.pending_tool_name = tool_call.name
@@ -500,6 +506,7 @@ class AgentLoop(AgentLoopSupportMixin):
                     state.pending_approval_token = approval_token
                     state.pending_approval_token_hash = hashlib.sha256(approval_token.encode("utf-8")).hexdigest()
                     state.pending_approval_consistency = consistency
+                    transition_runtime_state(state, "approving", reason="command requires approval")
 
                     # Prevent HTTP 400 error by satisfying all remaining tool calls in the response
                     for remaining_tool_call in response.tool_calls[index + 1:]:
@@ -531,7 +538,7 @@ class AgentLoop(AgentLoopSupportMixin):
                     return True, None, ""
 
                 step.status = "running"
-                state.phase = "executing"
+                transition_runtime_state(state, "executing", reason="tool execution started")
 
                 # Emit a 'say' message for tool execution
                 yield from manager.begin_message(message_type="say", say_type="tool_use")
@@ -568,7 +575,11 @@ class AgentLoop(AgentLoopSupportMixin):
                 yield from manager.finalize(exit_code=0 if ok else 1)
 
                 if ok and tool_call.name == "request_terminal_session":
-                    state.phase = "waiting_terminal_approval"
+                    transition_runtime_state(
+                        state,
+                        "waiting_terminal_approval",
+                        reason="terminal access requires approval",
+                    )
                     cancellation_content = (
                         "Paused because terminal access requires separate user confirmation. "
                         "Wait for the terminal decision before continuing."

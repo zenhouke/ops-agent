@@ -105,6 +105,8 @@ class LoopState:
     max_tool_calls: int = 0
     llm_calls: int = 0
     tool_calls: int = 0
+    active_terminal_id: str | None = None
+    active_execution_id: str | None = None
     cancel_requested: bool = False
     cancellation_reason: str | None = None
     pending_user_messages: deque[str] = field(default_factory=deque)

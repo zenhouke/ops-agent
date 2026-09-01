@@ -89,6 +89,8 @@ class RuntimePersistenceMixin:
             "last_sequence": runtime.sequence,
             "llm_calls": state.llm_calls,
             "tool_calls": state.tool_calls,
+            "active_terminal_id": state.active_terminal_id,
+            "active_execution_id": state.active_execution_id,
             "cancel_requested": state.cancel_requested,
             "pending_user_message_count": len(state.pending_user_messages),
         }

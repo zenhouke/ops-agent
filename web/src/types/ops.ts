@@ -300,6 +300,8 @@ export type RuntimeSnapshot = {
   lastOutputExcerpt: string
   summary: string | null
   errorMessage: string | null
+  recoveryAction: string | null
+  recoveryCheckpoint: string | null
   terminalRequests: RuntimeTerminalRequest[]
   terminalAuthorizations: RuntimeTerminalAuthorization[]
   createdAt: string

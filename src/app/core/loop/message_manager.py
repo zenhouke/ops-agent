@@ -4,7 +4,7 @@ import time
 import uuid
 from typing import Any, Iterator, Literal
 
-from app.core.loop.loop_events import AgentMessage, LoopEvent, emit_message_update
+from app.core.loop.loop_events import AgentMessage, LoopEvent, emit_message_delta, emit_message_update
 
 
 class MessageManager:
@@ -60,6 +60,21 @@ class MessageManager:
             self.current_message.exit_code = exit_code
         if partial is not None:
             self.current_message.partial = partial
+
+        if (
+            text is not None
+            and thinking is None
+            and tool_output is None
+            and tool_call is None
+            and exit_code is None
+            and partial is None
+        ):
+            yield emit_message_delta(
+                runtime_id=self.runtime_id,
+                message_id=self.current_message.id,
+                text=text,
+            )
+            return
 
         yield self._emit()
 

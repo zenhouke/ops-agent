@@ -200,9 +200,9 @@ export function AssistantPanel({
             type="button"
             className="desktop-toolbar-button"
             onClick={onCreateMultiAssetConversation}
-            title="创建需要逐台审批访问范围的多资产任务"
+            title="选择主资产和任务资产范围"
           >
-            多资产任务
+            新建多资产任务
           </button>
           <button
             type="button"
