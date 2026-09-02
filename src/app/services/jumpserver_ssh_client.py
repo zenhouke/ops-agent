@@ -9,6 +9,7 @@ from urllib.parse import urlparse
 
 import paramiko
 
+from app.core.connectors.ssh_host_keys import configure_strict_ssh_client
 from app.services.jumpserver_client import JumpServerError
 
 
@@ -153,8 +154,7 @@ class JumpServerSSHClient:
 
     def _connect(self) -> paramiko.SSHClient:
         client = paramiko.SSHClient()
-        client.load_system_host_keys()
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
+        configure_strict_ssh_client(client)
         client.connect(
             hostname=self.host,
             port=self.port,

@@ -1,13 +1,19 @@
 from __future__ import annotations
 
 import os
+import json
 from collections.abc import Iterable
 
 from sqlmodel import Session, select
 
 from app.db.models import Credential, ModelConfigRecord, SSHKey
+from app.db.repositories.models import create_model_config, list_model_configs
 from app.services.credential_service import CredentialService
 from app.services.secret_key import get_ops_agent_secret_key
+from app.shared.config import SETTINGS_PATH
+from app.shared.enums import ModelProvider
+from app.core.llm.provider_presets import get_default_base_url, get_default_model
+from app.utils.file_store import atomic_write_json
 
 
 def _legacy_decryptors() -> list[CredentialService]:
@@ -102,3 +108,35 @@ def migrate_legacy_credentials(session: Session) -> int:
         session.rollback()
         raise
     return migrated
+
+
+def migrate_legacy_model_settings(session: Session) -> bool:
+    """Move a legacy plaintext model key into the encrypted model-config table."""
+    if not SETTINGS_PATH.exists():
+        return False
+    payload = json.loads(SETTINGS_PATH.read_text(encoding="utf-8"))
+    if not isinstance(payload, dict):
+        raise ValueError("Legacy settings must contain a JSON object")
+    api_key = payload.pop("api_key", None)
+    if not isinstance(api_key, str) or not api_key:
+        return False
+
+    if not list_model_configs(session):
+        provider = ModelProvider(payload.get("provider", ModelProvider.OPENAI_COMPATIBLE.value))
+        credential_service = CredentialService(get_ops_agent_secret_key())
+        create_model_config(
+            session,
+            name="Migrated default",
+            provider=provider.value,
+            base_url=str(payload.get("base_url") or get_default_base_url(provider)),
+            api_key_encryption_version=CredentialService.encryption_version,
+            encrypted_api_key=credential_service.encrypt_secret(api_key),
+            model_name=str(payload.get("model_name") or get_default_model(provider)),
+            is_default=True,
+            timeout_seconds=int(payload.get("timeout_seconds", 30)),
+            temperature=float(payload.get("temperature", 0.2)),
+            max_tokens=int(payload.get("max_tokens", 1024)),
+            description="Migrated from legacy plaintext settings",
+        )
+    atomic_write_json(SETTINGS_PATH, payload)
+    return True

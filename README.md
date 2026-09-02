@@ -99,7 +99,7 @@ Startup scripts load `.env` from the repository root.
 | `OPS_AGENT_RELOAD` | `true` | Enable Uvicorn reload |
 | `OPS_AGENT_SECRET_KEY` | none | Required in production for secret encryption |
 | `OPS_AGENT_API_TOKEN` | `OPS_AGENT_SECRET_KEY` | Web/API access token; set a separate value for non-loopback deployments |
-| `OPS_AGENT_AUTH_DISABLED` | `false` | Disable authentication only for trusted loopback development or the Tauri backend |
+| `OPS_AGENT_AUTH_DISABLED` | `false` | Disable authentication only for trusted loopback development; production and Tauri keep authentication enabled |
 | `OPS_AGENT_LEGACY_SECRET_KEY` | none | Temporary key used only while migrating legacy v1 credentials |
 | `OPS_AGENT_PROVIDER` | `openai_compatible` | Default model provider |
 | `OPS_AGENT_MODEL` | provider default | Default model name |
@@ -166,7 +166,8 @@ Notes:
 - macOS can build Linux bundles through the script's Docker path.
 - Windows bundles must be built on Windows.
 - Linux builds require Tauri system dependencies such as `webkit2gtk`, `gtk`, `appindicator`, and `rsvg`.
-- Release signing and updater flows require `TAURI_PRIVATE_KEY`, `TAURI_KEY_PASSWORD`, and `TAURI_UPDATER_PUBKEY`.
+- Desktop Release requires Tauri updater signing credentials, Apple Developer ID/notarization credentials, and a Windows Authenticode certificate in the protected `production-release` environment. The workflow validates that every required secret and the Windows timestamp URL are present before building.
+- Repository source uses an invalid updater public-key placeholder by design; the protected Release workflow injects the real `TAURI_UPDATER_PUBKEY` and fails closed when it is absent.
 
 
 ## Troubleshooting

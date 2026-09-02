@@ -5,6 +5,7 @@ from typing import Any
 from app.core.connectors.network import NetworkConnector
 from app.core.connectors.local_pty import LocalPtyConnector
 from app.core.connectors.serial import SerialConnector
+from app.core.connectors.ssh_host_keys import configure_strict_ssh_client, strict_netmiko_options
 from app.core.connectors.ssh_proxy import (
     SSHProxyAssetNotFoundError,
     SSHProxyAuthenticationMaterialError,
@@ -68,12 +69,7 @@ class ServerConnector:
         import paramiko
 
         client = paramiko.SSHClient()
-        try:
-            client.load_system_host_keys()
-        except Exception:
-            pass
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        return client
+        return configure_strict_ssh_client(client)
 
     def _build_connect_kwargs(
         self,
@@ -412,6 +408,7 @@ def connector_factory(asset, *, credential_secret_override: str | None = None):
             "port": getattr(asset, "port"),
             "username": getattr(asset, "username"),
             "allow_agent": False,
+            **strict_netmiko_options(),
         }
         ssh_params = {
             "host": getattr(asset, "host"),

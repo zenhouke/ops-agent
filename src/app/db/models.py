@@ -107,6 +107,8 @@ class AuditLog(SQLModel, table=True):
     conversation_id: str | None = None
     task_id: int | None = None
     details: str = ""
+    previous_hash: str = ""
+    entry_hash: str = ""
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
 

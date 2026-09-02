@@ -223,8 +223,7 @@ export function CommandExecutionCard({
   const hasExecutionResult = message ? message.type === 'say' && message.say === 'tool_use' && !message.partial : !!endEvent
   const executionSucceeded = hasExecutionResult && (exitCode === null || exitCode === undefined || exitCode === 0)
   const executionFailed = hasExecutionResult && !executionSucceeded
-  const commandTokens = displayCommand.trim().split(/\s+/).filter(Boolean)
-  const allowPrefixOptions = Array.from(new Set([displayCommand.trim(), commandTokens[0]].filter(Boolean)))
+  const trustedCommand = displayCommand.trim()
   
   const isMessageAsk = message?.type === 'ask'
   const approvalStatus = isMessageAsk ? 'pending' : (message?.type === 'say' && message?.say === 'tool_use' && !message.partial ? 'approved' : (approvalEvent?.status ?? (approvalEvent ? 'pending' : undefined)))
@@ -342,7 +341,7 @@ export function CommandExecutionCard({
                 <div className="mb-3 rounded-[4px] border border-ops-border/25 bg-ops-deep/55 p-2.5">
                   <div className="mb-2 text-[10px] font-black uppercase tracking-[0.14em] text-ops-muted/68">{t('conversation.whitelistPrefix')}</div>
                   <div className="mb-3 flex flex-wrap gap-2">
-                    {allowPrefixOptions.map((option) => (
+                    {[trustedCommand].filter(Boolean).map((option) => (
                       <button
                         key={option}
                         type="button"
@@ -357,6 +356,7 @@ export function CommandExecutionCard({
                     className="field-control h-9 w-full font-mono text-[12px]"
                     value={allowPrefix}
                     onChange={(event) => setAllowPrefix(event.target.value)}
+                    readOnly
                     placeholder={t('conversation.whitelistPrefixPlaceholder')}
                   />
                 </div>
@@ -368,7 +368,7 @@ export function CommandExecutionCard({
                     type="button"
                     onClick={() => {
                       if (!showWhitelistOptions) {
-                        setAllowPrefix(allowPrefixOptions[0] ?? '')
+                        setAllowPrefix(trustedCommand)
                         setShowWhitelistOptions(true)
                         return
                       }

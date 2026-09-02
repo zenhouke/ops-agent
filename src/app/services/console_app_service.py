@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import logging
+import json
 import time
 from collections.abc import Iterator
 from typing import Any, cast
@@ -12,6 +13,7 @@ from app.core.connectors.device_profiles import (
     select_execution_profile,
 )
 from app.core.connectors.execution_context import build_asset_summary, build_device_context, infer_os_type
+from app.core.approval import ApprovalContext
 from app.core.llm.types import LLMMessage, LLMTokenUsage
 from app.core.loop.loop_state import LoopContext, LoopState
 from app.core.loop.runtime_manager import LoopRuntimeManager, new_runtime_id
@@ -27,6 +29,8 @@ from app.db.repositories.models import get_default_model_config, list_model_conf
 from app.db.repositories.model_usage import create_model_usage, sum_conversation_usage
 from app.db.session import Session as DbSession, engine
 from app.services.approval_service import get_approval_service
+from app.db.repositories.audit import create_audit_log
+from app.services.redaction_service import RedactionService
 from app.services.console_orchestrator import TaskOrchestrator, TerminalSessionAdapter
 from app.services.context_manager import ContextManager, JsonObject
 from app.utils.local_terminal_asset import build_local_terminal_asset
@@ -350,8 +354,39 @@ class ConsoleAppService:
             return
 
         def resume_events():
+            create_audit_log(
+                session,
+                action="command.approval_decision",
+                entity_type="runtime",
+                actor="local-operator",
+                asset_id=runtime.asset_id,
+                conversation_id=runtime.conversation_id,
+                details=json.dumps(
+                    {
+                        "runtimeId": runtime_id,
+                        "approved": approved,
+                        "trustedExactCommand": bool(approved and allow_prefix),
+                        "guidance": RedactionService().redact_text(guidance or ""),
+                    },
+                    ensure_ascii=False,
+                ),
+            )
             if approved and allow_prefix:
-                get_approval_service().add_allow_prefix(allow_prefix)
+                pending_args = runtime.state.pending_tool_args or {}
+                trusted_asset_id = pending_args.get("asset_id", runtime.asset_id)
+                trusted_profile = str(
+                    pending_args.get("execution_profile", runtime.state.context.execution_profile)
+                    or "posix-shell"
+                )
+                if isinstance(trusted_asset_id, int):
+                    get_approval_service().add_allow_command(
+                        allow_prefix,
+                        context=ApprovalContext(
+                            conversation_id=runtime.conversation_id,
+                            asset_id=trusted_asset_id,
+                            profile=trusted_profile,
+                        ),
+                    )
             return self.runtime_manager.resume(
                 runtime_id=runtime_id,
                 approved=approved,

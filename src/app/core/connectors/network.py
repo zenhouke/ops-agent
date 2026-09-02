@@ -26,6 +26,7 @@ from app.core.connectors.ssh_proxy import (
     SSHProxyConnectionError,
     SSHTargetConnectionThroughProxyError,
 )
+from app.core.connectors.ssh_host_keys import configure_strict_ssh_client
 
 
 class NetworkConnector:
@@ -356,12 +357,7 @@ class NetworkConnector:
         import paramiko
 
         client = paramiko.SSHClient()
-        try:
-            client.load_system_host_keys()
-        except Exception:
-            pass
-        client.set_missing_host_key_policy(paramiko.AutoAddPolicy())
-        return client
+        return configure_strict_ssh_client(client)
 
     def _build_paramiko_connect_kwargs(self, *, sock: Any | None = None) -> dict[str, object]:
         connect_timeout = float(self.device_params.get("conn_timeout", 15))

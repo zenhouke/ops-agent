@@ -1,11 +1,11 @@
-import { getDesktopApiBaseUrl } from '../desktop'
+import { getDesktopApiAccessToken, getDesktopApiBaseUrl } from '../desktop'
 
 const API_BASE_URL = import.meta.env.VITE_API_BASE_URL ?? ''
 const API_TOKEN_STORAGE_KEY = 'ops-agent:api-token'
 let runtimeApiBaseUrl: string | null = null
 
 export function getApiAccessToken(): string {
-  return sessionStorage.getItem(API_TOKEN_STORAGE_KEY) ?? ''
+  return getDesktopApiAccessToken() || sessionStorage.getItem(API_TOKEN_STORAGE_KEY) || ''
 }
 
 export function setApiAccessToken(token: string | null): void {

@@ -101,7 +101,7 @@ JumpServer 实例在“设置 → JumpServer”中配置，同时支持 REST Acc
 | `OPS_AGENT_RELOAD` | `true` | 是否启用 Uvicorn reload |
 | `OPS_AGENT_SECRET_KEY` | 无 | 生产环境必须设置，用于敏感信息加密 |
 | `OPS_AGENT_API_TOKEN` | `OPS_AGENT_SECRET_KEY` | Web/API 访问令牌；非本机部署应单独设置 |
-| `OPS_AGENT_AUTH_DISABLED` | `false` | 仅允许在可信的本机开发或 Tauri 后端关闭认证 |
+| `OPS_AGENT_AUTH_DISABLED` | `false` | 仅允许可信的本机开发关闭认证；生产环境和 Tauri 均保持认证开启 |
 | `OPS_AGENT_LEGACY_SECRET_KEY` | 无 | 仅在迁移旧版 v1 凭据时临时设置，迁移完成后删除 |
 | `OPS_AGENT_PROVIDER` | `openai_compatible` | 默认模型提供商 |
 | `OPS_AGENT_MODEL` | 随提供商默认值 | 默认模型名称 |
@@ -165,7 +165,8 @@ pnpm --dir web tauri:build
 - macOS 可以通过脚本内置的 Docker 流程构建 Linux 包。
 - Windows 包必须在 Windows 环境构建。
 - Linux 构建需要 `webkit2gtk`、`gtk`、`appindicator`、`rsvg` 等 Tauri 系统依赖。
-- 发布签名和更新流程需要配置 `TAURI_PRIVATE_KEY`、`TAURI_KEY_PASSWORD`、`TAURI_UPDATER_PUBKEY`。
+- Desktop Release 需要在受保护的 `production-release` 环境中配置 Tauri updater 签名凭据、Apple Developer ID/公证凭据和 Windows Authenticode 证书；工作流会在构建前检查全部必需 secret 和 Windows 时间戳地址。
+- 仓库源码中的 updater 公钥故意保留为无效占位符；受保护的 Release 工作流会注入真实 `TAURI_UPDATER_PUBKEY`，缺失时直接失败。
 
 
 ## 常见问题

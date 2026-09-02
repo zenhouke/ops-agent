@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+import json
 from collections.abc import Iterator
 from typing import Any, Protocol
 
@@ -20,6 +21,9 @@ from app.core.tool.schema import LLMToolDefinition
 from app.core.approval import ApprovalContext, is_multiline_network_command
 from app.core.connectors.device_profiles import NETWORK_CLI_PROFILE
 from app.core.connectors.execution import ExecutionContext
+from app.db.session import Session, engine
+from app.db.repositories.audit import create_audit_log
+from app.services.redaction_service import RedactionService
 from app.services.approval_service import get_approval_service
 
 
@@ -81,6 +85,7 @@ class ExecuteCommandHandler:
                 authorization = self._terminal.resolve_terminal_authorization(runtime_id, authorization_id)
             except ValueError as exc:
                 return "deny", str(exc)
+            args["conversation_id"] = authorization.conversation_id
             args["asset_id"] = authorization.asset_id
             args["asset_name"] = authorization.asset_name
             args["terminal_id"] = authorization.terminal_id
@@ -90,6 +95,8 @@ class ExecuteCommandHandler:
             if authorization.device_vendor:
                 args["device_vendor"] = authorization.device_vendor
         context = ApprovalContext(
+            conversation_id=str(args.get("conversation_id", "") or ""),
+            asset_id=int(args["asset_id"]) if args.get("asset_id") is not None else None,
             asset_type=str(args.get("asset_type", "") or ""),
             shell_type=str(args.get("shell_type", "") or ""),
             profile=str(args.get("execution_profile", "posix-shell") or "posix-shell"),
@@ -188,6 +195,24 @@ class ExecuteCommandHandler:
                 command=command,
                 approval_policy=str(args.get("approval_policy", "allow")),
             )
+            with Session(engine) as audit_session:
+                create_audit_log(
+                    audit_session,
+                    action="command.submitted",
+                    entity_type="runtime",
+                    actor="agent-with-operator-policy",
+                    asset_id=authorization.asset_id,
+                    conversation_id=ctx.conversation_id,
+                    details=json.dumps(
+                        {
+                            "runtimeId": ctx.runtime_id,
+                            "terminalId": terminal_id,
+                            "approvalPolicy": str(args.get("approval_policy", "allow")),
+                            "command": RedactionService().redact_text(command),
+                        },
+                        ensure_ascii=False,
+                    ),
+                )
             execution_id = str(uuid.uuid4())
             state.active_terminal_id = terminal_id
             state.active_execution_id = execution_id
