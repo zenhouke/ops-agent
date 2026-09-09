@@ -75,3 +75,4 @@ class LLMCompletionChunk:
     tool_arguments_delta: str = ""
     thinking_delta: str = ""
     usage: LLMTokenUsage | None = None
+    tool_call_preview: LLMToolCall | None = None

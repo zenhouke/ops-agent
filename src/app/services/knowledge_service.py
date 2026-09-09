@@ -218,7 +218,7 @@ class KnowledgeService:
         conversation_id: str | None = None,
     ) -> list[KnowledgeEntry]:
         query = " ".join(part.strip() for part in [prompt, asset_label, asset_group] if part.strip())
-        if not query:
+        if not query or not self._search_index.has_entries():
             return []
 
         query_embedding = None

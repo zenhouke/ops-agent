@@ -10,6 +10,8 @@ services:
       OPS_AGENT_HOST: 0.0.0.0
       OPS_AGENT_PORT: 8000
       OPS_AGENT_RELOAD: "true"
+      OPS_AGENT_ALLOWED_HOSTS: "127.0.0.1,localhost,backend"
+      OPS_AGENT_KNOWN_HOSTS_FILE: /workspace/.ops-agent/ssh_known_hosts
       OPS_AGENT_SECRET_KEY: ${OPS_AGENT_SECRET_KEY:?required}
       OPS_AGENT_AUTH_DISABLED: "true"
       OPS_AGENT_LEGACY_SECRET_KEY: ${OPS_AGENT_LEGACY_SECRET_KEY:-}
@@ -17,6 +19,8 @@ services:
       WATCHFILES_FORCE_POLLING: "true"
     volumes:
       - .:/workspace
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     ports:
       - "0.0.0.0:${OPS_AGENT_BACKEND_PORT:-38082}:8000"
     healthcheck:

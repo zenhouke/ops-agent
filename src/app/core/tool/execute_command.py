@@ -59,10 +59,14 @@ class ExecuteCommandHandler:
     def definition(self) -> LLMToolDefinition:
         return LLMToolDefinition(
             name="execute_command",
-            description="Execute terminal command. The system will automatically determine whether to allow, reject, or require user approval based on the approval policy in settings.json.",
+            description="Propose a terminal command for user approval. Explain its purpose and expected result before submitting it. The command runs only after explicit user approval.",
             input_schema={
                 "type": "object",
                 "properties": {
+                    "explanation": {
+                        "type": "string",
+                        "description": "Explain what this command checks or changes and its expected result, in the user's language. Emit this field before command.",
+                    },
                     "authorization_id": {
                         "type": "string",
                         "description": "Runtime terminal authorization ID for the target terminal session.",
@@ -70,7 +74,7 @@ class ExecuteCommandHandler:
                     "command": {"type": "string", "description": "The command to execute, must be specified."},
                     "working_directory": {"type": "string", "description": "Working directory (optional)"},
                 },
-                "required": ["authorization_id", "command"],
+                "required": ["explanation", "authorization_id", "command"],
             },
         )
 
@@ -103,7 +107,9 @@ class ExecuteCommandHandler:
             vendor=str(args.get("device_vendor", "") or "") or None,
         )
         action, reason = get_approval_service().check_command(command, context)
-        return action, reason
+        if action == "deny":
+            return action, reason
+        return "ask", "请确认命令及目标后审批，批准后才会执行。"
 
     def display_metadata(self, args: dict[str, Any]) -> ToolDisplayMetadata:
         command = str(args.get("command", "")).strip()

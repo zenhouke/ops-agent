@@ -1,3 +1,5 @@
+import json
+from jiter import from_json
 from collections.abc import Iterator
 from typing import Any, cast
 
@@ -20,7 +22,14 @@ class AnthropicLLMProvider:
         config: ModelConfig,
         request: LLMCompletionRequest,
     ) -> Iterator[LLMCompletionChunk]:
-        with self._get_client(config).messages.stream(
+        # Consume raw events: compatible gateways may omit message_start.content,
+        # which the SDK's accumulated message stream requires to be an array.
+        tool_blocks: dict[int, dict[str, Any]] = {}
+        finish_reason = None
+        usage = None
+        stopped = False
+        with self._get_client(config).messages.create(
+            stream=True,
             model=config.model_name,
             max_tokens=request.max_tokens if request.max_tokens is not None else config.max_tokens,
             temperature=request.temperature if request.temperature is not None else config.temperature,
@@ -29,15 +38,61 @@ class AnthropicLLMProvider:
             tools=cast(Any, self._serialize_tools(request) or None),
             tool_choice=cast(Any, self._serialize_tool_choice(request)),
         ) as stream:
-            for chunk in stream.text_stream:
-                if isinstance(chunk, str) and chunk:
-                    yield LLMCompletionChunk(delta=chunk)
-            final_message = stream.get_final_message()
-            yield LLMCompletionChunk(
-                tool_calls=self._extract_tool_calls(getattr(final_message, "content", []) or []),
-                finish_reason=getattr(final_message, "stop_reason", None),
-                usage=self._extract_usage(final_message),
-            )
+            for event in stream:
+                if event.type == "message_start":
+                    usage = self._extract_usage(event.message)
+                elif event.type == "content_block_start":
+                    block = event.content_block
+                    if block.type == "tool_use":
+                        tool_blocks[event.index] = {
+                            "id": block.id, "name": block.name,
+                            "input": getattr(block, "input", None) or {}, "json": "",
+                        }
+                    elif block.type == "text" and getattr(block, "text", None):
+                        yield LLMCompletionChunk(delta=block.text)
+                elif event.type == "content_block_delta":
+                    delta = event.delta
+                    if delta.type == "text_delta" and delta.text:
+                        yield LLMCompletionChunk(delta=delta.text)
+                    elif delta.type == "input_json_delta":
+                        block = tool_blocks[event.index]
+                        block["json"] += delta.partial_json
+                        if block["name"] == "execute_command":
+                            try:
+                                arguments = from_json(block["json"].encode(), partial_mode="trailing-strings")
+                                complete_fields = from_json(block["json"].encode(), partial_mode=True)
+                            except ValueError:
+                                continue
+                            if isinstance(arguments, dict):
+                                if not isinstance(complete_fields, dict) or "explanation" not in complete_fields:
+                                    arguments.pop("explanation", None)
+                                yield LLMCompletionChunk(tool_call_preview=LLMToolCall(
+                                    id=block["id"], name=block["name"], arguments=arguments,
+                                ))
+                elif event.type == "message_delta":
+                    finish_reason = getattr(event.delta, "stop_reason", None) or finish_reason
+                    event_usage = getattr(event, "usage", None)
+                    if event_usage is not None:
+                        values = {
+                            field: value for field in (
+                                "input_tokens", "output_tokens", "cache_creation_input_tokens",
+                                "cache_read_input_tokens",
+                            ) if (value := getattr(event_usage, field, None)) is not None
+                        }
+                        usage = LLMTokenUsage(**{**(vars(usage) if usage else {}), **values})
+                elif event.type == "message_stop":
+                    stopped = True
+                elif event.type == "error":
+                    raise RuntimeError("AI gateway returned a streaming error")
+        if not stopped:
+            raise RuntimeError("AI gateway stream ended before message_stop")
+        tool_calls = []
+        for block in tool_blocks.values():
+            arguments = json.loads(block["json"]) if block["json"] else block["input"]
+            if not isinstance(arguments, dict):
+                raise ValueError("AI tool arguments must be a JSON object")
+            tool_calls.append(LLMToolCall(id=block["id"], name=block["name"], arguments=arguments))
+        yield LLMCompletionChunk(tool_calls=tool_calls, finish_reason=finish_reason, usage=usage)
 
     def complete(
         self,

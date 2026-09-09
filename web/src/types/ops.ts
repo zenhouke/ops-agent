@@ -410,6 +410,7 @@ export type AgentMessage = {
     serverId?: string
     command?: string
     approvalToken?: string | null
+    generationState?: 'generating' | 'not_submitted'
     executionProfile?: string
     deviceVendor?: string
     args: Record<string, any>

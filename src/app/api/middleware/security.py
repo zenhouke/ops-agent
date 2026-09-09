@@ -54,7 +54,8 @@ class RequestLimitMiddleware:
             async def limited_receive() -> Message:
                 nonlocal delivered
                 if delivered:
-                    return {"type": "http.disconnect"}
+                    # Keep streaming responses alive until the client actually disconnects.
+                    return await receive()
                 delivered = True
                 return {"type": "http.request", "body": body, "more_body": False}
 

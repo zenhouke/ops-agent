@@ -172,12 +172,12 @@ export function CommandExecutionCard({
 }: CommandExecutionCardProps) {
   const { t } = useAppearance()
   const [isExpanded, setIsExpanded] = useState(false)
-  const [showWhitelistOptions, setShowWhitelistOptions] = useState(false)
-  const [allowPrefix, setAllowPrefix] = useState('')
   const [decisionNote, setDecisionNote] = useState('')
 
   // Derived state from AgentMessage or Legacy events
   const toolCall = message?.toolCall
+  const isDraft = Boolean(toolCall?.generationState)
+  const isGenerating = toolCall?.generationState === 'generating' && Boolean(message?.partial)
   const rawCommand = toolCall?.command || (startEvent as any)?.command || approvalEvent?.command || ''
   const isCommandTool = Boolean(rawCommand)
   const toolName = toolCall?.name || toolCall?.originalName || ''
@@ -220,28 +220,27 @@ export function CommandExecutionCard({
   const outputText = message?.toolOutput ?? chunkEvents.map((event) => event.text).join('')
   const structuredOutput = parseTerminalToolOutput(outputText)
   const exitCode = message ? message.exitCode : ((endEvent as any)?.exitCode ?? (endEvent as any)?.exit_code)
-  const hasExecutionResult = message ? message.type === 'say' && message.say === 'tool_use' && !message.partial : !!endEvent
+  const hasExecutionResult = message ? !isDraft && message.type === 'say' && message.say === 'tool_use' && !message.partial : !!endEvent
   const executionSucceeded = hasExecutionResult && (exitCode === null || exitCode === undefined || exitCode === 0)
   const executionFailed = hasExecutionResult && !executionSucceeded
-  const trustedCommand = displayCommand.trim()
   
-  const isMessageAsk = message?.type === 'ask'
-  const approvalStatus = isMessageAsk ? 'pending' : (message?.type === 'say' && message?.say === 'tool_use' && !message.partial ? 'approved' : (approvalEvent?.status ?? (approvalEvent ? 'pending' : undefined)))
+  const isMessageAsk = message?.type === 'ask' && !message.partial && !isDraft
+  const approvalStatus = isMessageAsk ? 'pending' : (hasExecutionResult ? 'approved' : (approvalEvent?.status ?? (approvalEvent ? 'pending' : undefined)))
   
   // For ask-type messages: show buttons when pendingApprovalRuntimeId is set (stream guarantees correctness)
   // For legacy approval events: match on runtimeId
   const showApprovalActions = pendingApprovalRuntimeId !== null && (
-    isMessageAsk || 
+    (isMessageAsk && message?.runtimeId === pendingApprovalRuntimeId) ||
     (approvalStatus === 'pending' && approvalEvent?.runtimeId === pendingApprovalRuntimeId)
   )
 
   const isRunning = message ? message.partial : (!endEvent && !approvalStatus)
 
   useEffect(() => {
-    if (showApprovalActions && approvalStatus === 'pending') {
+    if (isGenerating || (showApprovalActions && approvalStatus === 'pending')) {
       setIsExpanded(true)
     }
-  }, [showApprovalActions, approvalStatus])
+  }, [showApprovalActions, approvalStatus, isGenerating])
 
   return (
     <div className={`group/card my-1.5 overflow-hidden rounded-[5px] border bg-ops-panel/30 shadow-inner transition-all duration-200 ${approvalStatus === 'pending' ? 'border-ops-warning/35' : executionSucceeded ? 'border-ops-green/35' : executionFailed ? 'border-ops-danger/35' : 'border-ops-border/30'} ${isExpanded ? 'p-3' : 'px-2.5 py-2'}`}>
@@ -279,7 +278,7 @@ export function CommandExecutionCard({
           ) : (
             <div className="flex items-center gap-1.5 rounded-[4px] border border-ops-cyan/30 bg-ops-cyan/8 px-2 py-0.5 text-[9px] font-bold tracking-[0.08em] text-ops-cyan">
               <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-ops-cyan" />
-              {t('conversation.running')}
+              {isGenerating ? '命令生成中，尚未执行' : isDraft ? '未提交执行' : t('conversation.running')}
             </div>
           )}
 
@@ -327,7 +326,7 @@ export function CommandExecutionCard({
                 <span className="rounded-[4px] border border-ops-warning/30 bg-ops-deep/60 px-2 py-0.5 text-[9px] font-bold tracking-[0.08em] text-ops-warning/85">{t('conversation.needsApproval')}</span>
               </div>
 
-              {(message?.text || approvalEvent?.reason) && <div className="mb-3 rounded-[4px] border border-ops-warning/20 bg-ops-deep/55 px-3 py-2 text-[12px] leading-relaxed text-ops-text/78">{message?.text || approvalEvent?.reason}</div>}
+              {(message?.text || args.explanation || approvalEvent?.reason) && <div className="mb-3 rounded-[4px] border border-ops-warning/20 bg-ops-deep/55 px-3 py-2 text-[12px] leading-relaxed text-ops-text/78">{message?.text || args.explanation || approvalEvent?.reason}</div>}
 
               <textarea
                 className="mb-3 min-h-16 w-full resize-y rounded-[4px] border border-ops-border/30 bg-ops-deep/65 px-3 py-2 text-[12px] leading-relaxed text-ops-text outline-none placeholder:text-ops-muted/45 focus:border-ops-cyan/40"
@@ -337,49 +336,8 @@ export function CommandExecutionCard({
                 aria-label="审批说明"
               />
 
-              {isCommandTool && showWhitelistOptions ? (
-                <div className="mb-3 rounded-[4px] border border-ops-border/25 bg-ops-deep/55 p-2.5">
-                  <div className="mb-2 text-[10px] font-black uppercase tracking-[0.14em] text-ops-muted/68">{t('conversation.whitelistPrefix')}</div>
-                  <div className="mb-3 flex flex-wrap gap-2">
-                    {[trustedCommand].filter(Boolean).map((option) => (
-                      <button
-                        key={option}
-                        type="button"
-                        className={`rounded-[4px] border px-2.5 py-1 font-mono text-[11px] transition-all duration-200 active:scale-95 ${allowPrefix === option ? 'border-ops-cyan/45 bg-ops-cyan/12 text-ops-cyan' : 'border-ops-border/30 bg-ops-panel/30 text-ops-muted hover:text-ops-text'}`}
-                        onClick={() => setAllowPrefix(option)}
-                      >
-                        {option}
-                      </button>
-                    ))}
-                  </div>
-                  <input
-                    className="field-control h-9 w-full font-mono text-[12px]"
-                    value={allowPrefix}
-                    onChange={(event) => setAllowPrefix(event.target.value)}
-                    readOnly
-                    placeholder={t('conversation.whitelistPrefixPlaceholder')}
-                  />
-                </div>
-              ) : null}
-
               <div className="flex flex-wrap items-center justify-between gap-3">
-                {isCommandTool ? (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (!showWhitelistOptions) {
-                        setAllowPrefix(trustedCommand)
-                        setShowWhitelistOptions(true)
-                        return
-                      }
-                      onApprove?.(allowPrefix, decisionNote.trim() || undefined)
-                    }}
-                    className="rounded-[4px] border border-ops-cyan/30 bg-ops-cyan/8 px-3 py-1.5 text-[10px] font-bold tracking-[0.08em] text-ops-cyan transition-all duration-200 hover:border-ops-cyan/45 hover:bg-ops-cyan/14 active:scale-95 disabled:cursor-not-allowed disabled:opacity-45"
-                    disabled={showWhitelistOptions && !allowPrefix.trim()}
-                  >
-                    {showWhitelistOptions ? t('conversation.approveTrustPrefix') : t('conversation.trustCommandPrefix')}
-                  </button>
-                ) : <span />}
+                <span />
                 <div className="flex items-center gap-2">
                   <button type="button" onClick={() => onReject?.(decisionNote.trim() || undefined)} className="rounded-[4px] border border-ops-danger/30 bg-ops-danger/8 px-3 py-1.5 text-[10px] font-bold tracking-[0.08em] text-ops-danger transition-all duration-200 hover:border-ops-danger/45 hover:bg-ops-danger/12 active:scale-95">{t('conversation.reject')}</button>
                   <button type="button" onClick={() => onApprove?.(undefined, decisionNote.trim() || undefined)} className="rounded-[4px] border border-ops-warning/45 bg-ops-warning px-3 py-1.5 text-[10px] font-bold tracking-[0.08em] text-ops-deep transition-all duration-200 hover:bg-ops-warning/85 active:scale-95">{t('conversation.approveOnce')}</button>
