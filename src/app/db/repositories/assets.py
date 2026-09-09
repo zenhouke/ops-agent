@@ -8,8 +8,8 @@ from app.db.repositories.common import commit_refresh, touch_updated_at
 from app.shared.schemas import AssetCreate
 
 
-def create_asset_group(session: Session, *, name: str, description: str = "") -> AssetGroup:
-    row = AssetGroup(name=name, description=description)
+def create_asset_group(session: Session, *, name: str, description: str = "", **proxy) -> AssetGroup:
+    row = AssetGroup(name=name, description=description, **proxy)
     return commit_refresh(session, row)
 
 
@@ -21,7 +21,7 @@ def get_asset_group(session: Session, group_id: int) -> AssetGroup | None:
     return session.get(AssetGroup, group_id)
 
 
-def update_asset_group(session: Session, group_id: int, *, name: str | None = None, description: str | None = None) -> AssetGroup | None:
+def update_asset_group(session: Session, group_id: int, *, name: str | None = None, description: str | None = None, **proxy) -> AssetGroup | None:
     row = get_asset_group(session, group_id)
     if row is None:
         return None
@@ -29,6 +29,9 @@ def update_asset_group(session: Session, group_id: int, *, name: str | None = No
         row.name = name
     if description is not None:
         row.description = description
+    for key, value in proxy.items():
+        if value is not None:
+            setattr(row, key, value)
     touch_updated_at(row)
     return commit_refresh(session, row)
 
@@ -44,7 +47,7 @@ def delete_asset_group(session: Session, group_id: int) -> bool:
 
 
 def create_asset(session: Session, data: AssetCreate) -> Asset:
-    payload = data.model_dump(exclude={"credential_secret"})
+    payload = data.model_dump(exclude={"credential_secret", "proxy_password"})
     payload["asset_type"] = data.asset_type.value
     payload["tags"] = ",".join(data.tags)
     asset = Asset(**payload)

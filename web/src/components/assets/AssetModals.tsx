@@ -19,6 +19,11 @@ type AddAssetForm = {
   credentialSecret: string
   sshKeyId: string
   proxyAssetId: string
+  proxyType: 'inherit' | 'none' | 'http_connect' | 'socks5'
+  proxyHost: string
+  proxyPort: string
+  proxyUsername: string
+  proxyPassword: string
   serialPort: string
   baudRate: string
   dataBits: string
@@ -38,6 +43,7 @@ const emptyAddAssetForm: AddAssetForm = {
   credentialSecret: '',
   sshKeyId: '',
   proxyAssetId: '',
+  proxyType: 'inherit', proxyHost: '', proxyPort: '', proxyUsername: '', proxyPassword: '',
   serialPort: '',
   baudRate: '9600',
   dataBits: '8',
@@ -95,6 +101,9 @@ function buildAssetPayload(form: AddAssetForm, targetAsset: Asset | null): Asset
     auth_type: form.authType,
     ssh_key_id: ['key', 'password_and_key'].includes(form.authType) ? (form.sshKeyId ? Number(form.sshKeyId) : null) : null,
     proxy_asset_id: supportsSshProxyTarget(form.assetKind) && form.proxyAssetId ? Number(form.proxyAssetId) : null,
+    proxy_type: form.proxyType,
+    proxy_host: form.proxyHost.trim(), proxy_port: form.proxyPort ? Number(form.proxyPort) : 0,
+    proxy_username: form.proxyUsername.trim(), proxy_password: form.proxyPassword.trim() || undefined,
     credential_secret: form.credentialSecret.trim() || undefined,
     tags: buildConnectionTags(form),
     vendor: targetAsset?.vendor || (networkKinds.includes(form.assetKind) ? form.assetKind : ''),
@@ -225,13 +234,25 @@ function AssetFormModal({ mode, form, assets, targetAsset, groups, sshKeys, seri
                   ))}
                 </select>
                 {proxySelectorDisabled ? (
-                  <span className="text-[10px] normal-case tracking-normal text-ops-muted/70">
+                <span className="text-[10px] normal-case tracking-normal text-ops-muted/70">
                     {isUsedAsProxy
                       ? 'This asset is used as a proxy by other assets and cannot use a jump proxy itself.'
                       : 'SSH proxy is supported only for Linux and network device assets in this version.'}
                   </span>
                 ) : null}
               </label>
+              <label className="flex flex-col gap-2 text-[11px] font-bold tracking-widest text-ops-muted/70 col-span-2">
+                TCP Proxy
+                <select className="field-control" value={form.proxyType} onChange={(event) => onChange('proxyType', event.target.value as AddAssetForm['proxyType'])}>
+                  <option value="inherit">Inherit from asset group</option><option value="none">Direct connection</option><option value="http_connect">HTTP CONNECT</option><option value="socks5">SOCKS5</option>
+                </select>
+              </label>
+              {form.proxyType === 'http_connect' || form.proxyType === 'socks5' ? <>
+                <input className="field-control font-mono" placeholder="Proxy host" value={form.proxyHost} onChange={(event) => onChange('proxyHost', event.target.value)} required />
+                <input className="field-control font-mono" type="number" min="1" max="65535" placeholder="Proxy port" value={form.proxyPort} onChange={(event) => onChange('proxyPort', event.target.value)} required />
+                <input className="field-control font-mono" placeholder="Proxy username (optional)" value={form.proxyUsername} onChange={(event) => onChange('proxyUsername', event.target.value)} />
+                <input className="field-control font-mono" type="password" placeholder="Proxy password (optional)" value={form.proxyPassword} onChange={(event) => onChange('proxyPassword', event.target.value)} />
+              </> : null}
               {['key', 'password_and_key'].includes(form.authType) ? (
                 <label className="flex flex-col gap-2 text-[11px] font-bold  tracking-widest text-ops-muted/70 col-span-2 sm:col-span-1">
                   {t('assets.selectSshKey')}
@@ -410,6 +431,7 @@ export const AssetModals = forwardRef<AssetModalsRef, AssetModalsProps>(
         credentialSecret: '',
         sshKeyId: asset.sshKeyId ? String(asset.sshKeyId) : '',
         proxyAssetId: supportsProxy && asset.proxyAssetId ? String(asset.proxyAssetId) : '',
+        proxyType: asset.proxyType || 'inherit', proxyHost: asset.proxyHost || '', proxyPort: asset.proxyPort ? String(asset.proxyPort) : '', proxyUsername: asset.proxyUsername || '', proxyPassword: '',
         serialPort: mode === 'serial' ? asset.host : '',
         baudRate: mode === 'serial' ? String(asset.port) : '9600',
         dataBits: tagValue('data-bits', '8'),

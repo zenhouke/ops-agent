@@ -150,6 +150,8 @@ pnpm --dir web tauri:build
 
 ## 桌面端
 
+远程 SSH 和网络设备资产支持按资产组或单个资产配置 TCP 代理（`HTTP CONNECT` 或 `SOCKS5`）。单资产配置优先于资产组；两者都未配置时直连。代理凭据会加密存储。
+
 完整桌面打包会先用 PyInstaller 构建后端二进制，再执行 Tauri 打包。
 
 ```bash

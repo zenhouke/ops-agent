@@ -1,4 +1,4 @@
-import type { GroupsSectionProps } from './settingsTypes'
+import type { GroupForm, GroupsSectionProps } from './settingsTypes'
 import { useAppearance } from '../../hooks/useAppearance'
 
 export function GroupsSection({
@@ -30,6 +30,17 @@ export function GroupsSection({
             {t('settings.groupLabel')}
             <input className="field-control" value={groupForm.name} onChange={(event) => onFormChange({ ...groupForm, name: event.target.value })} placeholder={t('settings.groupLabelPlaceholder')} required />
           </label>
+          <label className="flex flex-col gap-2 text-[11px] font-bold tracking-widest text-ops-muted/70">TCP Proxy
+            <select className="field-control" value={groupForm.proxy_type} onChange={(event) => onFormChange({ ...groupForm, proxy_type: event.target.value as GroupForm['proxy_type'] })}>
+              <option value="none">Direct connection</option><option value="http_connect">HTTP CONNECT</option><option value="socks5">SOCKS5</option>
+            </select>
+          </label>
+          {groupForm.proxy_type !== 'none' ? <>
+            <input className="field-control" placeholder="Proxy host" value={groupForm.proxy_host} onChange={(event) => onFormChange({ ...groupForm, proxy_host: event.target.value })} required />
+            <input className="field-control" type="number" min="1" max="65535" placeholder="Proxy port" value={groupForm.proxy_port} onChange={(event) => onFormChange({ ...groupForm, proxy_port: event.target.value })} required />
+            <input className="field-control" placeholder="Proxy username" value={groupForm.proxy_username} onChange={(event) => onFormChange({ ...groupForm, proxy_username: event.target.value })} />
+            <input className="field-control" type="password" placeholder="Proxy password" value={groupForm.proxy_password} onChange={(event) => onFormChange({ ...groupForm, proxy_password: event.target.value })} />
+          </> : null}
           <label className="flex flex-col gap-2 text-[11px] font-bold  tracking-widest text-ops-muted/70">
             {t('settings.groupDescription')}
             <textarea className="field-control min-h-[80px]" value={groupForm.description} onChange={(event) => onFormChange({ ...groupForm, description: event.target.value })} placeholder={t('settings.groupDescriptionPlaceholder')} rows={3} />

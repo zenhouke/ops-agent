@@ -27,6 +27,7 @@ from app.core.connectors.ssh_proxy import (
     SSHTargetConnectionThroughProxyError,
 )
 from app.core.connectors.ssh_host_keys import configure_strict_ssh_client
+from app.core.connectors.tcp_proxy import TCPProxyConfig, open_proxy_socket
 
 
 class NetworkConnector:
@@ -551,10 +552,15 @@ class NetworkConnector:
         params: dict[str, Any],
         proxy_config: SSHProxyConfig | None,
     ) -> dict[str, Any]:
-        if proxy_config is None:
-            return params
-        channel = self._open_proxy_channel(proxy_config, kind="netmiko")
-        return {**params, "sock": channel}
+        if proxy_config is not None:
+            channel = self._open_proxy_channel(proxy_config, kind="netmiko")
+            return {**params, "sock": channel}
+        tcp_config = self.ssh_params.get("tcp_proxy_config")
+        if isinstance(tcp_config, TCPProxyConfig):
+            sock = open_proxy_socket(tcp_config, str(self.ssh_params.get("host")), int(self.ssh_params.get("port", 22)))
+            self.netmiko_proxy_channel = sock
+            return {**params, "sock": sock}
+        return params
 
     def _release_netmiko_proxy(self) -> None:
         if self.netmiko_proxy_channel is not None:

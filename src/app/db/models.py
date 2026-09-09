@@ -10,6 +10,11 @@ class AssetGroup(SQLModel, table=True):
     id: int | None = Field(default=None, primary_key=True)
     name: str
     description: str = ""
+    proxy_type: str = "none"
+    proxy_host: str = ""
+    proxy_port: int = 0
+    proxy_username: str = ""
+    proxy_password_encrypted: str = ""
     created_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
     updated_at: datetime = Field(default_factory=lambda: datetime.now(UTC))
 
@@ -20,6 +25,11 @@ class Asset(SQLModel, table=True):
     group_id: int | None = None
     ssh_key_id: int | None = None
     proxy_asset_id: int | None = None
+    proxy_type: str = "inherit"
+    proxy_host: str = ""
+    proxy_port: int = 0
+    proxy_username: str = ""
+    proxy_password_encrypted: str = ""
     name: str
     asset_type: str
     host: str = ""

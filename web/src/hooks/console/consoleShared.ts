@@ -78,6 +78,10 @@ export const defaultLocalTerminalAsset: Asset = {
   description: 'Default local terminal',
   sshKeyId: null,
   proxyAssetId: null,
+  proxyType: 'none',
+  proxyHost: '',
+  proxyPort: 0,
+  proxyUsername: '',
 }
 
 export function buildTerminalWebSocketUrl(terminalSessionId: string, runtimeApiBaseUrl?: string | null): string {

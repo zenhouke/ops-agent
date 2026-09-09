@@ -16,6 +16,7 @@ from app.core.connectors.ssh_proxy import (
     SSHProxyUnsupportedTargetError,
     SSHTargetConnectionThroughProxyError,
 )
+from app.core.connectors.tcp_proxy import TCPProxyConfig, open_proxy_socket
 
 
 class ServerConnector:
@@ -28,6 +29,7 @@ class ServerConnector:
         private_key: str | None = None,
         passphrase: str | None = None,
         proxy_config: SSHProxyConfig | None = None,
+        tcp_proxy_config: TCPProxyConfig | None = None,
         close_callback: Callable[[], None] | None = None,
     ):
         self.host = host
@@ -37,6 +39,7 @@ class ServerConnector:
         self.private_key = private_key
         self.passphrase = passphrase
         self.proxy_config = proxy_config
+        self.tcp_proxy_config = tcp_proxy_config
         self.close_callback = close_callback
         self._close_callback_called = False
         self.shell_kind = "posix"
@@ -44,6 +47,7 @@ class ServerConnector:
         self.channel = None
         self.proxy_client = None
         self.proxy_channel = None
+        self.tcp_proxy_socket = None
 
     def _load_private_key_text(self, private_key: str, passphrase: str | None):
         import paramiko
@@ -111,6 +115,8 @@ class ServerConnector:
             return
 
         client = self._create_ssh_client()
+        if self.tcp_proxy_config is not None:
+            self.tcp_proxy_socket = open_proxy_socket(self.tcp_proxy_config, self.host, self.port)
         connect_kwargs = self._build_connect_kwargs(
             self.host,
             self.port,
@@ -119,6 +125,8 @@ class ServerConnector:
             self.private_key,
             self.passphrase,
         )
+        if self.tcp_proxy_socket is not None:
+            connect_kwargs["sock"] = self.tcp_proxy_socket
         self._connect_client(client, connect_kwargs)
         transport = client.get_transport()
         if transport is not None:
@@ -253,6 +261,9 @@ class ServerConnector:
         if self.proxy_client is not None:
             self.proxy_client.close()
             self.proxy_client = None
+        if self.tcp_proxy_socket is not None:
+            self.tcp_proxy_socket.close()
+            self.tcp_proxy_socket = None
 
 
 def connector_factory(asset, *, credential_secret_override: str | None = None):
@@ -317,6 +328,7 @@ def connector_factory(asset, *, credential_secret_override: str | None = None):
     private_key = None
     passphrase = None
     proxy_config = None
+    tcp_proxy_config = None
 
     with Session(engine) as session:
         def resolve_auth_material(current_asset):
@@ -368,6 +380,22 @@ def connector_factory(asset, *, credential_secret_override: str | None = None):
             return resolved_password, resolved_private_key, resolved_passphrase
 
         password, private_key, passphrase = resolve_auth_material(asset)
+        proxy_type = getattr(asset, "proxy_type", "inherit")
+        proxy_source = asset
+        if proxy_type == "inherit" and getattr(asset, "group_id", None) is not None:
+            proxy_source = session.get(__import__("app.db.models", fromlist=["AssetGroup"]).AssetGroup, asset.group_id) or asset
+            proxy_type = getattr(proxy_source, "proxy_type", "none")
+        if proxy_type in {"http_connect", "socks5"}:
+            if not getattr(proxy_source, "proxy_host", "") or not getattr(proxy_source, "proxy_port", 0):
+                raise ValueError("Proxy host and port are required")
+            proxy_password = None
+            encrypted_proxy_password = getattr(proxy_source, "proxy_password_encrypted", "")
+            if encrypted_proxy_password:
+                proxy_password = credential_service.decrypt_secret(encrypted_proxy_password, CredentialService.encryption_version)
+            transient_proxy_password = getattr(proxy_source, "proxy_password", None)
+            if transient_proxy_password is not None:
+                proxy_password = transient_proxy_password.get_secret_value() if hasattr(transient_proxy_password, "get_secret_value") else str(transient_proxy_password)
+            tcp_proxy_config = TCPProxyConfig(proxy_type, proxy_source.proxy_host, proxy_source.proxy_port, proxy_source.proxy_username or None, proxy_password)
         proxy_asset_id = getattr(asset, "proxy_asset_id", None)
         if proxy_asset_id is not None:
             if proxy_asset_id == asset_id:
@@ -418,6 +446,7 @@ def connector_factory(asset, *, credential_secret_override: str | None = None):
             "private_key": private_key,
             "passphrase": passphrase,
             "proxy_config": proxy_config,
+            "tcp_proxy_config": tcp_proxy_config,
         }
         if private_key:
             device_params["use_keys"] = True
@@ -447,4 +476,5 @@ def connector_factory(asset, *, credential_secret_override: str | None = None):
         private_key=private_key,
         passphrase=passphrase,
         proxy_config=proxy_config,
+        tcp_proxy_config=tcp_proxy_config,
     )

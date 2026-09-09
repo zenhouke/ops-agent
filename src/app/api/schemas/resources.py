@@ -10,11 +10,21 @@ from app.shared.schemas import AssetCreate
 class AssetGroupCreate(BaseModel):
     name: str
     description: str = ""
+    proxy_type: Literal["none", "http_connect", "socks5"] = "none"
+    proxy_host: str = ""
+    proxy_port: int = 0
+    proxy_username: str = ""
+    proxy_password: SecretStr | None = None
 
 
 class AssetGroupUpdate(BaseModel):
     name: str | None = None
     description: str | None = None
+    proxy_type: Literal["none", "http_connect", "socks5"] | None = None
+    proxy_host: str | None = None
+    proxy_port: int | None = None
+    proxy_username: str | None = None
+    proxy_password: SecretStr | None = None
 
 
 class AssetGroupView(BaseModel):
@@ -23,6 +33,10 @@ class AssetGroupView(BaseModel):
     description: str
     created_at: datetime
     updated_at: datetime
+    proxy_type: str = "none"
+    proxy_host: str = ""
+    proxy_port: int = 0
+    proxy_username: str = ""
 
 
 class AssetView(BaseModel):
@@ -30,6 +44,10 @@ class AssetView(BaseModel):
     group_id: int | None = None
     ssh_key_id: int | None = None
     proxy_asset_id: int | None = None
+    proxy_type: str = "inherit"
+    proxy_host: str = ""
+    proxy_port: int = 0
+    proxy_username: str = ""
     name: str
     asset_type: str
     host: str
@@ -230,4 +248,3 @@ class SSHKeyView(BaseModel):
     has_passphrase: bool
     created_at: datetime
     updated_at: datetime
-

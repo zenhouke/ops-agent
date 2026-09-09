@@ -38,6 +38,7 @@ def init_db() -> None:
         create_pre_migration_backup(current_version, CURRENT_SCHEMA_VERSION)
     SQLModel.metadata.create_all(engine)
     _ensure_asset_columns()
+    _ensure_proxy_columns()
     _ensure_model_usage_columns()
     _ensure_scheduler_columns()
     _ensure_runtime_columns()
@@ -56,6 +57,22 @@ def _ensure_asset_columns() -> None:
     with engine.begin() as connection:
         if "proxy_asset_id" not in existing:
             connection.execute(text("ALTER TABLE assets ADD COLUMN proxy_asset_id INTEGER"))
+
+
+def _ensure_proxy_columns() -> None:
+    with engine.begin() as connection:
+        for table in ("assets", "asset_groups"):
+            existing = {column[1] for column in connection.exec_driver_sql(f"PRAGMA table_info({table})")}
+            definitions = {
+                "proxy_type": "VARCHAR NOT NULL DEFAULT 'inherit'" if table == "assets" else "VARCHAR NOT NULL DEFAULT 'none'",
+                "proxy_host": "VARCHAR NOT NULL DEFAULT ''",
+                "proxy_port": "INTEGER NOT NULL DEFAULT 0",
+                "proxy_username": "VARCHAR NOT NULL DEFAULT ''",
+                "proxy_password_encrypted": "VARCHAR NOT NULL DEFAULT ''",
+            }
+            for name, definition in definitions.items():
+                if name not in existing:
+                    connection.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {definition}"))
 
 
 def _ensure_model_usage_columns() -> None:

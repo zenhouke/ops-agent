@@ -7,6 +7,11 @@ export type AssetPayload = {
   group_id?: number | null
   ssh_key_id?: number | null
   proxy_asset_id?: number | null
+  proxy_type?: 'inherit' | 'none' | 'http_connect' | 'socks5'
+  proxy_host?: string
+  proxy_port?: number
+  proxy_username?: string
+  proxy_password?: string
   host?: string
   port?: number
   username?: string
@@ -30,6 +35,10 @@ type AssetDto = {
   group_id: number | null
   ssh_key_id: number | null
   proxy_asset_id: number | null
+  proxy_type: 'inherit' | 'none' | 'http_connect' | 'socks5'
+  proxy_host: string
+  proxy_port: number
+  proxy_username: string
   name: string
   asset_type: AssetType
   host: string
@@ -69,6 +78,7 @@ export function mapAsset(dto: AssetDto): Asset {
     groupId: dto.group_id,
     sshKeyId: dto.ssh_key_id,
     proxyAssetId: dto.proxy_asset_id,
+    proxyType: dto.proxy_type, proxyHost: dto.proxy_host, proxyPort: dto.proxy_port, proxyUsername: dto.proxy_username,
     name: dto.name,
     assetType: dto.asset_type,
     host: dto.host,

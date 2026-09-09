@@ -151,6 +151,8 @@ Credentials use AES-GCM v2 with a random nonce and authentication tag. To upgrad
 
 ## Desktop
 
+Remote SSH and network assets support optional asset-group or per-asset TCP proxies (`HTTP CONNECT` or `SOCKS5`). Per-asset settings override the group; assets without either setting connect directly. Proxy credentials are encrypted at rest.
+
 The full desktop bundle first builds the backend executable with PyInstaller, then runs the Tauri build.
 
 ```bash

@@ -5,6 +5,7 @@ import asyncio
 import json
 import os
 import sqlite3
+import socket
 import subprocess
 import sys
 import threading
@@ -31,6 +32,7 @@ from app.core.connectors.execution import ExecutionContext
 from app.core.connectors.local_pty import LocalPtyConnector
 from app.core.connectors.session_manager import TerminalSessionManager
 from app.core.connectors.ssh_host_keys import configure_strict_ssh_client, strict_netmiko_options
+from app.core.connectors.tcp_proxy import TCPProxyConfig, open_proxy_socket
 from app.core.approval import ApprovalChecker, ApprovalContext, ApprovalPermissions, ApprovalPolicy, TrustedCommandRule
 from app.db.models import AuditLog, ModelConfigRecord
 import app.db.repositories.audit as audit_repository
@@ -701,6 +703,41 @@ def scenario_desktop_updater_artifacts_are_validated() -> None:
         assert "Invalid updater target" in unsafe_result.stderr
 
 
+def scenario_tcp_proxy_handshakes_are_supported() -> None:
+    class FakeSocket:
+        def __init__(self, responses: list[bytes]) -> None:
+            self.responses = deque(responses)
+            self.sent: list[bytes] = []
+            self.closed = False
+
+        def sendall(self, data: bytes) -> None:
+            self.sent.append(data)
+
+        def recv(self, size: int) -> bytes:
+            _ = size
+            return self.responses.popleft()
+
+        def close(self) -> None:
+            self.closed = True
+
+    original_create_connection = socket.create_connection
+    try:
+        http_socket = FakeSocket([b"HTTP/1.1 200 Connection Established\r\n\r\n"])
+        socket.create_connection = lambda *args, **kwargs: http_socket  # type: ignore[method-assign]
+        result = open_proxy_socket(TCPProxyConfig("http_connect", "proxy", 8080, "u", "p"), "target", 22)
+        assert result is http_socket
+        assert b"CONNECT target:22 HTTP/1.1" in http_socket.sent[0]
+        assert b"Proxy-Authorization: Basic dTpw" in http_socket.sent[0]
+
+        socks_socket = FakeSocket([b"\x05\x00", b"\x05\x00\x00\x01", b"\x7f\x00\x00\x01\x00\x16"])
+        socket.create_connection = lambda *args, **kwargs: socks_socket  # type: ignore[method-assign]
+        assert open_proxy_socket(TCPProxyConfig("socks5", "proxy", 1080), "target", 22) is socks_socket
+        assert socks_socket.sent[0] == b"\x05\x01\x00"
+        assert socks_socket.sent[1].startswith(b"\x05\x01\x00\x03")
+    finally:
+        socket.create_connection = original_create_connection
+
+
 def main() -> int:
     scenarios = [
         ("text_stream_uses_deltas_and_final_snapshot", scenario_text_stream_uses_deltas_and_final_snapshot),
@@ -720,6 +757,7 @@ def main() -> int:
         ("plaintext_model_key_migrates_to_encrypted_storage", scenario_plaintext_model_key_migrates_to_encrypted_storage),
         ("production_configuration_fails_closed", scenario_production_configuration_fails_closed),
         ("desktop_updater_artifacts_are_validated", scenario_desktop_updater_artifacts_are_validated),
+        ("tcp_proxy_handshakes_are_supported", scenario_tcp_proxy_handshakes_are_supported),
     ]
     results: list[dict[str, str]] = []
     for name, scenario in scenarios:
