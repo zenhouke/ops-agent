@@ -6,17 +6,18 @@ from app.db.session import engine
 from app.services.credential_service import CredentialService
 from app.services.model_service import ModelService
 from app.utils.credential_factory import build_credential_service
+from app.build_metadata import BUILD_SHA, VERSION
 
 router = APIRouter()
 
 
 @router.get("/health")
-def health() -> dict[str, bool]:
-    return {"ok": True}
+def health() -> dict[str, object]:
+    return {"ok": True, "version": VERSION, "buildSha": BUILD_SHA}
 
 
 @router.get("/ready")
-def readiness() -> dict[str, bool]:
+def readiness() -> dict[str, object]:
     credential_service = build_credential_service()
     try:
         with Session(engine) as session:
@@ -36,4 +37,9 @@ def readiness() -> dict[str, bool]:
                 ModelService().decrypt_api_key(record)
     except Exception as exc:
         raise HTTPException(status_code=503, detail="Credential store is not ready") from exc
-    return {"ready": True, "credentialEncryptionV2": True}
+    return {
+        "ready": True,
+        "credentialEncryptionV2": True,
+        "version": VERSION,
+        "buildSha": BUILD_SHA,
+    }

@@ -10,9 +10,6 @@ export function ModelsSection({
   editingModel,
   saving,
   testResult,
-  discoveredModels,
-  discoveringModels,
-  modelDiscoveryMessage,
   onStartCreate,
   onStartEdit,
   onStartDelete,
@@ -22,7 +19,6 @@ export function ModelsSection({
   onCancelForm,
   onSave,
   onSetDefault,
-  onDiscoverModels,
   onTest,
 }: ModelsSectionProps) {
   const { t } = useAppearance()
@@ -40,7 +36,7 @@ export function ModelsSection({
         <form className="bg-ops-deep/40 p-6 rounded-2xl border border-ops-border/20 grid grid-cols-2 gap-5 mt-2 animate-in slide-in-from-top-4 duration-300" onSubmit={onSave}>
           <label className="flex flex-col gap-2 text-[11px] font-bold  tracking-widest text-ops-muted/70">
             {t('settings.internalName')}
-            <input className="field-control" value={modelForm.name} onChange={(event) => onFormChange({ ...modelForm, name: event.target.value })} placeholder="e.g. Production Claude" required />
+            <input className="field-control" value={modelForm.name} onChange={(event) => onFormChange({ ...modelForm, name: event.target.value })} placeholder="CC Switch" required />
           </label>
           <label className="flex flex-col gap-2 text-[11px] font-bold  tracking-widest text-ops-muted/70">
             {t('settings.providerIdentity')}
@@ -52,29 +48,16 @@ export function ModelsSection({
           </label>
           <label className="flex flex-col gap-2 text-[11px] font-bold  tracking-widest text-ops-muted/70 col-span-2">
             {t('settings.endpointBaseUrl')}
-            <input className="field-control font-mono" value={modelForm.baseUrl} onChange={(event) => onConnectionFieldChange({ baseUrl: event.target.value })} placeholder="https://api.anthropic.com" required />
+            <input className="field-control font-mono" value={modelForm.baseUrl} onChange={(event) => onConnectionFieldChange({ baseUrl: event.target.value })} placeholder="http://127.0.0.1:15721" required />
           </label>
           <label className="flex flex-col gap-2 text-[11px] font-bold  tracking-widest text-ops-muted/70 col-span-2">
             {t('settings.authorizationToken')}
-            <input className="field-control font-mono" type="password" value={modelForm.apiKey} onChange={(event) => onConnectionFieldChange({ apiKey: event.target.value })} placeholder={editingModel ? t('settings.unmodified') : 'sk-••••••••••••••••'} required={!editingModel} />
+            <input className="field-control font-mono" type="password" value={modelForm.apiKey} onChange={(event) => onConnectionFieldChange({ apiKey: event.target.value })} placeholder={editingModel ? t('settings.unmodified') : 'cc-switch-local'} required={!editingModel} />
           </label>
-          <div className="flex flex-col gap-3 col-span-2">
-            <div className="flex items-end gap-3">
-              <label className="flex flex-1 flex-col gap-2 text-[11px] font-bold  tracking-widest text-ops-muted/70">
-                {t('settings.targetModelIdentifier')}
-                <select className="field-control font-mono" value={modelForm.modelName} onChange={(event) => onFormChange({ ...modelForm, modelName: event.target.value })} required disabled={discoveredModels.length === 0}>
-                  {discoveredModels.length === 0 ? <option value="">Discover models first</option> : null}
-                  {discoveredModels.map((modelName) => (
-                    <option key={modelName} value={modelName}>{modelName}</option>
-                  ))}
-                </select>
-              </label>
-              <button type="button" className="button px-6 h-[42px]" onClick={onDiscoverModels} disabled={saving || discoveringModels || !modelForm.baseUrl.trim() || !modelForm.apiKey.trim()}>
-                {discoveringModels ? t('settings.processing') : 'Discover models'}
-              </button>
-            </div>
-            {modelDiscoveryMessage ? <div className="text-[11px] font-mono text-ops-muted/80 break-all">{modelDiscoveryMessage}</div> : null}
-          </div>
+          <label className="flex flex-col gap-2 text-[11px] font-bold tracking-widest text-ops-muted/70 col-span-2">
+            {t('settings.targetModelIdentifier')}
+            <input className="field-control font-mono" value={modelForm.modelName} onChange={(event) => onFormChange({ ...modelForm, modelName: event.target.value })} placeholder="gpt-5.6-sol" required />
+          </label>
           <label className="flex flex-col gap-2 text-[11px] font-bold  tracking-widest text-ops-muted/70">
             {t('settings.requestTimeout')}
             <input className="field-control font-mono" type="number" min="1" value={modelForm.timeoutSeconds} onChange={(event) => onFormChange({ ...modelForm, timeoutSeconds: event.target.value })} required />
@@ -133,7 +116,7 @@ export function ModelsSection({
                 <strong className="text-[13px] font-bold text-ops-text tracking-tight">{config.name}</strong>
                 {config.isDefault ? <span className="px-2 py-0.5 text-[9px] font-bold  tracking-widest rounded-md text-ops-emerald bg-ops-emerald/10 border border-ops-emerald/20 shadow-glow">{t('settings.primary')}</span> : null}
               </div>
-              <span className="text-[10px] text-ops-muted font-bold  tracking-[0.1em] opacity-60">{config.provider} / {config.modelName} / {config.apiKeyMasked}</span>
+              <span className="text-[10px] text-ops-muted font-bold  tracking-[0.1em] opacity-60">{modelProviderPresets.find((preset) => preset.provider === config.provider)?.label || config.provider} / {config.modelName} / {config.apiKeyMasked}</span>
             </div>
             <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all duration-200">
               {!config.isDefault ? <button type="button" className="button h-8 px-4 text-[10px]" onClick={() => onSetDefault(config)} disabled={saving}>{t('settings.setPrimary')}</button> : null}

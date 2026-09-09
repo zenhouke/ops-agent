@@ -165,7 +165,7 @@ export function useAgentRun({
           const message = { ...event, kind: 'message' as const } as unknown as AgentMessage
           updateVisibleEvents(conversationId, (current) => upsertMessageEvent(current, message))
           markUnread(conversationId)
-          if (message.type === 'ask' && eventRuntimeId) {
+          if (message.type === 'ask' && !message.partial && eventRuntimeId && !message.toolCall?.generationState) {
             const needsFollowup = message.ask === 'followup'
             requiresApproval = !needsFollowup
             requiresInput = needsFollowup

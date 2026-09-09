@@ -13,6 +13,7 @@ tauri = { version = "2", features = [] }
 tauri-plugin-updater = "2"
 tokio = { version = "1", features = ["time", "rt-multi-thread", "macros"] }
 reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+uuid = { version = "1", features = ["v4"] }
 
 [features]
 default = []

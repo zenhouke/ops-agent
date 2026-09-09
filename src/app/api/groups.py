@@ -20,6 +20,8 @@ def to_asset_group_view(group) -> AssetGroupView:
         description=group.description,
         created_at=group.created_at,
         updated_at=group.updated_at,
+        proxy_type=group.proxy_type, proxy_host=group.proxy_host, proxy_port=group.proxy_port,
+        proxy_username=group.proxy_username,
     )
 
 

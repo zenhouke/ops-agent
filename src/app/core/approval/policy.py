@@ -11,13 +11,24 @@ class ApprovalPermissions:
     deny: list[str] = field(default_factory=list)
 
 
+@dataclass(frozen=True, slots=True)
+class TrustedCommandRule:
+    command: str
+    conversation_id: str
+    asset_id: int
+    profile: str
+
+
 @dataclass
 class ApprovalPolicy:
     permissions: ApprovalPermissions = field(default_factory=ApprovalPermissions)
+    trusted_commands: list[TrustedCommandRule] = field(default_factory=list)
 
 
 @dataclass(frozen=True, slots=True)
 class ApprovalContext:
+    conversation_id: str = ""
+    asset_id: int | None = None
     asset_type: str = ""
     shell_type: str = ""
     profile: str = "posix-shell"
@@ -40,9 +51,9 @@ class ApprovalChecker:
             if is_multiline_network_command(command):
                 return "deny", "network device commands must be submitted one line at a time for per-command approval"
             level = _classify_network_command(command, effective_context)
-            for prefix in self._policy.permissions.allow:
-                if _matches_command_prefix(prefix, command) and level == 0:
-                    return "allow", f"allow prefix: {prefix}"
+            for trusted_rule in self._policy.trusted_commands:
+                if _matches_trusted_command(trusted_rule, command, effective_context) and level == 0:
+                    return "allow", "trusted exact command"
             if level == 0:
                 return "ask", "network device read-only command, handled by default approval policy"
             if level == 1:
@@ -53,14 +64,28 @@ class ApprovalChecker:
                 return "ask", "network device save configuration command requires separate approval"
             return "ask", "network device high-risk command requires approval"
 
-        for prefix in self._policy.permissions.allow:
-            if _matches_command_prefix(prefix, command):
-                return "allow", f"allow prefix: {prefix}"
+        for trusted_rule in self._policy.trusted_commands:
+            if _matches_trusted_command(trusted_rule, command, effective_context):
+                return "allow", "trusted exact command"
         return "ask", "default policy: approval required"
 
 
 def _matches_command_prefix(prefix: str, command: str) -> bool:
     return matches_command_prefix(prefix, command)
+
+
+def _matches_trusted_command(rule: TrustedCommandRule, command: str, context: ApprovalContext) -> bool:
+    """A trust grant is exact and scoped to one conversation, asset, and execution profile."""
+    return bool(
+        rule.command
+        and rule.command != "*"
+        and command == rule.command
+        and context.conversation_id
+        and context.asset_id is not None
+        and context.conversation_id == rule.conversation_id
+        and context.asset_id == rule.asset_id
+        and context.profile == rule.profile
+    )
 
 
 def create_default_policy() -> ApprovalPolicy:

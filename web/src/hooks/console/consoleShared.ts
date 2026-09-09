@@ -78,6 +78,10 @@ export const defaultLocalTerminalAsset: Asset = {
   description: 'Default local terminal',
   sshKeyId: null,
   proxyAssetId: null,
+  proxyType: 'none',
+  proxyHost: '',
+  proxyPort: 0,
+  proxyUsername: '',
 }
 
 export function buildTerminalWebSocketUrl(terminalSessionId: string, runtimeApiBaseUrl?: string | null): string {
@@ -136,7 +140,11 @@ export function mergeDeltaEvent(
 
   if (existingIndex >= 0) {
     const updated = [...filteredEvents]
-    updated[existingIndex] = mergedEvent
+    const existing = filteredEvents[existingIndex]
+    // Preserve the message identity and metadata while its text grows.
+    updated[existingIndex] = existing.kind === 'message'
+      ? { ...existing, text: deltaText }
+      : mergedEvent
     return updated
   }
   
@@ -230,7 +238,7 @@ export function upsertMessageEvent(
     return newEvents
   }
   
-  // If not found, filter out deltas and append
-  const filteredEvents = currentEvents.filter((e) => e.kind !== 'delta' && e.id !== PENDING_ASSISTANT_MESSAGE_ID)
+  // A new command card must not discard text streamed by another message.
+  const filteredEvents = currentEvents.filter((e) => e.id !== PENDING_ASSISTANT_MESSAGE_ID)
   return [...filteredEvents, message]
 }

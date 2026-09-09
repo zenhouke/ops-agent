@@ -174,7 +174,7 @@ export function derivePendingApprovalState(events: EventItem[]): PendingApproval
     if (event.kind === 'approval_required' && event.status !== 'approved' && event.status !== 'rejected' && event.runtimeId) {
       return { runtimeId: event.runtimeId, approvalToken: event.approvalToken ?? null, approvalKey }
     }
-    if ('type' in event && event.type === 'ask') {
+    if ('type' in event && event.type === 'ask' && !event.partial && !event.toolCall?.generationState) {
       const runtimeId = (event as AgentMessage & { runtimeId?: string }).runtimeId
       if (runtimeId) {
         return { runtimeId, approvalToken: event.toolCall?.approvalToken ?? null, approvalKey }

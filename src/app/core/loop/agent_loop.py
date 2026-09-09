@@ -16,6 +16,7 @@ from app.core.loop.request_builder import AgentLLMRequestBuilder
 from app.core.loop.loop_events import LoopEvent
 from app.core.loop.loop_state import LoopRuntimeStep, LoopState
 from app.core.loop.message_manager import MessageManager
+from app.core.loop.command_preview import CommandPreviewMessages
 from app.core.loop.state_machine import transition_runtime_state
 from app.core.loop.prompts import (
     build_manual_skill_system_prompt,
@@ -216,26 +217,34 @@ class AgentLoop(AgentLoopSupportMixin):
             # Start a new assistant message for the LLM response
             yield from manager.begin_message(message_type="say", say_type="text")
 
+            previews = CommandPreviewMessages(ctx.runtime_id)
             self._before_llm_call(state)
-            for chunk in provider.stream_complete(
-                config=ctx.model_config,
-                request=self._request_builder.build_tool_calling_request(state=state, tools=tools),
-            ):
-                self._check_runtime_budget(state)
-                if not state.first_response_recorded and (chunk.delta or chunk.tool_calls):
-                    get_runtime_control().metrics.record_first_response(
-                        ctx.runtime_id,
-                        time.monotonic() - state.started_monotonic,
-                    )
-                    state.first_response_recorded = True
-                if chunk.delta:
-                    response_text_parts.append(chunk.delta)
-                    yield from manager.update(text=chunk.delta)
-                if chunk.tool_calls:
-                    response_tool_calls = chunk.tool_calls
-                if chunk.finish_reason:
-                    finish_reason = chunk.finish_reason
-                usage = chunk.usage or usage
+            try:
+                for chunk in provider.stream_complete(
+                    config=ctx.model_config,
+                    request=self._request_builder.build_tool_calling_request(state=state, tools=tools),
+                ):
+                    self._check_runtime_budget(state)
+                    if not state.first_response_recorded and (chunk.delta or chunk.tool_calls):
+                        get_runtime_control().metrics.record_first_response(
+                            ctx.runtime_id,
+                            time.monotonic() - state.started_monotonic,
+                        )
+                        state.first_response_recorded = True
+                    if chunk.delta:
+                        response_text_parts.append(chunk.delta)
+                        yield from manager.update(text=chunk.delta)
+                    if chunk.tool_call_preview:
+                        yield from previews.update(chunk.tool_call_preview, has_explanation=bool("".join(response_text_parts).strip()))
+                    if chunk.tool_calls:
+                        response_tool_calls = chunk.tool_calls
+                    if chunk.finish_reason:
+                        finish_reason = chunk.finish_reason
+                    usage = chunk.usage or usage
+            except Exception:
+                yield from previews.finish()
+                raise
+            yield from previews.finish()
             self._record_usage(state, usage, call_kind="agent")
 
             response = LLMCompletionResponse(
@@ -341,6 +350,16 @@ class AgentLoop(AgentLoopSupportMixin):
                 args = self._prepare_tool_args(handler, tool_call.arguments, state)
                 command = str(args.get("command", "")).strip()
                 working_directory = args.get("working_directory")
+                if tool_call.name == "execute_command" and not response.text.strip() and not previews.message_id(tool_call.id):
+                    explanation = str(args.get("explanation", "") or "").strip()
+                    if not explanation:
+                        state.messages.append(LLMMessage(
+                            role="tool", tool_call_id=tool_call.id, name=tool_call.name,
+                            content="Command not submitted. Explain its purpose and expected result in assistant text and the explanation argument before proposing it again.",
+                        ))
+                        continue
+                    yield from manager.begin_message(message_type="say", say_type="text")
+                    yield from manager.finalize(text=explanation)
 
                 if tool_call.name == "update_task_state":
                     verified_facts = args.get("verified_facts")
@@ -520,10 +539,11 @@ class AgentLoop(AgentLoopSupportMixin):
                         )
                         
                     # Emit an 'ask' message for approval
-                    yield from manager.begin_message(
-                        message_type="ask",
-                        ask_type="command",
-                    )
+                    preview_id = previews.message_id(tool_call.id)
+                    if preview_id:
+                        yield from manager.resume_message(message_id=preview_id, message_type="ask", ask_type="command")
+                    else:
+                        yield from manager.begin_message(message_type="ask", ask_type="command")
                     yield from manager.finalize(
                         tool_call=self._build_tool_call_payload(
                             handler=handler,

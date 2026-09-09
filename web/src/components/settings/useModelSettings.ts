@@ -14,15 +14,15 @@ import type { ModelForm, SettingsDialogProps } from './settingsTypes'
 
 const defaultPreset = modelProviderPresets[0]
 const emptyModelForm: ModelForm = {
-  name: '',
+  name: 'CC Switch',
   provider: defaultPreset.provider,
   baseUrl: defaultPreset.baseUrl,
-  apiKey: '',
+  apiKey: 'cc-switch-local',
   modelName: defaultPreset.modelName,
   isDefault: false,
-  timeoutSeconds: '30',
+  timeoutSeconds: '180',
   temperature: '0.2',
-  maxTokens: '1024',
+  maxTokens: '4096',
   description: '',
   providerOptions: {},
 }
@@ -107,7 +107,7 @@ export function useModelSettings({
   const startCreate = () => {
     resetForm()
     setDeletingModel(null)
-    setModelForm({ ...emptyModelForm, modelName: '' })
+    setModelForm({ ...emptyModelForm, baseUrl: modelConfigs[0]?.baseUrl || emptyModelForm.baseUrl })
     setShowModelForm(true)
   }
 
@@ -138,7 +138,7 @@ export function useModelSettings({
   ) => {
     setDiscoveredModels([])
     setDiscoveryMessage(null)
-    setModelForm((current) => ({ ...current, ...updates, modelName: '' }))
+    setModelForm((current) => ({ ...current, ...updates }))
   }
 
   const payload = () => ({

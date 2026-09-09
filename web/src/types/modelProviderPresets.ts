@@ -1,17 +1,3 @@
 export const modelProviderPresets = [
-  { provider: 'anthropic', label: 'Anthropic Claude', baseUrl: 'https://api.anthropic.com', modelName: 'claude-sonnet-4-5-20250929' },
-  { provider: 'openai_compatible', label: 'OpenAI Compatible', baseUrl: 'http://localhost/v1', modelName: 'claude-sonnet-4-5-20250929' },
-  { provider: 'qwen', label: 'Qwen / DashScope', baseUrl: 'https://dashscope.aliyuncs.com/compatible-mode/v1', modelName: 'qwen3.6-plus' },
-  { provider: 'bigmodel', label: 'BigModel / GLM', baseUrl: 'https://open.bigmodel.cn/api/paas/v4/', modelName: 'glm-5.1' },
-  { provider: 'kimi', label: 'Kimi / Moonshot', baseUrl: 'https://api.moonshot.ai/v1', modelName: 'kimi-k2.6' },
-  { provider: 'minimax', label: 'MiniMax', baseUrl: 'https://api.minimax.io/v1', modelName: 'MiniMax-M2.7' },
-  { provider: 'deepseek', label: 'DeepSeek', baseUrl: 'https://api.deepseek.com', modelName: 'deepseek-v4-flash' },
-  { provider: 'azure_openai', label: 'Azure OpenAI', baseUrl: 'https://YOUR-RESOURCE.openai.azure.com/openai/v1/', modelName: 'gpt-4.1' },
-  { provider: 'amazon_bedrock', label: 'Amazon Bedrock', baseUrl: 'https://bedrock-mantle.us-east-1.api.aws/v1', modelName: 'openai.gpt-oss-120b' },
-  { provider: 'openrouter', label: 'OpenRouter', baseUrl: 'https://openrouter.ai/api/v1', modelName: 'openai/gpt-4.1' },
-  { provider: 'cloudflare', label: 'Cloudflare Workers AI', baseUrl: 'https://api.cloudflare.com/client/v4/accounts/YOUR_ACCOUNT_ID/ai/v1', modelName: '@cf/meta/llama-3.1-8b-instruct' },
-  { provider: 'github_models', label: 'GitHub Models', baseUrl: 'https://models.github.ai/inference', modelName: 'openai/gpt-4.1' },
-  { provider: 'siliconflow', label: 'SiliconFlow', baseUrl: 'https://api.siliconflow.com/v1', modelName: 'Qwen/Qwen3-235B-A22B-Instruct-2507' },
-  { provider: 'openai_responses', label: 'OpenAI Responses', baseUrl: 'https://api.openai.com/v1', modelName: 'gpt-5' },
-  { provider: 'google_gemini', label: 'Google Gemini', baseUrl: 'https://generativelanguage.googleapis.com', modelName: 'gemini-2.5-pro' },
+  { provider: 'anthropic', label: 'CC Switch', baseUrl: 'http://127.0.0.1:15721', modelName: 'gpt-5.6-sol' },
 ] as const

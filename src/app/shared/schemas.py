@@ -11,6 +11,11 @@ class AssetCreate(BaseModel):
     group_id: int | None = None
     ssh_key_id: int | None = None
     proxy_asset_id: int | None = None
+    proxy_type: Literal["inherit", "none", "http_connect", "socks5"] = "inherit"
+    proxy_host: str = ""
+    proxy_port: int = 0
+    proxy_username: str = ""
+    proxy_password: SecretStr | None = None
     host: str = ""
     port: int = 22
     username: str = ""
@@ -22,6 +27,11 @@ class AssetCreate(BaseModel):
 
     @model_validator(mode="after")
     def validate_connection_fields(self):
+        if self.proxy_asset_id is not None and self.proxy_type not in {"inherit", "none"}:
+            raise ValueError("SSH jump asset and TCP proxy cannot be configured together")
+        if self.proxy_type in {"http_connect", "socks5"}:
+            if not self.proxy_host or not (1 <= self.proxy_port <= 65535):
+                raise ValueError("proxy host and valid proxy port are required")
         if self.asset_type is AssetType.LOCAL_TERMINAL:
             if self.proxy_asset_id is not None:
                 raise ValueError("proxy_asset_id is not supported for local terminal assets")

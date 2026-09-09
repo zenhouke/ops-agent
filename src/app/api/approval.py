@@ -20,6 +20,8 @@ class ApprovalPolicyView(BaseModel):
 
 
 class ApprovalContextView(BaseModel):
+    conversation_id: str = ""
+    asset_id: int | None = None
     asset_type: str = ""
     shell_type: str = ""
     profile: str = "posix-shell"

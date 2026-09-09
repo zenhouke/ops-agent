@@ -8,6 +8,11 @@ export type SettingsSection = 'appearance' | 'models' | 'prompts' | 'jumpserver'
 export type GroupForm = {
   name: string
   description: string
+  proxy_type: 'none' | 'http_connect' | 'socks5'
+  proxy_host: string
+  proxy_port: string
+  proxy_username: string
+  proxy_password: string
 }
 
 export type ModelForm = {

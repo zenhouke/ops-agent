@@ -406,7 +406,7 @@ def scenario_approval_rechecks_terminal_consistency() -> None:
                     tool_calls=[LLMToolCall(
                         id="approval-consistency-1",
                         name="execute_command",
-                        arguments={"authorization_id": "auth-1", "command": "echo safe"},
+                        arguments={"authorization_id": "auth-1", "command": "echo safe", "explanation": "打印测试标记，验证审批时重新检查终端授权。"},
                     )],
                     finish_reason="tool_calls",
                 )

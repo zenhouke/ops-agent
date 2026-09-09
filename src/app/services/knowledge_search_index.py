@@ -24,6 +24,10 @@ class KnowledgeSearchIndex:
         self._index_path.parent.mkdir(parents=True, exist_ok=True)
         self._initialize_schema()
 
+    def has_entries(self) -> bool:
+        with closing(self._connect()) as connection:
+            return connection.execute("SELECT 1 FROM knowledge_index LIMIT 1").fetchone() is not None
+
     def index_entry(self, entry: KnowledgeEntry, embedding: list[float]) -> None:
         with closing(self._connect()) as connection:
             with connection:

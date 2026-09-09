@@ -4,6 +4,11 @@ import type { AssetGroup } from '../types/ops'
 export type AssetGroupPayload = {
   name: string
   description: string
+  proxy_type?: 'none' | 'http_connect' | 'socks5'
+  proxy_host?: string
+  proxy_port?: number
+  proxy_username?: string
+  proxy_password?: string
 }
 
 export type AssetGroupDto = {
@@ -12,6 +17,10 @@ export type AssetGroupDto = {
   description: string
   created_at: string
   updated_at: string
+  proxy_type: 'none' | 'http_connect' | 'socks5'
+  proxy_host: string
+  proxy_port: number
+  proxy_username: string
 }
 
 export function mapAssetGroup(group: AssetGroupDto): AssetGroup {
@@ -21,6 +30,7 @@ export function mapAssetGroup(group: AssetGroupDto): AssetGroup {
     description: group.description,
     createdAt: group.created_at,
     updatedAt: group.updated_at,
+    proxyType: group.proxy_type, proxyHost: group.proxy_host, proxyPort: group.proxy_port, proxyUsername: group.proxy_username,
   }
 }
 

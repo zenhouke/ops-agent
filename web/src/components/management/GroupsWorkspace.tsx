@@ -7,7 +7,7 @@ import { GroupsSection } from '../settings/GroupsSection'
 import type { GroupForm } from '../settings/settingsTypes'
 import { ManagementShell } from './ManagementShell'
 
-const emptyGroupForm: GroupForm = { name: '', description: '' }
+const emptyGroupForm: GroupForm = { name: '', description: '', proxy_type: 'none', proxy_host: '', proxy_port: '', proxy_username: '', proxy_password: '' }
 
 export function GroupsWorkspace({ groups, onGroupsChange }: { groups: AssetGroup[]; onGroupsChange: (groups: AssetGroup[]) => void }) {
   const { t } = useAppearance()
@@ -29,7 +29,7 @@ export function GroupsWorkspace({ groups, onGroupsChange }: { groups: AssetGroup
     setSaving(true)
     setError(null)
     try {
-      const payload = { name: groupForm.name.trim(), description: groupForm.description.trim() }
+      const payload = { ...groupForm, name: groupForm.name.trim(), description: groupForm.description.trim(), proxy_port: groupForm.proxy_port ? Number(groupForm.proxy_port) : 0 }
       const saved = editingGroup ? await updateGroup(editingGroup.id, payload) : await createGroup(payload)
       onGroupsChange(editingGroup ? groups.map((group) => group.id === saved.id ? saved : group) : [saved, ...groups])
       resetForm()
@@ -76,7 +76,7 @@ export function GroupsWorkspace({ groups, onGroupsChange }: { groups: AssetGroup
         onStartEdit={(group) => {
           setEditingGroup(group)
           setDeletingGroup(null)
-          setGroupForm({ name: group.name, description: group.description })
+          setGroupForm({ name: group.name, description: group.description, proxy_type: group.proxyType, proxy_host: group.proxyHost, proxy_port: group.proxyPort ? String(group.proxyPort) : '', proxy_username: group.proxyUsername, proxy_password: '' })
           setShowGroupForm(true)
         }}
       />

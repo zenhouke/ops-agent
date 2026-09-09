@@ -83,7 +83,12 @@ def _ensure_proxy_asset_valid(session, proxy_asset_id, *, target_asset_id, targe
 
 
 def create_asset_group_record(session, payload):
-    return create_asset_group(session, name=payload.name, description=payload.description)
+    proxy_password = payload.proxy_password.get_secret_value() if payload.proxy_password else ""
+    encrypted = build_credential_service().encrypt_secret(proxy_password) if proxy_password else ""
+    return create_asset_group(session, name=payload.name, description=payload.description,
+                              proxy_type=payload.proxy_type, proxy_host=payload.proxy_host,
+                              proxy_port=payload.proxy_port, proxy_username=payload.proxy_username,
+                              proxy_password_encrypted=encrypted)
 
 
 def ensure_default_asset_group(session):
@@ -102,7 +107,10 @@ def get_asset_group_record(session, group_id):
 
 
 def update_asset_group_record(session, group_id, payload):
-    return update_asset_group(session, group_id, name=payload.name, description=payload.description)
+    values = payload.model_dump(exclude={"proxy_password"}, exclude_unset=True)
+    if payload.proxy_password is not None and payload.proxy_password.get_secret_value():
+        values["proxy_password_encrypted"] = build_credential_service().encrypt_secret(payload.proxy_password.get_secret_value())
+    return update_asset_group(session, group_id, **values)
 
 
 def delete_asset_group_record(session, group_id):
@@ -122,6 +130,10 @@ def create_asset_record(session, asset_data):
     asset_id = asset.id
     if asset_id is None:
         raise ValueError("asset id is required")
+    if asset_data.proxy_password is not None and asset_data.proxy_password.get_secret_value():
+        asset.proxy_password_encrypted = build_credential_service().encrypt_secret(asset_data.proxy_password.get_secret_value())
+        session.add(asset)
+        session.commit()
     credential_secret = asset_data.credential_secret
     if credential_secret is None:
         return asset
@@ -166,8 +178,11 @@ def update_asset_record(session, asset_id, asset_data):
         raise ProxyAssetInvalidError("Asset is used as a proxy and cannot itself use a proxy")
 
     payload = asset_data.model_dump(exclude={"credential_secret"})
+    payload.pop("proxy_password", None)
     payload["asset_type"] = asset_data.asset_type.value
     payload["tags"] = ",".join(asset_data.tags)
+    if asset_data.proxy_password is not None and asset_data.proxy_password.get_secret_value():
+        payload["proxy_password_encrypted"] = build_credential_service().encrypt_secret(asset_data.proxy_password.get_secret_value())
 
     for key, value in payload.items():
         setattr(asset, key, value)

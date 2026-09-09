@@ -29,6 +29,8 @@ def to_asset_view(asset) -> AssetView:
         group_id=asset.group_id,
         ssh_key_id=asset.ssh_key_id,
         proxy_asset_id=asset.proxy_asset_id,
+        proxy_type=asset.proxy_type, proxy_host=asset.proxy_host, proxy_port=asset.proxy_port,
+        proxy_username=asset.proxy_username,
         name=asset.name,
         asset_type=asset.asset_type,
         host=asset.host,

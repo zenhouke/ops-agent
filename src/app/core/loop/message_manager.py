@@ -112,6 +112,7 @@ class MessageManager:
         message_id: str,
         message_type: Literal["say", "ask"] = "say",
         say_type: Literal["text", "tool_use", "error"] | None = None,
+        ask_type: Literal["command", "followup", "completion_result"] | None = None,
     ) -> Iterator[LoopEvent]:
         """Resume an existing message by ID, transitioning its type.
 
@@ -123,6 +124,7 @@ class MessageManager:
             ts=time.time(),
             type=message_type,
             say=say_type,
+            ask=ask_type,
             partial=True,
         )
         yield self._emit()

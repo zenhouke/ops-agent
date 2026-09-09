@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import json
+import threading
 from pathlib import Path
 from typing import Any
 
-from app.core.approval import ApprovalChecker, ApprovalContext, ApprovalPermissions, ApprovalPolicy, create_default_policy
+from app.core.approval import ApprovalChecker, ApprovalContext, ApprovalPermissions, ApprovalPolicy, TrustedCommandRule, create_default_policy
 from app.shared.config import SETTINGS_PATH
+from app.utils.file_store import atomic_write_json
 
 
 class ApprovalService:
@@ -15,6 +17,7 @@ class ApprovalService:
             config_path = str(SETTINGS_PATH)
 
         self._config_path = Path(config_path)
+        self._lock = threading.RLock()
         self._policy = self._load_policy()
         self._checker = ApprovalChecker(self._policy)
 
@@ -30,9 +33,24 @@ class ApprovalService:
 
             permissions_data = data.get("permissions") if isinstance(data, dict) else None
             if isinstance(permissions_data, dict):
-                allow = [item.strip() for item in permissions_data.get("allow", []) if isinstance(item, str) and item.strip()]
                 deny = [item.strip() for item in permissions_data.get("deny", []) if isinstance(item, str) and item.strip()]
-                return ApprovalPolicy(permissions=ApprovalPermissions(allow=allow, deny=deny))
+                trusted_commands = []
+                for item in data.get("trusted_commands", []):
+                    if not isinstance(item, dict):
+                        continue
+                    command = str(item.get("command", "")).strip()
+                    conversation_id = str(item.get("conversation_id", "")).strip()
+                    profile = str(item.get("profile", "")).strip()
+                    asset_id = item.get("asset_id")
+                    if command and command != "*" and conversation_id and profile and isinstance(asset_id, int):
+                        trusted_commands.append(TrustedCommandRule(command, conversation_id, asset_id, profile))
+                policy = ApprovalPolicy(
+                    permissions=ApprovalPermissions(allow=[], deny=deny),
+                    trusted_commands=trusted_commands,
+                )
+                if permissions_data.get("allow"):
+                    self._save_policy(policy)
+                return policy
 
             approval_data = data.get("approval") if isinstance(data, dict) else None
             if isinstance(approval_data, dict):
@@ -50,51 +68,67 @@ class ApprovalService:
         if policy is None:
             policy = self._policy
 
-        self._config_path.parent.mkdir(parents=True, exist_ok=True)
+        with self._lock:
+            existing_data: dict[str, Any] = {}
+            if self._config_path.exists():
+                try:
+                    with open(self._config_path, "r", encoding="utf-8") as f:
+                        loaded = json.load(f)
+                    if isinstance(loaded, dict):
+                        existing_data = loaded
+                except Exception:
+                    existing_data = {}
 
-        existing_data: dict[str, Any] = {}
-        if self._config_path.exists():
-            try:
-                with open(self._config_path, "r", encoding="utf-8") as f:
-                    loaded = json.load(f)
-                if isinstance(loaded, dict):
-                    existing_data = loaded
-            except Exception:
-                existing_data = {}
-
-        existing_data.pop("approval", None)
-        existing_data["permissions"] = {"allow": policy.permissions.allow, "deny": policy.permissions.deny}
-
-        with open(self._config_path, "w", encoding="utf-8") as f:
-            json.dump(existing_data, f, ensure_ascii=False, indent=2)
+            existing_data.pop("approval", None)
+            existing_data["permissions"] = {"allow": [], "deny": policy.permissions.deny}
+            existing_data["trusted_commands"] = [
+                {
+                    "command": rule.command,
+                    "conversation_id": rule.conversation_id,
+                    "asset_id": rule.asset_id,
+                    "profile": rule.profile,
+                }
+                for rule in policy.trusted_commands
+            ]
+            atomic_write_json(self._config_path, existing_data)
 
     def check_command(self, command: str, context: ApprovalContext | None = None) -> tuple[str, str]:
         return self._checker.check_command(command, context)
 
-    def add_allow_prefix(self, prefix: str) -> bool:
-        prefix = prefix.strip()
-        if not prefix or prefix in self._policy.permissions.allow:
+    def add_allow_command(self, command: str, *, context: ApprovalContext) -> bool:
+        command = command.strip()
+        if not command or command == "*" or not context.conversation_id or context.asset_id is None:
             return False
-        self._policy.permissions.allow.append(prefix)
-        self._checker = ApprovalChecker(self._policy)
-        self._save_policy()
-        return True
+        rule = TrustedCommandRule(command, context.conversation_id, context.asset_id, context.profile)
+        with self._lock:
+            if rule in self._policy.trusted_commands:
+                return False
+            self._policy.trusted_commands.append(rule)
+            self._checker = ApprovalChecker(self._policy)
+            self._save_policy()
+            return True
+
+    def add_allow_prefix(self, prefix: str) -> bool:
+        """Legacy global trust cannot be represented safely and is intentionally rejected."""
+        _ = prefix
+        return False
 
     def get_policy_dict(self) -> dict[str, Any]:
-        return {"permissions": {"allow": self._policy.permissions.allow, "deny": self._policy.permissions.deny}}
+        return {"permissions": {"allow": [], "deny": self._policy.permissions.deny}}
 
     def update_policy_from_dict(self, data: dict[str, Any]) -> None:
         permissions_data = data.get("permissions") if isinstance(data, dict) else None
-        allow = permissions_data.get("allow", []) if isinstance(permissions_data, dict) else []
         deny = permissions_data.get("deny", []) if isinstance(permissions_data, dict) else []
-        self._policy = ApprovalPolicy(
-            permissions=ApprovalPermissions(
-                allow=[item.strip() for item in allow if isinstance(item, str) and item.strip()],
-                deny=[item.strip() for item in deny if isinstance(item, str) and item.strip()],
+        with self._lock:
+            self._policy = ApprovalPolicy(
+                permissions=ApprovalPermissions(
+                    allow=[],
+                    deny=[item.strip() for item in deny if isinstance(item, str) and item.strip()],
+                ),
+                trusted_commands=self._policy.trusted_commands,
             )
-        )
-        self._checker = ApprovalChecker(self._policy)
-        self._save_policy()
+            self._checker = ApprovalChecker(self._policy)
+            self._save_policy()
 
 
 _approval_service: ApprovalService | None = None

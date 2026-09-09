@@ -1,12 +1,15 @@
 from collections.abc import Generator
+from pathlib import Path
 
 from sqlalchemy import event, inspect, text
 from sqlmodel import Session, SQLModel, create_engine
 
 from app.shared.config import APP_DIR, DB_PATH
+from app.db.migrations import CURRENT_SCHEMA_VERSION, create_pre_migration_backup, existing_schema_version, record_schema_version
+from app.utils.secure_storage import ensure_private_directory, ensure_private_file
 
 
-APP_DIR.mkdir(parents=True, exist_ok=True)
+ensure_private_directory(APP_DIR)
 engine = create_engine(
     f"sqlite:///{DB_PATH}",
     connect_args={"check_same_thread": False, "timeout": 30},
@@ -26,12 +29,24 @@ def _configure_sqlite_connection(dbapi_connection, _connection_record) -> None:
         cursor.close()
 
 def init_db() -> None:
+    current_version, has_existing_schema = existing_schema_version()
+    if current_version > CURRENT_SCHEMA_VERSION:
+        raise RuntimeError(
+            f"Database schema v{current_version} is newer than supported v{CURRENT_SCHEMA_VERSION}"
+        )
+    if has_existing_schema and current_version < CURRENT_SCHEMA_VERSION:
+        create_pre_migration_backup(current_version, CURRENT_SCHEMA_VERSION)
     SQLModel.metadata.create_all(engine)
     _ensure_asset_columns()
+    _ensure_proxy_columns()
     _ensure_model_usage_columns()
     _ensure_scheduler_columns()
     _ensure_runtime_columns()
     _ensure_jumpserver_columns()
+    _ensure_audit_columns()
+    record_schema_version(engine, CURRENT_SCHEMA_VERSION)
+    for sqlite_path in (DB_PATH, Path(f"{DB_PATH}-wal"), Path(f"{DB_PATH}-shm")):
+        ensure_private_file(sqlite_path)
 
 
 def _ensure_asset_columns() -> None:
@@ -42,6 +57,22 @@ def _ensure_asset_columns() -> None:
     with engine.begin() as connection:
         if "proxy_asset_id" not in existing:
             connection.execute(text("ALTER TABLE assets ADD COLUMN proxy_asset_id INTEGER"))
+
+
+def _ensure_proxy_columns() -> None:
+    with engine.begin() as connection:
+        for table in ("assets", "asset_groups"):
+            existing = {column[1] for column in connection.exec_driver_sql(f"PRAGMA table_info({table})")}
+            definitions = {
+                "proxy_type": "VARCHAR NOT NULL DEFAULT 'inherit'" if table == "assets" else "VARCHAR NOT NULL DEFAULT 'none'",
+                "proxy_host": "VARCHAR NOT NULL DEFAULT ''",
+                "proxy_port": "INTEGER NOT NULL DEFAULT 0",
+                "proxy_username": "VARCHAR NOT NULL DEFAULT ''",
+                "proxy_password_encrypted": "VARCHAR NOT NULL DEFAULT ''",
+            }
+            for name, definition in definitions.items():
+                if name not in existing:
+                    connection.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {definition}"))
 
 
 def _ensure_model_usage_columns() -> None:
@@ -138,6 +169,18 @@ def _ensure_jumpserver_columns() -> None:
                 "ALTER TABLE jumpserver_instances "
                 "ADD COLUMN auth_mode VARCHAR NOT NULL DEFAULT 'access_key'"
             ))
+
+
+def _ensure_audit_columns() -> None:
+    inspector = inspect(engine)
+    if "audit_logs" not in inspector.get_table_names():
+        return
+    existing = {column["name"] for column in inspector.get_columns("audit_logs")}
+    with engine.begin() as connection:
+        if "previous_hash" not in existing:
+            connection.execute(text("ALTER TABLE audit_logs ADD COLUMN previous_hash VARCHAR NOT NULL DEFAULT ''"))
+        if "entry_hash" not in existing:
+            connection.execute(text("ALTER TABLE audit_logs ADD COLUMN entry_hash VARCHAR NOT NULL DEFAULT ''"))
 
 
 def get_session() -> Generator[Session, None, None]:

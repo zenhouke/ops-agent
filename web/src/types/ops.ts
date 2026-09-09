@@ -6,6 +6,10 @@ export type AssetGroup = {
   description: string
   createdAt: string
   updatedAt: string
+  proxyType: 'none' | 'http_connect' | 'socks5'
+  proxyHost: string
+  proxyPort: number
+  proxyUsername: string
 }
 
 export type Asset = {
@@ -13,6 +17,10 @@ export type Asset = {
   groupId: number | null
   sshKeyId: number | null
   proxyAssetId: number | null
+  proxyType: 'inherit' | 'none' | 'http_connect' | 'socks5'
+  proxyHost: string
+  proxyPort: number
+  proxyUsername: string
   name: string
   assetType: AssetType
   host: string
@@ -410,6 +418,7 @@ export type AgentMessage = {
     serverId?: string
     command?: string
     approvalToken?: string | null
+    generationState?: 'generating' | 'not_submitted'
     executionProfile?: string
     deviceVendor?: string
     args: Record<string, any>

@@ -5,6 +5,7 @@
 node_modules
 web/node_modules
 web/dist
+web/bin
 web/src-tauri/target
 build
 dist

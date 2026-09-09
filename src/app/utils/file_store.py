@@ -4,9 +4,11 @@ import tempfile
 from pathlib import Path
 from typing import Any
 
+from app.utils.secure_storage import ensure_private_directory, ensure_private_file
+
 
 def atomic_write_text(path: Path, text: str) -> None:
-    path.parent.mkdir(parents=True, exist_ok=True)
+    ensure_private_directory(path.parent)
     fd, tmp_name = tempfile.mkstemp(
         prefix=f"{path.stem}.",
         suffix=".tmp",
@@ -17,6 +19,7 @@ def atomic_write_text(path: Path, text: str) -> None:
         with os.fdopen(fd, "w", encoding="utf-8") as handle:
             handle.write(text)
         os.replace(tmp_name, path)
+        ensure_private_file(path)
     except Exception:
         try:
             os.unlink(tmp_name)

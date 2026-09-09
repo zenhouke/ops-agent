@@ -1,0 +1,84 @@
+name: ops-agent-production
+
+services:
+  backend:
+    image: ops-agent-production-backend:${OPS_AGENT_IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: .docker/prod/backend.Dockerfile
+    restart: unless-stopped
+    environment:
+      OPS_AGENT_ENV: production
+      OPS_AGENT_SECRET_KEY: ${OPS_AGENT_SECRET_KEY:?required}
+      OPS_AGENT_API_TOKEN: ${OPS_AGENT_API_TOKEN:?required}
+      OPS_AGENT_AUTH_DISABLED: "false"
+      OPS_AGENT_ALLOWED_HOSTS: ${OPS_AGENT_ALLOWED_HOSTS:?required}
+      OPS_AGENT_CORS_ORIGINS: ${OPS_AGENT_CORS_ORIGINS:-}
+      OPS_AGENT_KNOWN_HOSTS_FILE: /run/ssh/known_hosts
+      OPS_AGENT_MAX_REQUEST_BYTES: ${OPS_AGENT_MAX_REQUEST_BYTES:-2097152}
+      OPS_AGENT_MAX_CONCURRENCY: ${OPS_AGENT_MAX_CONCURRENCY:-64}
+    volumes:
+      - ops_agent_data:/data
+    secrets:
+      - source: ssh_known_hosts
+        target: /run/ssh/known_hosts
+    expose:
+      - "8000"
+    healthcheck:
+      test: ["CMD", "curl", "--fail", "--silent", "-H", "Host: backend", "http://127.0.0.1:8000/ready"]
+      interval: 10s
+      timeout: 3s
+      retries: 12
+      start_period: 30s
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=64m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+
+  frontend:
+    image: ops-agent-production-frontend:${OPS_AGENT_IMAGE_TAG:-latest}
+    build:
+      context: .
+      dockerfile: .docker/prod/frontend.Dockerfile
+    restart: unless-stopped
+    user: "0:0"
+    entrypoint: ["/usr/local/bin/ops-agent-nginx-entrypoint"]
+    command: ["nginx", "-g", "daemon off;"]
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "0.0.0.0:${OPS_AGENT_HTTPS_PORT:-38443}:8443"
+    secrets:
+      - source: tls_certificate
+        target: /run/tls/tls.crt
+      - source: tls_private_key
+        target: /run/tls/tls.key
+    read_only: true
+    tmpfs:
+      - /tmp:rw,noexec,nosuid,size=32m
+      - /var/cache/nginx:rw,noexec,nosuid,size=32m
+      - /var/run:rw,noexec,nosuid,size=8m
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    cap_add:
+      - CHOWN
+      - SETGID
+      - SETUID
+
+volumes:
+  ops_agent_data:
+    name: ${OPS_AGENT_DATA_VOLUME:-ops_agent_production_data}
+
+secrets:
+  ssh_known_hosts:
+    file: ${OPS_AGENT_KNOWN_HOSTS_FILE:?required}
+  tls_certificate:
+    file: ${OPS_AGENT_TLS_CERT_FILE:?required}
+  tls_private_key:
+    file: ${OPS_AGENT_TLS_KEY_FILE:?required}

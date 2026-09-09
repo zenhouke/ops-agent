@@ -90,19 +90,6 @@ export function PermissionsSection({ permissionsForm, saving, onFormChange, onSa
 
       <form className="bg-ops-deep/40 p-6 rounded-2xl border border-ops-border/20 flex flex-col gap-8" onSubmit={onSave}>
         <PrefixEditor
-          title={t('settings.allowCommands')}
-          description={t('settings.allowCommandsDescription')}
-          placeholder={t('settings.allowCommandPlaceholder')}
-          tone="allow"
-          values={permissionsForm.allow}
-          inputValue={permissionsForm.allowInput}
-          saving={saving}
-          onInputChange={(value) => onFormChange({ ...permissionsForm, allowInput: value })}
-          onAdd={() => onFormChange(addPrefix(permissionsForm, 'allow'))}
-          onRemove={(value) => onFormChange(removePrefix(permissionsForm, 'allow', value))}
-        />
-
-        <PrefixEditor
           title={t('settings.deniedCommands')}
           description={t('settings.deniedCommandsDescription')}
           placeholder={t('settings.deniedCommandPlaceholder')}
