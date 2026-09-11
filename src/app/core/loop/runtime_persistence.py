@@ -4,7 +4,7 @@ import uuid
 from typing import Any
 
 from app.core.loop.runtime_models import RuntimeState
-from app.services.runtime_store import RuntimeStore
+from app.core.loop.runtime_store import RuntimeStore
 
 
 class RuntimePersistenceMixin:

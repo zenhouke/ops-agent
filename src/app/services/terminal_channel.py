@@ -1,0 +1,13 @@
+"""Transport boundary used by terminal streaming; HTTP adapters live in api/."""
+from typing import Any, Protocol
+
+
+class TerminalChannelClosed(Exception):
+    pass
+
+
+class TerminalChannel(Protocol):
+    async def accept(self, *, subprotocol: str | None = None) -> None: ...
+    async def close(self, *, code: int) -> None: ...
+    async def receive_json(self) -> dict[str, Any]: ...
+    async def send_json(self, data: dict[str, Any]) -> None: ...

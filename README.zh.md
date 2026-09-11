@@ -33,7 +33,7 @@
 - 终端工作台：支持本地 PTY、SSH、串口和网络设备 CLI。
 - AI 运维助手：结合资产、终端输出和会话上下文进行规划与排障。
 - 命令审批：命令执行前进入人工审批流程，审批结果、命令和输出可追踪。
-- 多模型配置：支持 Anthropic、OpenAI Compatible、OpenAI Responses、Google Gemini、Azure OpenAI 及常见兼容供应商。
+- 统一通过 CC Switch 的 Messages 协议调用 AI；Agent 与辅助生成共享当前默认模型。
 - MCP 与技能包：配置 MCP Server，加载技能包扩展助手能力。
 - Web 与桌面端：支持浏览器运行，也可通过 Tauri 打包桌面应用。
 
@@ -50,7 +50,7 @@
 | 层级 | 技术 |
 | --- | --- |
 | 后端 | Python 3.13+、FastAPI、SQLModel、SQLite、Uvicorn |
-| AI / 工具 | Anthropic SDK、OpenAI SDK、Google GenAI、MCP、LangGraph、Netmiko、Paramiko |
+| AI / 工具 | Anthropic SDK（CC Switch Messages）、MCP、LangGraph、Netmiko、Paramiko |
 | 前端 | React 18、TypeScript、Vite、Tailwind CSS、xterm.js |
 | 桌面端 | Tauri 2、Rust |
 | 包管理 | pip、pnpm |
@@ -103,13 +103,13 @@ JumpServer 实例在“设置 → JumpServer”中配置，同时支持 REST Acc
 | `OPS_AGENT_API_TOKEN` | `OPS_AGENT_SECRET_KEY` | Web/API 访问令牌；非本机部署应单独设置 |
 | `OPS_AGENT_AUTH_DISABLED` | `false` | 仅允许可信的本机开发关闭认证；生产环境和 Tauri 均保持认证开启 |
 | `OPS_AGENT_LEGACY_SECRET_KEY` | 无 | 仅在迁移旧版 v1 凭据时临时设置，迁移完成后删除 |
-| `OPS_AGENT_PROVIDER` | `openai_compatible` | 默认模型提供商 |
-| `OPS_AGENT_MODEL` | 随提供商默认值 | 默认模型名称 |
-| `OPS_AGENT_BASE_URL` | 随提供商默认值 | 默认模型 Base URL |
-| `OPS_AGENT_API_KEY` | `demo-key` | 默认模型 API Key |
-| `OPS_AGENT_TIMEOUT_SECONDS` | `30` | 模型请求超时时间 |
+| `OPS_AGENT_PROVIDER` | `anthropic` | CC Switch 通信协议 |
+| `OPS_AGENT_MODEL` | `gpt-5.6-sol` | 无默认记录时的模型名称 |
+| `OPS_AGENT_BASE_URL` | CC Switch 本地路由 | 无默认记录时的模型 Base URL |
+| `OPS_AGENT_API_KEY` | `cc-switch-local` | 默认模型 API Key |
+| `OPS_AGENT_TIMEOUT_SECONDS` | `180` | 模型请求超时时间 |
 | `OPS_AGENT_TEMPERATURE` | `0.2` | 模型采样温度 |
-| `OPS_AGENT_MAX_TOKENS` | `2560` | 模型最大输出 token |
+| `OPS_AGENT_MAX_TOKENS` | `4096` | 模型最大输出 token |
 | `OPS_AGENT_PROMPT_CACHE_ENABLED` | `true` | 是否启用 prompt cache |
 | `OPS_AGENT_PROMPT_CACHE_TTL` | `ephemeral` | prompt cache TTL |
 | `OPS_AGENT_PWSH_PATH` | 自动探测 | Windows PowerShell 路径覆盖 |

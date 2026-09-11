@@ -8,6 +8,7 @@ from app.db.repositories.models import create_model_config, delete_model_config,
 from app.db.session import get_session
 from app.services.model_service import ModelService
 from app.shared.enums import ModelProvider
+from app.core.llm.cc_switch import require_cc_switch
 from app.shared.schemas import ModelConfig
 
 router = APIRouter()
@@ -111,9 +112,14 @@ def delete_model_config_record(config_id: int, session: Session = Depends(get_se
 
 @router.post("/api/model-configs/{config_id}/default")
 def set_default_model_config_record(config_id: int, session: Session = Depends(get_session)) -> ModelConfigView:
-    record = set_default_model_config(session, config_id)
+    record = get_model_config(session, config_id)
     if record is None:
         raise HTTPException(status_code=404, detail="Model config not found")
+    try:
+        require_cc_switch(ModelProvider(record.provider))
+    except ValueError as error:
+        raise HTTPException(status_code=422, detail=str(error)) from error
+    record = set_default_model_config(session, config_id)
     return to_model_config_view(ModelService(), record)
 
 

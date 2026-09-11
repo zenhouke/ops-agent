@@ -7,7 +7,7 @@ from typing import Any, cast
 
 from sqlmodel import Session
 
-from app.core.connectors.server import connector_factory
+from app.services.connector_factory import connector_factory
 from app.db.models import Asset, NetworkTopologyLink, NetworkTopologyNode, NetworkTopologySnapshot
 from app.db.repositories.assets import get_asset
 from app.db.repositories.network_topology import get_topology, list_topology_snapshots, save_topology

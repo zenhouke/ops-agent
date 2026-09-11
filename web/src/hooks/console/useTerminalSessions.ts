@@ -5,7 +5,7 @@ import {
   reconnectTerminalSession,
 } from '../../api'
 import type { Asset } from '../../types/ops'
-import { stripAnsi } from '../../components/assistant/conversation/utils'
+import { stripAnsi } from '../../utils/terminalText'
 import {
   defaultLocalTerminalAsset,
   LOCAL_TERMINAL_ASSET_ID,

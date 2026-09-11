@@ -9,7 +9,7 @@ import threading
 from typing import Any, Awaitable, Callable, TypeVar, cast
 
 import anyio
-from starlette.websockets import WebSocketDisconnect
+from app.services.terminal_channel import TerminalChannel, TerminalChannelClosed
 
 from app.core.connectors.context_bridge import build_terminal_context
 from app.core.connectors.session_manager import TerminalSessionManager
@@ -108,34 +108,33 @@ class TerminalService:
             self._command_event_sequences[terminal_id] = 0
         return {"terminal_id": terminal_id, "channel": "terminal connected", "error": ""}
 
-    async def stream_session(self, terminal_id: str, websocket, *, subprotocol: str | None = None) -> None:
+    async def stream_session(self, terminal_id: str, channel: TerminalChannel, *, subprotocol: str | None = None) -> None:
         self._expire_detached_sessions()
         runtime = self._sessions.get(terminal_id)
         if runtime is None:
-            await websocket.close(code=1008)
+            await channel.close(code=1008)
             return
-        await websocket.accept(subprotocol=subprotocol)
+        await channel.accept(subprotocol=subprotocol)
         connection_id = str(uuid.uuid4())
         runtime.connection_ids.add(connection_id)
         runtime.state = "attached"
         runtime.last_detached_at = None
 
-        buffered_output = self.read_buffered_output(terminal_id)
-        if buffered_output:
-            await websocket.send_json({"type": "output", "data": buffered_output})
-
         closed = anyio.Event()
         send_lock = anyio.Lock()
         try:
+            buffered_output = self.read_buffered_output(terminal_id)
+            if buffered_output:
+                await channel.send_json({"type": "output", "data": buffered_output})
             async with anyio.create_task_group() as task_group:
-                task_group.start_soon(self._receive_websocket_input, terminal_id, runtime, websocket, closed, send_lock)
-                task_group.start_soon(self._send_terminal_output, terminal_id, runtime, websocket, closed, send_lock)
-        except (WebSocketDisconnect, RuntimeError):
+                task_group.start_soon(self._receive_channel_input, terminal_id, runtime, channel, closed, send_lock)
+                task_group.start_soon(self._send_terminal_output, terminal_id, runtime, channel, closed, send_lock)
+        except (TerminalChannelClosed, RuntimeError):
             pass
         except Exception as exc:
             logger.exception("TaskGroup failed for terminal_id=%s: %s", terminal_id, str(exc))
             try:
-                await websocket.send_json({"type": "error", "message": f"Terminal session error: {str(exc)}"})
+                await channel.send_json({"type": "error", "message": f"Terminal session error: {str(exc)}"})
             except Exception:
                 pass
         finally:
@@ -144,10 +143,10 @@ class TerminalService:
                 runtime.state = "detached"
                 runtime.last_detached_at = datetime.now(UTC)
 
-    async def _receive_websocket_input(self, terminal_id: str, runtime: TerminalSessionRuntime, websocket, closed, send_lock) -> None:
+    async def _receive_channel_input(self, terminal_id: str, runtime: TerminalSessionRuntime, channel: TerminalChannel, closed, send_lock) -> None:
         try:
             while True:
-                message = await websocket.receive_json()
+                message = await channel.receive_json()
                 message_type = message.get("type")
                 if message_type == "input":
                     await run_sync(runtime.session_manager.write, message.get("data", ""))
@@ -158,23 +157,23 @@ class TerminalService:
                     except (TypeError, ValueError):
                         try:
                             async with send_lock:
-                                await websocket.send_json({"type": "error", "message": "invalid terminal size"})
-                        except (WebSocketDisconnect, RuntimeError):
+                                await channel.send_json({"type": "error", "message": "invalid terminal size"})
+                        except (TerminalChannelClosed, RuntimeError):
                             pass
                         continue
                     await run_sync(runtime.session_manager.resize, cols, rows)
                 elif message_type == "ping":
                     try:
                         async with send_lock:
-                            await websocket.send_json({"type": "pong"})
-                    except (WebSocketDisconnect, RuntimeError):
+                            await channel.send_json({"type": "pong"})
+                    except (TerminalChannelClosed, RuntimeError):
                         pass
-        except (WebSocketDisconnect, RuntimeError):
+        except (TerminalChannelClosed, RuntimeError):
             return
         finally:
             closed.set()
 
-    async def _send_terminal_output(self, terminal_id: str, runtime: TerminalSessionRuntime, websocket, closed, send_lock) -> None:
+    async def _send_terminal_output(self, terminal_id: str, runtime: TerminalSessionRuntime, channel: TerminalChannel, closed, send_lock) -> None:
         while True:
             output = await run_sync(runtime.session_manager.read)
             if output:
@@ -182,8 +181,8 @@ class TerminalService:
                 try:
                     if filtered_output:
                         async with send_lock:
-                            await websocket.send_json({"type": "output", "data": filtered_output})
-                except (WebSocketDisconnect, RuntimeError):
+                            await channel.send_json({"type": "output", "data": filtered_output})
+                except (TerminalChannelClosed, RuntimeError):
                     closed.set()
                     return
             if closed.is_set():

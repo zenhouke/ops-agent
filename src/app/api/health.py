@@ -5,7 +5,7 @@ from app.db.models import Credential, ModelConfigRecord, SSHKey
 from app.db.session import engine
 from app.services.credential_service import CredentialService
 from app.services.model_service import ModelService
-from app.utils.credential_factory import build_credential_service
+from app.services.credential_factory import build_credential_service
 from app.build_metadata import BUILD_SHA, VERSION
 
 router = APIRouter()

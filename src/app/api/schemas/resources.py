@@ -110,7 +110,7 @@ class ModelConfigView(BaseModel):
 
 class ModelConfigCreate(BaseModel):
     name: str
-    provider: str
+    provider: Literal["anthropic"]
     base_url: str
     api_key: SecretStr
     model_name: str = Field(min_length=1)
@@ -125,7 +125,7 @@ class ModelConfigCreate(BaseModel):
 
 class ModelConfigUpdate(BaseModel):
     name: str | None = None
-    provider: str | None = None
+    provider: Literal["anthropic"] | None = None
     base_url: str | None = None
     api_key: SecretStr | None = None
     model_name: str | None = Field(default=None, min_length=1)
@@ -139,7 +139,7 @@ class ModelConfigUpdate(BaseModel):
 
 
 class ModelConnectionTestRequest(BaseModel):
-    provider: str
+    provider: Literal["anthropic"]
     base_url: str
     api_key: SecretStr
     model_name: str = Field(min_length=1)
@@ -157,7 +157,7 @@ class ModelConnectionTestResponse(BaseModel):
 
 
 class ModelDiscoveryRequest(BaseModel):
-    provider: str
+    provider: Literal["anthropic"]
     base_url: str
     api_key: SecretStr
     timeout_seconds: int = 30

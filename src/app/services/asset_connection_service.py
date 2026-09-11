@@ -5,7 +5,7 @@ from types import SimpleNamespace
 from sqlmodel import Session
 
 from app.core.connectors.network import NetworkConnector
-from app.core.connectors.server import connector_factory
+from app.services.connector_factory import connector_factory
 from app.services.asset_service import get_asset_record
 
 

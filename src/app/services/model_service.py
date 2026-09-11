@@ -7,13 +7,15 @@ from typing import Any, Literal, cast
 from pydantic import SecretStr
 from sqlmodel import Session
 
-from app.core.llm.provider_presets import get_default_base_url, get_default_model, is_openai_compatible_provider
+from app.core.prompts.auxiliary import CONVERSATION_TITLE, build_knowledge_extraction_prompt
+from app.core.llm.cc_switch import DEFAULT_BASE_URL, DEFAULT_MODEL, LOCAL_API_KEY, PROVIDER, require_cc_switch
 from app.core.llm.types import LLMCompletionRequest, LLMMessage
 from app.core.llm.factory import build_llm_provider
 
 from app.db.models import ModelConfigRecord
-from app.db.repositories.models import list_model_names_by_provider
-from app.utils.credential_factory import build_credential_service
+from app.db.repositories.models import get_default_model_config, list_model_names_by_provider
+from app.db.session import engine
+from app.services.credential_factory import build_credential_service
 from app.services.credential_service import CredentialService
 from app.services.prompt_settings_service import get_prompt_settings_service
 from app.shared import config as shared_config
@@ -27,6 +29,7 @@ class ModelService:
     def __init__(self, provider_client=None, settings_path: Path | None = None):
         self._provider_client = provider_client
         self._settings_path = settings_path or shared_config.SETTINGS_PATH
+        self._use_default_record = settings_path is None
 
     
     def validate(self, config: ModelConfig) -> bool:
@@ -62,9 +65,7 @@ class ModelService:
                 messages=[
                     LLMMessage(
                         role="system",
-                        content=(
-                            "You are a conversation title generator. Based on the user's first task message, generate a short Chinese title (≤12 characters, no punctuation)."
-                        ),
+                        content=CONVERSATION_TITLE,
                     ),
                     LLMMessage(role="user", content=prompt.strip()),
                 ],
@@ -93,20 +94,7 @@ class ModelService:
             messages=[
                 LLMMessage(
                     role="system",
-                    content=(
-                        f"{extraction_prompt}\n\n"
-                        "Immutable extraction contract: Treat actual tool and "
-                        "command events as execution evidence; never preserve a claimed execution that has no matching tool result. "
-                        "Do not invent details to fill fields. When the conversation contains little reusable knowledge, prefer "
-                        "concise empty fields or arrays over low-value filler. Include only sources that directly support retained facts. "
-                        "Return strict JSON only: one parseable JSON object and no markdown, comments, or extra text. "
-                        "The object must contain these fields: title, summary, problem, diagnosis, "
-                        "resolution, commands, assets, tags, sources, redactionWarnings. "
-                        "commands must be an array of objects with command, purpose, outcome. "
-                        "assets must be an array of objects with assetId and label. "
-                        "sources must be an array of objects with conversationId, eventId, eventIndex, "
-                        "eventType, quote, relevance. Use empty strings or empty arrays when unknown."
-                    ),
+                    content=build_knowledge_extraction_prompt(extraction_prompt),
                 ),
                 LLMMessage(role="user", content=source_document.strip()),
             ],
@@ -118,58 +106,9 @@ class ModelService:
         return (response.text or "").strip()
 
     def generate_embedding(self, text: str) -> list[float]:
-        config = self.load_settings()
-        if config.provider is ModelProvider.GOOGLE_GEMINI:
-            import importlib
-            genai = importlib.import_module("google.genai")
-            options = config.provider_options or {}
-            client_kwargs: dict[str, Any] = {"api_key": config.api_key.get_secret_value()}
-            if options.get("vertexai") is True:
-                client_kwargs = {
-                    "vertexai": True,
-                    "project": options.get("project"),
-                    "location": options.get("location"),
-                }
-            elif config.base_url:
-                client_kwargs["http_options"] = {"base_url": config.base_url}
-            client = genai.Client(**client_kwargs)
-            
-            # Default embedding model for Gemini
-            model = os.environ.get("OPS_AGENT_EMBEDDING_MODEL") or "text-embedding-004"
-            response = client.models.embed_content(
-                model=model,
-                contents=text.strip(),
-            )
-            
-            if hasattr(response, "embeddings") and response.embeddings:
-                return list(response.embeddings[0].values)
-            elif hasattr(response, "embedding") and response.embedding:
-                return list(response.embedding.values)
-            raise ValueError("Failed to retrieve embedding values from Gemini response")
-
-        elif config.provider is ModelProvider.ANTHROPIC:
-            raise ValueError("Anthropic provider does not support native embeddings. Please configure an OpenAI-compatible or Google Gemini provider.")
-
-        else:
-            from openai import OpenAI
-            client = OpenAI(
-                api_key=config.api_key.get_secret_value(),
-                base_url=config.base_url,
-                timeout=config.timeout_seconds,
-            )
-            model = os.environ.get("OPS_AGENT_EMBEDDING_MODEL")
-            if not model:
-                if "openai" in config.provider.value or "responses" in config.provider.value:
-                    model = "text-embedding-3-small"
-                else:
-                    # Generic default for compatible endpoints (e.g. Ollama, DeepSeek)
-                    model = "text-embedding-3-small"
-            
-            response = client.embeddings.create(
-                input=[text.strip()],
-                model=model,
-            )
-            return response.data[0].embedding
+        # The configured Messages route has no embedding endpoint. Retrieval uses
+        # its existing lexical fallback instead of contacting another provider.
+        raise ValueError("CC Switch Messages does not expose embeddings; use keyword retrieval.")
 
     def _fallback_conversation_title(self, prompt: str) -> str:
         text = prompt.strip()
@@ -180,20 +119,33 @@ class ModelService:
         return (text or "新会话")[:12]
 
     def build_default_config(self) -> ModelConfig:
-        provider = ModelProvider(os.environ.get("OPS_AGENT_PROVIDER", ModelProvider.OPENAI_COMPATIBLE.value))
+        provider = ModelProvider(os.environ.get("OPS_AGENT_PROVIDER", PROVIDER.value))
+        require_cc_switch(provider)
         return ModelConfig(
             provider=provider,
-            model_name=os.environ.get("OPS_AGENT_MODEL", get_default_model(provider)),
-            base_url=os.environ.get("OPS_AGENT_BASE_URL", get_default_base_url(provider)),
-            api_key=SecretStr(os.environ.get("OPS_AGENT_API_KEY", "demo-key")),
-            timeout_seconds=int(os.environ.get("OPS_AGENT_TIMEOUT_SECONDS", "30")),
+            model_name=os.environ.get("OPS_AGENT_MODEL", DEFAULT_MODEL),
+            base_url=os.environ.get("OPS_AGENT_BASE_URL", DEFAULT_BASE_URL),
+            api_key=SecretStr(os.environ.get("OPS_AGENT_API_KEY", LOCAL_API_KEY)),
+            timeout_seconds=int(os.environ.get("OPS_AGENT_TIMEOUT_SECONDS", "180")),
             temperature=float(os.environ.get("OPS_AGENT_TEMPERATURE", "0.2")),
-            max_tokens=int(os.environ.get("OPS_AGENT_MAX_TOKENS", "2560")),
+            max_tokens=int(os.environ.get("OPS_AGENT_MAX_TOKENS", "4096")),
             prompt_cache_enabled=os.environ.get("OPS_AGENT_PROMPT_CACHE_ENABLED", "true").lower() != "false",
             prompt_cache_ttl=self._normalize_prompt_cache_ttl(os.environ.get("OPS_AGENT_PROMPT_CACHE_TTL", "ephemeral")),
         )
 
     def load_settings(self) -> ModelConfig:
+        # Agent runs, titles and knowledge extraction share the selected default.
+        # Explicit settings paths remain useful for isolated configuration tools.
+        if self._use_default_record:
+            with Session(engine) as session:
+                record = get_default_model_config(session)
+                if record is not None:
+                    config = self.from_record(record)
+                    require_cc_switch(config.provider)
+                    return config
+        return self._load_file_settings()
+
+    def _load_file_settings(self) -> ModelConfig:
         default_config = self.build_default_config()
         if not self._settings_path.exists():
             return default_config
@@ -230,9 +182,11 @@ class ModelService:
         if updates:
             config = config.model_copy(update=updates)
             
+        require_cc_switch(config.provider)
         return config
 
     def save_settings(self, config: ModelConfig) -> ModelConfig:
+        require_cc_switch(config.provider)
         self._settings_path.parent.mkdir(parents=True, exist_ok=True)
         self._settings_path.write_text(
             json.dumps(
@@ -260,70 +214,9 @@ class ModelService:
         return list_model_names_by_provider(session, provider.value)
 
     def discover_models(self, config: ModelConfig) -> list[str]:
-        if config.provider is ModelProvider.ANTHROPIC:
-            return self._discover_anthropic_models(config)
-        if config.provider is ModelProvider.GOOGLE_GEMINI:
-            return self._discover_google_gemini_models(config)
-        if config.provider is ModelProvider.OPENAI_RESPONSES or is_openai_compatible_provider(config.provider):
-            return self._discover_openai_style_models(config)
-        raise ValueError(f"Unsupported model provider: {config.provider.value}")
-
-    def _discover_openai_style_models(self, config: ModelConfig) -> list[str]:
-        from openai import OpenAI
-
-        client = OpenAI(api_key=config.api_key.get_secret_value(), base_url=config.base_url, timeout=config.timeout_seconds)
-        try:
-            response = client.models.list()
-        except Exception as error:
-            return self._fallback_discovered_models(config, error)
-        models = [model_id for item in getattr(response, "data", []) or [] if isinstance(model_id := getattr(item, "id", None), str) and model_id]
-        return sorted(set(models)) or [get_default_model(config.provider)]
-
-    def _discover_anthropic_models(self, config: ModelConfig) -> list[str]:
-        from anthropic import Anthropic
-
-        client = Anthropic(api_key=config.api_key.get_secret_value(), base_url=config.base_url, timeout=config.timeout_seconds)
-        try:
-            response = client.models.list()
-        except Exception as error:
-            return self._fallback_discovered_models(config, error)
-        return self._extract_model_ids(response) or [get_default_model(config.provider)]
-
-    def _discover_google_gemini_models(self, config: ModelConfig) -> list[str]:
-        import importlib
-
-        genai = importlib.import_module("google.genai")
-        options = config.provider_options or {}
-        client_kwargs: dict[str, Any] = {"api_key": config.api_key.get_secret_value()}
-        if options.get("vertexai") is True:
-            client_kwargs = {
-                "vertexai": True,
-                "project": options.get("project"),
-                "location": options.get("location"),
-            }
-        elif config.base_url:
-            client_kwargs["http_options"] = {"base_url": config.base_url}
-        client = genai.Client(**client_kwargs)
-        try:
-            response = client.models.list()
-        except Exception as error:
-            return self._fallback_discovered_models(config, error)
-        return self._extract_model_ids(response) or [get_default_model(config.provider)]
-
-    def _fallback_discovered_models(self, config: ModelConfig, error: Exception) -> list[str]:
-        status_code = getattr(error, "status_code", None)
-        if status_code == 404 or "404" in str(error):
-            return [get_default_model(config.provider)]
-        raise error
-
-    def _extract_model_ids(self, response: Any) -> list[str]:
-        data = getattr(response, "data", response)
-        models: list[str] = []
-        for item in data or []:
-            model_id = getattr(item, "id", None) or getattr(item, "name", None)
-            if isinstance(model_id, str) and model_id:
-                models.append(model_id)
-        return sorted(set(models))
+        require_cc_switch(config.provider)
+        # CC Switch routes model IDs; a separate vendor /models query is invalid.
+        return [config.model_name or DEFAULT_MODEL]
 
     def encrypt_api_key(self, api_key: SecretStr) -> tuple[str, str]:
         credential_service = self._credential_service()

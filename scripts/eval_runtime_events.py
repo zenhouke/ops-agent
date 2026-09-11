@@ -2,6 +2,8 @@
 from __future__ import annotations
 
 import asyncio
+import ast
+import importlib.util
 import json
 import os
 import sqlite3
@@ -25,6 +27,8 @@ sys.path.insert(0, str(REPO_ROOT / "src"))
 from app.core.loop.message_manager import MessageManager
 from app.core.loop.loop_state import LoopContext, LoopState
 from app.core.loop.runtime_manager import LoopRuntimeManager
+from app.db.repositories.runtime import RuntimeStore
+from app.services.instance_service import get_instance_info
 from app.core.loop.runtime_models import RuntimeTerminalAuthorization
 from app.core.loop.state_machine import RuntimeStateTransitionError, transition_runtime_state
 from app.core.tool.execute_command import ExecuteCommandHandler
@@ -41,7 +45,7 @@ import app.api as api_module
 from app.api.middleware.security import RequestLimitMiddleware, SecurityHeadersMiddleware
 from app.services.approval_service import ApprovalService
 import app.services.credential_migration_service as credential_migration
-from app.services.runtime_store import interruption_recovery
+from app.db.repositories.runtime import interruption_recovery
 from app.shared.enums import ModelProvider
 from app.shared.schemas import ModelConfig
 
@@ -82,7 +86,7 @@ def scenario_event_window_gap_falls_back_to_durable_store() -> None:
             return 6, [event for event in durable_events if event["sequence"] > since]
 
     store = Store()
-    manager = LoopRuntimeManager(tools_factory=lambda _: [])
+    manager = LoopRuntimeManager(tools_factory=lambda _: [], runtime_store=RuntimeStore(instance_id=get_instance_info().instance_id))
     manager._runtime_store = store  # type: ignore[assignment]
     manager._by_runtime["eval-window"] = SimpleNamespace(
         runtime_id="eval-window",
@@ -106,7 +110,7 @@ def scenario_event_window_gap_falls_back_to_durable_store() -> None:
 
 
 def scenario_terminal_authorization_is_runtime_scoped() -> None:
-    manager = LoopRuntimeManager(tools_factory=lambda _: [])
+    manager = LoopRuntimeManager(tools_factory=lambda _: [], runtime_store=RuntimeStore(instance_id=get_instance_info().instance_id))
     now = datetime.now(UTC)
     authorization = RuntimeTerminalAuthorization(
         authorization_id="authorization-old",
@@ -174,7 +178,7 @@ def scenario_cancel_terminalizes_runtime_and_revokes_secrets() -> None:
         def append_event(self, snapshot, event, *, run_state):
             _ = snapshot, event, run_state
 
-    manager = LoopRuntimeManager(tools_factory=lambda _: [])
+    manager = LoopRuntimeManager(tools_factory=lambda _: [], runtime_store=RuntimeStore(instance_id=get_instance_info().instance_id))
     manager._runtime_store = Store()  # type: ignore[assignment]
     context = LoopContext(
         runtime_id="runtime-cancel",
@@ -562,6 +566,7 @@ def scenario_plaintext_model_key_migrates_to_encrypted_storage() -> None:
                 assert credential_migration.migrate_legacy_model_settings(session) is True
                 records = list(session.exec(select(ModelConfigRecord)).all())
                 assert len(records) == 1
+                assert records[0].is_default is False
                 assert records[0].encrypted_api_key != "legacy-key"
                 assert "legacy-key" not in records[0].encrypted_api_key
             persisted = json.loads(settings_path.read_text(encoding="utf-8"))
@@ -738,8 +743,193 @@ def scenario_tcp_proxy_handshakes_are_supported() -> None:
         socket.create_connection = original_create_connection
 
 
+
+def _module_imports(source: str, package: str) -> set[str]:
+    dependencies: set[str] = set()
+    for node in ast.walk(ast.parse(source)):
+        if isinstance(node, ast.Import):
+            dependencies.update(alias.name for alias in node.names)
+        elif isinstance(node, ast.ImportFrom):
+            target = "." * node.level + (node.module or "")
+            base = importlib.util.resolve_name(target, package) if node.level else target
+            dependencies.add(base)
+            dependencies.update(f"{base}.{alias.name}" for alias in node.names)
+        elif isinstance(node, ast.Call) and node.args and isinstance(node.args[0], ast.Constant):
+            name = node.func.id if isinstance(node.func, ast.Name) else (
+                node.func.attr if isinstance(node.func, ast.Attribute) else ""
+            )
+            if name in {"__import__", "import_module"} and isinstance(node.args[0].value, str):
+                target = node.args[0].value
+                dependencies.add(importlib.util.resolve_name(target, package) if target.startswith(".") else target)
+    return dependencies
+
+
+def scenario_module_dependency_boundaries() -> None:
+    assert "app.services.asset_service" in _module_imports(
+        "def lazy():\n from ...services import asset_service", "app.core.tool"
+    )
+    assert "app.db.models" in _module_imports('__import__("app.db.models")', "app.core")
+    forbidden = {
+        "core": ("app.api", "app.composition", "app.services", "app.db", "sqlmodel", "sqlalchemy", "fastapi", "starlette"),
+        "services": ("app.api", "app.composition", "fastapi", "starlette"),
+        "db": ("app.api", "app.composition", "app.services", "fastapi", "starlette"),
+        "shared": ("app.api", "app.composition", "app.services", "app.db", "app.core"),
+        "utils": ("app.api", "app.composition", "app.services", "app.db", "app.core"),
+    }
+    violations: list[str] = []
+    root = REPO_ROOT / "src" / "app"
+    for layer, denied in forbidden.items():
+        for path in sorted((root / layer).rglob("*.py")):
+            package = ".".join(path.relative_to(REPO_ROOT / "src").parts[:-1])
+            for dependency in sorted(_module_imports(path.read_text(encoding="utf-8"), package)):
+                if any(dependency == prefix or dependency.startswith(prefix + ".") for prefix in denied):
+                    violations.append(f"{path.relative_to(REPO_ROOT)} -> {dependency}")
+    for layer, denied in {
+        "prompts": ("app.core.loop", "app.core.tool", "app.core.connectors", "app.core.llm"),
+        "connectors": ("app.core.loop", "app.core.tool", "app.core.llm", "app.core.prompts"),
+        "llm": ("app.core.loop", "app.core.prompts", "app.core.connectors"),
+    }.items():
+        for path in sorted((root / "core" / layer).rglob("*.py")):
+            package = ".".join(path.relative_to(REPO_ROOT / "src").parts[:-1])
+            for dependency in sorted(_module_imports(path.read_text(encoding="utf-8"), package)):
+                if any(dependency == prefix or dependency.startswith(prefix + ".") for prefix in denied):
+                    violations.append(f"{path.relative_to(REPO_ROOT)} -> {dependency}")
+    assert not violations, "Module boundary violations:\n" + "\n".join(violations)
+
+
+def scenario_injected_command_policy_preserves_approval_and_audit() -> None:
+    from unittest.mock import Mock
+
+    terminal = Mock()
+    policy = Mock()
+    handler = ExecuteCommandHandler(terminal, policy=policy)
+    policy.check_command.return_value = ("allow", "trusted")
+    assert handler.needs_approval({"authorization_id": "auth", "command": "printf ok"})[0] == "ask"
+    policy.check_command.return_value = ("deny", "blocked")
+    assert handler.needs_approval({"authorization_id": "auth", "command": "printf ok"}) == ("deny", "blocked")
+    terminal.resolve_terminal_authorization.return_value = SimpleNamespace(
+        authorization_id="auth", asset_id=1, asset_name="local", terminal_id="term",
+        asset_type="linux", shell_type="bash", execution_profile="posix-shell", device_vendor=None,
+    )
+    state = SimpleNamespace(
+        context=SimpleNamespace(runtime_id="test", conversation_id="test", asset_id=1,
+            conversation_primary_asset_id=1, conversation_scope_mode="single", allowed_asset_ids=[1]),
+        get_step=lambda _: SimpleNamespace(step_id="step", working_directory=None),
+    )
+    policy.record_submission.side_effect = RuntimeError("audit unavailable")
+    execution = handler.execute(state=state, step_id="step", args={"authorization_id": "auth", "command": "printf ok"})
+    try:
+        next(execution)
+    except StopIteration as result:
+        assert result.value == (False, "Command execution exception: audit unavailable")
+    else:
+        raise AssertionError("Expected the command to stop before execution")
+    terminal.get_session.return_value.start_execution.assert_not_called()
+    terminal.release_terminal_slot.assert_called_once_with("test", "term")
+
+
+def scenario_terminal_channel_disconnect_detaches_session() -> None:
+    from unittest.mock import Mock
+    from app.services.terminal_service import TerminalService, TerminalSessionRuntime
+    from app.services.terminal_channel import TerminalChannelClosed
+    from app.api.terminal_channel import WebSocketTerminalChannel
+    from starlette.websockets import WebSocketDisconnect
+
+    class Channel:
+        accepted = False
+        async def accept(self, **kwargs):
+            self.accepted = True
+        async def close(self, **kwargs):
+            pass
+        async def receive_json(self):
+            raise TerminalChannelClosed()
+        async def send_json(self, data):
+            pass
+
+    async def check():
+        service = TerminalService(connector_factory=Mock())
+        session = Mock()
+        session.read.return_value = ""
+        runtime = TerminalSessionRuntime(session_manager=session)
+        service._sessions["terminal"] = runtime
+        channel = Channel()
+        await service.stream_session("terminal", channel)
+        assert channel.accepted
+        assert runtime.state == "detached"
+        assert not runtime.connection_ids
+        assert runtime.last_detached_at is not None
+
+        class BufferedDisconnect(Channel):
+            async def send_json(self, data):
+                raise TerminalChannelClosed()
+        service.read_buffered_output = lambda _: "buffered output"
+        await service.stream_session("terminal", BufferedDisconnect())
+        assert runtime.state == "detached"
+        assert not runtime.connection_ids
+
+        class DisconnectedSocket:
+            async def receive_json(self):
+                raise WebSocketDisconnect()
+        adapter = WebSocketTerminalChannel(DisconnectedSocket())
+        try:
+            await adapter.receive_json()
+        except TerminalChannelClosed:
+            pass
+        else:
+            raise AssertionError("Transport exception was not adapted")
+
+    asyncio.run(check())
+
+
+
+def scenario_mcp_callbacks_keep_tool_identity_and_policy() -> None:
+    from unittest.mock import Mock
+    from app.services.mcp_service import McpService, MCPCallResult
+
+    pairs = [
+        (SimpleNamespace(id=f"server-{i}"), SimpleNamespace(exposed_name=f"tool-{i}",
+            original_name=f"original-{i}", description="", input_schema={}, approval_policy=policy))
+        for i, policy in enumerate(("ask", "deny"))
+    ]
+    store = Mock()
+    store.list_injectable_tools.return_value = pairs
+    service = McpService(store=store)
+    service.call_tool = Mock(side_effect=lambda server, tool, args: MCPCallResult(
+        ok=True, text_output=f"{server.id}/{tool.original_name}/{args['value']}"))
+    try:
+        handlers = service.build_tool_handlers()
+        for i, handler in enumerate(handlers):
+            assert handler.definition.name == f"tool-{i}"
+            assert handler.needs_approval({})[0] == pairs[i][1].approval_policy
+            # Exercise only the injected callback; the runtime owns approval gating.
+            execution = handler.execute(state=None, step_id="test", args={"value": i})
+            try:
+                next(execution)
+            except StopIteration as result:
+                assert result.value == (True, f"server-{i}/original-{i}/{i}")
+            else:
+                raise AssertionError("Expected the callback result")
+        assert service.call_tool.call_count == 2
+    finally:
+        service.close()
+
+
+def scenario_composition_shares_runtime_services() -> None:
+    from app.composition import get_console_app_service, get_terminal_service, get_scheduler_service
+    from app.api.console import get_console_app_service as console_route_service
+    from app.api.terminal import get_terminal_service as terminal_route_service
+    scheduler = get_scheduler_service()
+    assert scheduler._console_service is console_route_service() is get_console_app_service()
+    assert scheduler._terminal_service is terminal_route_service() is get_terminal_service()
+
+
 def main() -> int:
     scenarios = [
+        ("mcp_callbacks_keep_tool_identity_and_policy", scenario_mcp_callbacks_keep_tool_identity_and_policy),
+        ("composition_shares_runtime_services", scenario_composition_shares_runtime_services),
+        ("module_dependency_boundaries", scenario_module_dependency_boundaries),
+        ("injected_command_policy_preserves_approval_and_audit", scenario_injected_command_policy_preserves_approval_and_audit),
+        ("terminal_channel_disconnect_detaches_session", scenario_terminal_channel_disconnect_detaches_session),
         ("text_stream_uses_deltas_and_final_snapshot", scenario_text_stream_uses_deltas_and_final_snapshot),
         ("event_window_gap_falls_back_to_durable_store", scenario_event_window_gap_falls_back_to_durable_store),
         ("terminal_authorization_is_runtime_scoped", scenario_terminal_authorization_is_runtime_scoped),

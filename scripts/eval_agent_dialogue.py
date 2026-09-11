@@ -343,7 +343,7 @@ def scenario_single_asset_scope_denies_cross_asset_terminal() -> None:
 
     provider = Provider()
     agent_loop_module.build_llm_provider = lambda config: provider
-    handler = RequestTerminalSessionHandler(None)  # type: ignore[arg-type]
+    handler = RequestTerminalSessionHandler(None, catalog=None)  # type: ignore[arg-type]
     list(AgentLoop(tools=[handler]).run(state))
     assert provider.calls == 2
     assert state.phase == "completed"
@@ -426,8 +426,120 @@ def scenario_approval_rechecks_terminal_consistency() -> None:
     assert state.steps[0].status == "failed"
 
 
+def scenario_prompt_composition_preserves_boundaries() -> None:
+    from app.core.loop.request_builder import AgentLLMRequestBuilder
+    from app.core.prompts.memory import build_memory_context, MEMORY_CONSTRAINTS
+    from app.core.prompts.auxiliary import build_knowledge_extraction_prompt
+
+    state = loop_state("prompt-boundaries")
+    ctx = state.context
+    ctx.agent_behavior_prompt = "自定义业务说明"
+    ctx.organization_rules_prompt = "组织规则" * 2500
+    ctx.default_authorization_id = "auth-original"
+    ctx.knowledge_context = build_memory_context(["历史证据"], guidance="记忆偏好" * 2000)
+    ctx.conversation_history = [LLMMessage(role="user", content="历史问题")]
+    builder = AgentLLMRequestBuilder()
+    state.messages = builder.build_initial_tool_calling_messages(state=state)
+    assert [message.role for message in state.messages] == ["system", "user", "system", "user"]
+    assert state.messages[-1].content == ctx.user_prompt
+    assert MEMORY_CONSTRAINTS in ctx.knowledge_context
+    original_memory = ctx.knowledge_context
+    ctx.default_authorization_id = "auth-updated"
+    request = builder.build_tool_calling_request(state=state, tools=[])
+    assert "auth-updated" in request.messages[0].content
+    assert "auth-original" not in request.messages[0].content
+    assert "自定义业务说明" in request.messages[0].content
+    assert "Every command requires explicit operator approval" in request.messages[0].content
+    assert ctx.organization_rules_prompt in request.messages[0].content
+    memory = next(message for message in request.messages if message.cache_segment == "runtime_context")
+    assert memory.cache_status == "volatile" and memory.content == original_memory
+    ctx.loaded_skill_name = "evaluation"
+    ctx.manual_skill_content = "技能规则" * 2500
+    builder.append_loaded_skill(state)
+    builder.append_loaded_skill(state)
+    builder.compact_state_messages(state)
+    assert sum(ctx.manual_skill_content in message.content for message in state.messages) == 1
+    extraction = build_knowledge_extraction_prompt("仅提取已证实事实")
+    assert "strict JSON" in extraction and "redactionWarnings" in extraction
+    assert "仅提取已证实事实" in extraction
+
+
+def scenario_auxiliary_generation_uses_default_model() -> None:
+    from unittest.mock import patch
+    from sqlalchemy import create_engine
+    from sqlmodel import Session
+    from app.db.models import ModelConfigRecord
+    from app.core.llm.types import LLMCompletionResponse
+    from app.services.model_service import ModelService
+    import app.services.model_service as models
+
+    calls = []
+
+    class Provider:
+        def complete(self, *, config, request):
+            calls.append((config, request))
+            return LLMCompletionResponse(text="验证标题")
+
+    with TemporaryDirectory(prefix="ops-default-model-eval-") as tmp:
+        engine = create_engine(f"sqlite:///{Path(tmp) / 'models.db'}")
+        ModelConfigRecord.__table__.create(engine)
+        try:
+            with Session(engine) as session:
+                session.add(ModelConfigRecord(
+                    name="Selected CC Switch", provider="anthropic", base_url="http://example.invalid",
+                    api_key_encryption_version="evaluation", encrypted_api_key="not-a-real-key",
+                    model_name="selected-model", is_default=True,
+                ))
+                session.commit()
+            with patch.object(models, "engine", engine), patch.object(ModelService, "decrypt_api_key", return_value=SecretStr("evaluation")):
+                service = ModelService(provider_client=Provider())
+                assert service.generate_conversation_title("验证当前模型") == "验证标题"
+                service.generate_knowledge_draft("已验证的事件")
+                assert len(calls) == 2
+                assert all(config.model_name == "selected-model" and config.provider == ModelProvider.ANTHROPIC for config, _ in calls)
+                assert calls[0][1].messages[0].role == "system"
+                assert calls[1][1].json_mode is True
+        finally:
+            engine.dispose()
+
+
+def scenario_cc_switch_is_the_only_active_provider() -> None:
+    from app.core.llm.factory import build_llm_provider
+    from app.core.llm.cc_switch import DEFAULT_MODEL, DEFAULT_BASE_URL
+    from app.services.model_service import ModelService
+    from app.api.schemas.resources import ModelConfigCreate
+    from pydantic import ValidationError
+    from unittest.mock import patch
+    import os
+
+    with TemporaryDirectory(prefix="ops-cc-default-eval-") as tmp, patch.dict(os.environ, {}, clear=True):
+        service = ModelService(settings_path=Path(tmp) / "settings.json")
+        config = service.load_settings()
+        assert config.provider == ModelProvider.ANTHROPIC
+        assert config.model_name == DEFAULT_MODEL and config.base_url == DEFAULT_BASE_URL
+        assert service.discover_models(config) == [DEFAULT_MODEL]
+        for provider in ModelProvider:
+            if provider == ModelProvider.ANTHROPIC:
+                continue
+            try:
+                build_llm_provider(config.model_copy(update={"provider": provider}))
+            except ValueError as exc:
+                assert "CC Switch" in str(exc)
+            else:
+                raise AssertionError(f"Legacy provider remains callable: {provider}")
+        try:
+            ModelConfigCreate(name="legacy", provider="openai_compatible", base_url="http://example.invalid", api_key="evaluation", model_name="legacy")
+        except ValidationError:
+            pass
+        else:
+            raise AssertionError("Model API accepted an unsupported provider")
+
+
 def main() -> int:
     scenarios: list[tuple[str, Callable[[], None]]] = [
+        ("prompt_composition_preserves_boundaries", scenario_prompt_composition_preserves_boundaries),
+        ("auxiliary_generation_uses_default_model", scenario_auxiliary_generation_uses_default_model),
+        ("cc_switch_is_the_only_active_provider", scenario_cc_switch_is_the_only_active_provider),
         ("followup_resume_and_hidden_reasoning", scenario_followup_resume_and_hidden_reasoning),
         ("runtime_steering_preempts_unstarted_tool", scenario_runtime_steering_preempts_unstarted_tool),
         ("tool_failure_can_be_recovered", scenario_tool_failure_can_be_recovered),

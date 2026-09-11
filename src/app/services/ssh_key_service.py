@@ -1,5 +1,5 @@
 from app.db.repositories.ssh_keys import create_ssh_key, delete_ssh_key, get_ssh_key, list_ssh_keys, update_ssh_key
-from app.utils.credential_factory import build_credential_service
+from app.services.credential_factory import build_credential_service
 from app.services.credential_service import CredentialService
 
 

@@ -17,7 +17,7 @@ from app.db.repositories.jumpserver import get_binding, get_binding_for_asset, g
 from app.services.credential_service import CredentialService
 from app.services.jumpserver_client import JumpServerClient
 from app.services.jumpserver_ssh_client import JumpServerSSHClient
-from app.services.secret_key import get_ops_agent_secret_key
+from app.shared.secret_key import get_ops_agent_secret_key
 
 
 class JumpServerService:

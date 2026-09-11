@@ -1,5 +1,3 @@
-import os
-from pathlib import Path
 from typing import cast
 
 from fastapi import APIRouter, Depends, HTTPException, Response, status
@@ -22,16 +20,10 @@ from app.db.repositories.model_usage import sum_conversation_usage
 from app.db.session import engine, get_session
 from app.services.asset_service import get_asset_record
 from app.services.context_manager import ContextManager, JsonObject
-from app.services.conversation_service import ConversationService
+from app.services.conversation_factory import get_conversation_service
 from app.services.model_service import ModelService
 
 router = APIRouter()
-
-
-def get_conversation_service() -> ConversationService:
-    configured = os.getenv("OPS_AGENT_CONVERSATIONS_DIR", "")
-    base_dir = Path(configured) if configured else Path.cwd() / ".ops-agent" / "conversations"
-    return ConversationService(base_dir=base_dir, model_service=ModelService())
 
 
 @router.get("/api/conversations", response_model=list[ConversationSummaryView])
@@ -153,7 +145,7 @@ def get_conversation_context(conversation_id: str) -> ConversationContextStatusV
 
 @router.post("/api/conversations/{conversation_id}/rewrite", response_model=ConversationRewriteResponse)
 def rewrite_conversation(conversation_id: str, payload: ConversationRewriteRequest) -> ConversationRewriteResponse:
-    from app.api.console import get_console_app_service
+    from app.composition import get_console_app_service
 
     active_runtimes = [
         runtime
@@ -184,7 +176,7 @@ def delete_conversation(conversation_id: str, cancel_active: bool = False) -> Re
         raise HTTPException(status_code=404, detail="Conversation not found") from exc
 
     # Imported lazily because console routes also use get_conversation_service.
-    from app.api.console import get_console_app_service
+    from app.composition import get_console_app_service
 
     runtime_manager = get_console_app_service().runtime_manager
     active_runtimes = [runtime for runtime in runtime_manager.list_runtimes(conversation_id) if not runtime.state.is_terminal()]

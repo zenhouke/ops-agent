@@ -9,10 +9,10 @@ from sqlmodel import Session, select
 from app.db.models import Credential, ModelConfigRecord, SSHKey
 from app.db.repositories.models import create_model_config, list_model_configs
 from app.services.credential_service import CredentialService
-from app.services.secret_key import get_ops_agent_secret_key
+from app.shared.secret_key import get_ops_agent_secret_key
 from app.shared.config import SETTINGS_PATH
 from app.shared.enums import ModelProvider
-from app.core.llm.provider_presets import get_default_base_url, get_default_model
+from app.core.llm.cc_switch import DEFAULT_BASE_URL, DEFAULT_MODEL, PROVIDER
 from app.utils.file_store import atomic_write_json
 
 
@@ -128,11 +128,11 @@ def migrate_legacy_model_settings(session: Session) -> bool:
             session,
             name="Migrated default",
             provider=provider.value,
-            base_url=str(payload.get("base_url") or get_default_base_url(provider)),
+            base_url=str(payload.get("base_url") or (DEFAULT_BASE_URL if provider is PROVIDER else "")),
             api_key_encryption_version=CredentialService.encryption_version,
             encrypted_api_key=credential_service.encrypt_secret(api_key),
-            model_name=str(payload.get("model_name") or get_default_model(provider)),
-            is_default=True,
+            model_name=str(payload.get("model_name") or (DEFAULT_MODEL if provider is PROVIDER else "")),
+            is_default=provider is PROVIDER,
             timeout_seconds=int(payload.get("timeout_seconds", 30)),
             temperature=float(payload.get("temperature", 0.2)),
             max_tokens=int(payload.get("max_tokens", 1024)),

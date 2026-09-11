@@ -18,9 +18,7 @@ from app.core.loop.loop_state import LoopRuntimeStep, LoopState
 from app.core.loop.message_manager import MessageManager
 from app.core.loop.command_preview import CommandPreviewMessages
 from app.core.loop.state_machine import transition_runtime_state
-from app.core.loop.prompts import (
-    build_manual_skill_system_prompt,
-)
+from app.core.prompts import feedback
 from app.core.runtime.control import (
     RuntimeBudgetExceededError,
     RuntimeCancelledError,
@@ -270,10 +268,7 @@ class AgentLoop(AgentLoopSupportMixin):
                     LLMMessage(
                         role="user",
                         content=(
-                            "Your previous response was rejected because it claimed command execution without a tool call. "
-                            "Do not repeat or paraphrase an imagined result. Use execute_command with the correct "
-                            "authorization_id and its real result, including the normal approval flow, or clearly state "
-                            "that no command was run."
+                            feedback.UNVERIFIED_EXECUTION
                         ),
                     )
                 )
@@ -298,7 +293,7 @@ class AgentLoop(AgentLoopSupportMixin):
                     state.messages.append(
                         LLMMessage(
                             role="tool",
-                            content="Cancelled because the operator supplied newer guidance. Re-evaluate the task before using tools.",
+                            content=feedback.NEW_OPERATOR_GUIDANCE,
                             tool_call_id=tool_call.id,
                             name=tool_call.name,
                         )
@@ -327,7 +322,7 @@ class AgentLoop(AgentLoopSupportMixin):
                         state.messages.append(
                             LLMMessage(
                                 role="tool",
-                                content="Cancelled because the operator supplied newer guidance. Re-evaluate the task before using tools.",
+                                content=feedback.NEW_OPERATOR_GUIDANCE,
                                 tool_call_id=cancelled_tool_call.id,
                                 name=cancelled_tool_call.name,
                             )
@@ -355,7 +350,7 @@ class AgentLoop(AgentLoopSupportMixin):
                     if not explanation:
                         state.messages.append(LLMMessage(
                             role="tool", tool_call_id=tool_call.id, name=tool_call.name,
-                            content="Command not submitted. Explain its purpose and expected result in assistant text and the explanation argument before proposing it again.",
+                            content=feedback.MISSING_EXPLANATION,
                         ))
                         continue
                     yield from manager.begin_message(message_type="say", say_type="text")
@@ -372,7 +367,7 @@ class AgentLoop(AgentLoopSupportMixin):
                             state.messages.append(
                                 LLMMessage(
                                     role="tool",
-                                    content="Task state rejected: every verified fact must include a concise source reference.",
+                                    content=feedback.MISSING_FACT_SOURCE,
                                     tool_call_id=tool_call.id,
                                     name=tool_call.name,
                                 )
@@ -403,7 +398,7 @@ class AgentLoop(AgentLoopSupportMixin):
                         state.messages.append(
                             LLMMessage(
                                 role="tool",
-                                content="A non-empty question is required.",
+                                content=feedback.MISSING_QUESTION,
                                 tool_call_id=tool_call.id,
                                 name=tool_call.name,
                             )
@@ -423,7 +418,7 @@ class AgentLoop(AgentLoopSupportMixin):
                         state.messages.append(
                             LLMMessage(
                                 role="tool",
-                                content="The operator supplied newer guidance before this question was shown. Re-evaluate the task.",
+                                content=feedback.QUESTION_SUPERSEDED,
                                 tool_call_id=tool_call.id,
                                 name=tool_call.name,
                             )
@@ -432,7 +427,7 @@ class AgentLoop(AgentLoopSupportMixin):
                             state.messages.append(
                                 LLMMessage(
                                     role="tool",
-                                    content="Cancelled because the operator supplied newer guidance.",
+                                    content=feedback.CANCELLED_BY_OPERATOR,
                                     tool_call_id=remaining_tool_call.id,
                                     name=remaining_tool_call.name,
                                 )
@@ -443,7 +438,7 @@ class AgentLoop(AgentLoopSupportMixin):
                     state.messages.append(
                         LLMMessage(
                             role="tool",
-                            content="Waiting for the operator's answer.",
+                            content=feedback.WAITING_FOR_ANSWER,
                             tool_call_id=tool_call.id,
                             name=tool_call.name,
                         )
@@ -452,7 +447,7 @@ class AgentLoop(AgentLoopSupportMixin):
                         state.messages.append(
                             LLMMessage(
                                 role="tool",
-                                content="Cancelled because the runtime is waiting for operator input.",
+                                content=feedback.WAITING_FOR_INPUT,
                                 tool_call_id=remaining_tool_call.id,
                                 name=remaining_tool_call.name,
                             )
@@ -466,7 +461,7 @@ class AgentLoop(AgentLoopSupportMixin):
                     state.messages.append(
                         LLMMessage(
                             role="tool",
-                            content="Command tool call missing required 'command' argument. Please provide the exact command to execute.",
+                            content=feedback.MISSING_COMMAND,
                             tool_call_id=tool_call.id,
                             name=tool_call.name,
                         )
@@ -532,7 +527,7 @@ class AgentLoop(AgentLoopSupportMixin):
                         state.messages.append(
                             LLMMessage(
                                 role="tool",
-                                content="Cancelled because a previous command in the sequence required user approval.",
+                                content=feedback.APPROVAL_REQUIRED,
                                 tool_call_id=remaining_tool_call.id,
                                 name=remaining_tool_call.name,
                             )
@@ -601,8 +596,7 @@ class AgentLoop(AgentLoopSupportMixin):
                         reason="terminal access requires approval",
                     )
                     cancellation_content = (
-                        "Paused because terminal access requires separate user confirmation. "
-                        "Wait for the terminal decision before continuing."
+                        feedback.TERMINAL_APPROVAL_REQUIRED
                     )
                     for remaining_tool_call in response.tool_calls[index + 1:]:
                         state.messages.append(
@@ -617,8 +611,7 @@ class AgentLoop(AgentLoopSupportMixin):
 
                 if ok and tool_call.name == "load_skill":
                     cancellation_content = (
-                        "Cancelled because load_skill changed the runtime instructions. "
-                        "Re-evaluate before using more tools."
+                        feedback.SKILL_CHANGED
                     )
                     for remaining_tool_call in response.tool_calls[index + 1:]:
                         state.messages.append(
@@ -629,12 +622,7 @@ class AgentLoop(AgentLoopSupportMixin):
                                 name=remaining_tool_call.name,
                             )
                         )
-                    manual_skill_prompt = build_manual_skill_system_prompt(ctx)
-                    if manual_skill_prompt and not any(
-                        message.role == "system" and message.content == manual_skill_prompt
-                        for message in state.messages
-                    ):
-                        state.messages.append(LLMMessage(role="system", content=manual_skill_prompt))
+                    self._request_builder.append_loaded_skill(state)
                     restart_tool_calling = True
                     break
 

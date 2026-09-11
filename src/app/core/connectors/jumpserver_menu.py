@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 import time
-from typing import Any
+from typing import Any, Protocol
 
 from app.core.connectors.device_profiles import GENERIC_DEVICE_PROFILE, select_device_profile
 from app.core.connectors.network_cli import analyze_transcript, strip_pager_markers
@@ -12,7 +12,9 @@ from app.core.connectors.network_collection import (
     normalize_collection_record,
     parse_collection_output,
 )
-from app.services.jumpserver_ssh_client import JumpServerSSHClient
+class JumpServerGateway(Protocol):
+    def open_asset_channel(self, *, asset_name: str, address: str, account: str) -> tuple[Any, Any, str]: ...
+
 
 
 _ANSI_CSI = re.compile(r"\x1b\[[0-?]*[ -/]*[@-~]")
@@ -28,7 +30,7 @@ _PAGER_DISABLE_COMMANDS = {
 class JumpServerMenuConnector:
     def __init__(
         self,
-        gateway: JumpServerSSHClient,
+        gateway: JumpServerGateway,
         *,
         asset_name: str,
         address: str,

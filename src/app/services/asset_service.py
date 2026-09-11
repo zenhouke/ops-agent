@@ -19,7 +19,7 @@ from app.db.repositories.common import commit_refresh, touch_updated_at
 from app.db.repositories.credentials import create_credential, get_credential_by_asset_id, update_credential
 from app.db.repositories.ssh_keys import get_ssh_key
 from app.shared.enums import AssetType
-from app.utils.credential_factory import build_credential_service
+from app.services.credential_factory import build_credential_service
 from app.services.credential_service import CredentialService
 
 

@@ -11,13 +11,13 @@ from app.core.loop.message_manager import MessageManager
 from app.core.tool.execute_command import ExecuteCommandHandler
 from app.core.tool.handler import ToolDisplayMetadata
 from app.core.tool.schema import LLMToolDefinition
-from app.services.ops_plugin_service import OpsPluginTool
+from app.core.tool.ports import OpsPluginTool
 
 
 class OpsPluginToolHandler:
-    def __init__(self, *, tool: OpsPluginTool, terminal: Any) -> None:
+    def __init__(self, *, tool: OpsPluginTool, command_handler: ExecuteCommandHandler) -> None:
         self._tool = tool
-        self._delegate = ExecuteCommandHandler(terminal)
+        self._delegate = command_handler
 
     @property
     def definition(self) -> LLMToolDefinition:

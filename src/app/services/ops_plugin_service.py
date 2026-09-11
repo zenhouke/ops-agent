@@ -17,15 +17,8 @@ TOOLS_PER_PLUGIN_LIMIT = 32
 _IDENTIFIER_RE = re.compile(r"^[a-z][a-z0-9_-]{1,63}$")
 
 
-@dataclass(frozen=True)
-class OpsPluginTool:
-    plugin_id: str
-    name: str
-    exposed_name: str
-    description: str
-    command_template: str
-    input_schema: dict[str, Any]
-    asset_types: tuple[str, ...] = ()
+from app.core.tool.ports import OpsPluginTool
+from app.core.tool.execute_command import ExecuteCommandHandler
 
 
 @dataclass(frozen=True)
@@ -62,11 +55,11 @@ class OpsPluginService:
                 self._packages = tuple(self._discover())
             return list(self._packages)
 
-    def build_tool_handlers(self, terminal: Any) -> list[Any]:
+    def build_tool_handlers(self, command_handler: ExecuteCommandHandler) -> list[Any]:
         from app.core.tool.ops_plugin import OpsPluginToolHandler
 
         return [
-            OpsPluginToolHandler(tool=tool, terminal=terminal)
+            OpsPluginToolHandler(tool=tool, command_handler=command_handler)
             for package in self.list_plugins()
             if package.valid and package.enabled
             for tool in package.tools

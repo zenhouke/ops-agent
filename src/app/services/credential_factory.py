@@ -1,5 +1,5 @@
 from app.services.credential_service import CredentialService
-from app.services.secret_key import get_ops_agent_secret_key
+from app.shared.secret_key import get_ops_agent_secret_key
 
 
 def build_credential_service() -> CredentialService:

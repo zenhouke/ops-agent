@@ -4,6 +4,13 @@ import asyncio
 from datetime import UTC, datetime
 import logging
 import re
+from typing import TYPE_CHECKING
+from collections.abc import Callable
+
+if TYPE_CHECKING:
+    from app.services.console_app_service import ConsoleAppService
+    from app.services.terminal_service import TerminalService
+    from app.services.conversation_service import ConversationService
 
 from sqlmodel import Session, select
 
@@ -17,7 +24,11 @@ logger = logging.getLogger(__name__)
 
 
 class SchedulerService:
-    def __init__(self) -> None:
+    def __init__(self, *, console_service: ConsoleAppService, terminal_service: TerminalService,
+                 conversation_factory: Callable[[], ConversationService]) -> None:
+        self._console_service = console_service
+        self._terminal_service = terminal_service
+        self._conversation_factory = conversation_factory
         self._running = False
         self._task: asyncio.Task | None = None
         limits = get_runtime_control().limits
@@ -104,14 +115,10 @@ class SchedulerService:
             if not job or not job.enabled:
                 return "skipped"
 
-            from app.api.console import get_console_app_service
-            from app.api.conversations import get_conversation_service
-            from app.api.terminal import get_terminal_service
-
-            conversation_service = get_conversation_service()
-            console_app = get_console_app_service()
-            terminal_service = get_terminal_service()
-            default_model = console_app._resolve_model_config(session, None)
+            conversation_service = self._conversation_factory()
+            console_app = self._console_service
+            terminal_service = self._terminal_service
+            default_model = console_app.resolve_model_config(session, None)
             conversation = conversation_service.create_conversation(
                 selected_model=default_model.model_name,
                 asset_id=job.asset_id,
@@ -226,13 +233,3 @@ class SchedulerService:
                 except Exception:
                     pass
                 return "failed"
-
-
-_scheduler_service: SchedulerService | None = None
-
-
-def get_scheduler_service() -> SchedulerService:
-    global _scheduler_service
-    if _scheduler_service is None:
-        _scheduler_service = SchedulerService()
-    return _scheduler_service

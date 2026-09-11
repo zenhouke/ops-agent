@@ -12,9 +12,10 @@ from app.core.connectors.device_profiles import (
     select_device_profile,
     select_execution_profile,
 )
-from app.core.connectors.execution_context import build_asset_summary, build_device_context, infer_os_type
+from app.core.connectors.execution_context import build_asset_summary, infer_os_type
+from app.core.prompts.device import build_device_context
 from app.core.approval import ApprovalContext
-from app.core.llm.types import LLMMessage, LLMTokenUsage
+from app.core.llm.types import LLMTokenUsage
 from app.core.loop.loop_state import LoopContext, LoopState
 from app.core.loop.runtime_manager import LoopRuntimeManager, new_runtime_id
 from app.core.runtime.control import get_runtime_control
@@ -41,7 +42,10 @@ from app.services.ops_plugin_service import get_ops_plugin_service
 from app.services.prompt_settings_service import get_prompt_settings_service
 from app.services.skill_service import SkillService
 from app.services.terminal_service import TerminalService
-
+from app.services.tool_dependencies import ToolAssetCatalog, CommandPolicyService
+from app.core.prompts.memory import MEMORY_UNAVAILABLE
+from app.db.repositories.runtime import RuntimeStore
+from app.services.instance_service import get_instance_info
 
 logger = logging.getLogger(__name__)
 
@@ -60,20 +64,23 @@ class ConsoleAppService:
         self._ops_plugin_service = get_ops_plugin_service()
         self.runtime_manager = LoopRuntimeManager(
             tools_factory=self._build_tool_handlers,
+            runtime_store=RuntimeStore(instance_id=get_instance_info().instance_id),
             usage_callback=self._record_model_usage,
         )
 
     def _build_tool_handlers(self, ts: TerminalService) -> list[Any]:
         terminal = TerminalSessionAdapter(ts, self.runtime_manager)
+        catalog = ToolAssetCatalog()
+        command_handler = ExecuteCommandHandler(terminal, policy=CommandPolicyService())
         return [
             AskFollowupHandler(),
             UpdateTaskStateHandler(),
             LoadSkillHandler(self._skill_service),
-            ListAssetsHandler(),
-            RequestTerminalSessionHandler(self.runtime_manager),
-            ExecuteCommandHandler(terminal),
+            ListAssetsHandler(catalog),
+            RequestTerminalSessionHandler(self.runtime_manager, catalog=catalog),
+            command_handler,
             *build_network_collection_handlers(terminal),
-            *self._ops_plugin_service.build_tool_handlers(terminal),
+            *self._ops_plugin_service.build_tool_handlers(command_handler),
             *self._mcp_service.build_tool_handlers(),
         ]
 
@@ -124,23 +131,6 @@ class ConsoleAppService:
     def _context_status_for_percent(self, context_percent: int):
         return self._context_manager().status_for_percent(context_percent)
 
-    def _append_knowledge_context(
-        self,
-        conversation_history: list[LLMMessage],
-        knowledge_context: str,
-    ) -> list[LLMMessage]:
-        if not knowledge_context.strip():
-            return conversation_history
-        return [
-            *conversation_history,
-            LLMMessage(
-                role="system",
-                content=knowledge_context,
-                cache_segment="runtime_context",
-                cache_status="volatile",
-            ),
-        ]
-
     def build_orchestrator(self, terminal_service: TerminalService) -> TaskOrchestrator:
         return TaskOrchestrator(self, terminal_service)
 
@@ -168,7 +158,7 @@ class ConsoleAppService:
         terminal_service: TerminalService,
     ) -> Iterator[dict]:
         asset = self._resolve_asset(session, asset_id)
-        model_config = self._resolve_model_config(session, model_name)
+        model_config = self.resolve_model_config(session, model_name)
         if terminal_id is None:
             terminal_id = terminal_service.find_session_id(f"asset:{asset_id}")
         if terminal_id and not terminal_service.session_belongs_to_asset(terminal_id, asset_id):
@@ -222,16 +212,7 @@ class ConsoleAppService:
                 asset_id,
                 exc_info=True,
             )
-            knowledge_context = (
-                "Long-term memory preflight:\n"
-                "Status: unavailable\n"
-                "Relevant memories: unknown\n"
-                "Rules: Continue without memory, do not invent remembered facts, and rely on current evidence."
-            )
-        conversation_history = self._append_knowledge_context(
-            conversation_history,
-            knowledge_context,
-        )
+            knowledge_context = MEMORY_UNAVAILABLE
         knowledge_context_chars = len(knowledge_context)
 
         runtime_id = new_runtime_id()
@@ -271,6 +252,7 @@ class ConsoleAppService:
             user_prompt=prompt,
             model_config=model_config,
             conversation_history=conversation_history,
+            knowledge_context=knowledge_context,
             available_skills=available_skills,
             loaded_skill_name=loaded_skill_name,
             manual_skill_name=manual_skill_name,
@@ -532,7 +514,7 @@ class ConsoleAppService:
             raise ValueError(f"Asset not found: {asset_id}")
         return asset
 
-    def _resolve_model_config(self, session: Session, model_name: str | None):
+    def resolve_model_config(self, session: Session, model_name: str | None):
         if model_name:
             selected_record = next(
                 (record for record in list_model_configs(session) if record.model_name == model_name),
@@ -565,7 +547,7 @@ class ConsoleAppService:
         if not conversation_id or conversation_id == "console":
             return context_manager.prepare_context(conversation_id or "console", [], model_config, current_prompt=current_prompt)
 
-        from app.api.conversations import get_conversation_service
+        from app.services.conversation_factory import get_conversation_service
         service = get_conversation_service()
         try:
             detail = service.get_conversation(conversation_id)
@@ -585,6 +567,6 @@ class ConsoleAppService:
         return result
 
     def _context_manager(self) -> ContextManager:
-        from app.api.conversations import get_conversation_service
+        from app.services.conversation_factory import get_conversation_service
         service = get_conversation_service()
         return ContextManager(service.base_dir / "context")

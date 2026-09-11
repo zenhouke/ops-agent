@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 
-from app.core.loop.loop_state import LoopContext
-from app.core.loop.prompt_defaults import DEFAULT_PROMPTS
+from app.core.prompts.defaults import DEFAULT_PROMPTS
+
+from app.core.prompts.context import AgentPromptContext
 
 
-def build_skill_index_prompt(ctx: LoopContext) -> str:
+def build_skill_index_prompt(ctx: AgentPromptContext) -> str:
     if not ctx.available_skills:
         return ""
     lines = ["Available skills:"]
@@ -25,7 +26,7 @@ def build_skill_index_prompt(ctx: LoopContext) -> str:
     return "\n".join(lines)
 
 
-def build_manual_skill_system_prompt(ctx: LoopContext) -> str:
+def build_manual_skill_system_prompt(ctx: AgentPromptContext) -> str:
     if not ctx.loaded_skill_name or not ctx.manual_skill_content:
         return ""
     return (
@@ -35,7 +36,7 @@ def build_manual_skill_system_prompt(ctx: LoopContext) -> str:
     )
 
 
-def build_tool_calling_system_prompt(ctx: LoopContext) -> str:
+def build_tool_calling_system_prompt(ctx: AgentPromptContext) -> str:
     agent_instruction = ctx.agent_behavior_prompt.strip() or DEFAULT_PROMPTS["agentBehavior"]
     device_context = f"\nDevice Execution Rules:\n{ctx.device_context}\n" if ctx.device_context else "\n"
     skill_prompt = build_skill_index_prompt(ctx)

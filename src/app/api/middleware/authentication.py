@@ -4,7 +4,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 
-from app.services.auth_service import is_connection_authorized
+from app.services.auth_service import is_request_authorized
 
 
 PUBLIC_PATHS = {"/health", "/ready", "/api/auth/status"}
@@ -15,7 +15,7 @@ class ApiAuthenticationMiddleware(BaseHTTPMiddleware):
         if (
             request.method == "OPTIONS"
             or request.url.path in PUBLIC_PATHS
-            or is_connection_authorized(request)
+            or is_request_authorized(request.headers)
         ):
             return await call_next(request)
         return JSONResponse(

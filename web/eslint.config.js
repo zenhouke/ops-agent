@@ -30,4 +30,17 @@ export default tseslint.config(
       }],
     },
   },
+  ...[
+    { files: ['src/hooks/**/*.{ts,tsx}'], forbidden: ['**/components/**', '**/App', '**/App.*'] },
+    { files: ['src/api/**/*.{ts,tsx}'], forbidden: ['**/components/**', '**/hooks/**', '**/App', '**/App.*'] },
+    { files: ['src/utils/**/*.{ts,tsx}', 'src/types/**/*.{ts,tsx}'], forbidden: ['**/components/**', '**/hooks/**', '**/api/**', '**/App', '**/App.*'] },
+  ].map(({ files, forbidden }) => ({
+    files,
+    rules: {
+      'no-restricted-imports': ['error', { patterns: [{
+        group: forbidden,
+        message: 'Keep dependencies directed toward shared types, utilities and API clients; do not import upper layers.',
+      }] }],
+    },
+  })),
 );

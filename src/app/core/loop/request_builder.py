@@ -1,14 +1,18 @@
 from __future__ import annotations
 
 from dataclasses import replace
+import logging
 
 from app.core.llm.types import LLMCompletionRequest, LLMMessage, LLMPromptCachePolicy
 from app.core.loop.loop_state import LoopContext, LoopState
-from app.core.loop.prompts import (
+from app.core.prompts.agent import (
     build_manual_skill_system_prompt,
     build_tool_calling_system_prompt,
 )
 from app.core.tool.schema import LLMToolDefinition
+
+
+logger = logging.getLogger(__name__)
 
 
 class AgentLLMRequestBuilder:
@@ -23,6 +27,11 @@ class AgentLLMRequestBuilder:
         if messages and messages[0].role == "system":
             messages[0] = replace(messages[0], content=build_tool_calling_system_prompt(state.context))
         sorted_tools = sorted(tools, key=lambda tool: tool.name)
+        logger.debug(
+            "Agent request sections=%s tool_count=%d",
+            [{"role": message.role, "segment": message.cache_segment, "characters": len(message.content)} for message in messages],
+            len(sorted_tools),
+        )
         return LLMCompletionRequest(
             messages=messages,
             tools=sorted_tools,
@@ -37,6 +46,11 @@ class AgentLLMRequestBuilder:
         if manual_skill_prompt:
             messages.append(self._make_system_message(manual_skill_prompt))
         messages.extend(self._annotate_history_messages(ctx.conversation_history))
+        if ctx.knowledge_context.strip():
+            messages.append(LLMMessage(
+                role="system", content=ctx.knowledge_context,
+                cache_segment="runtime_context", cache_status="volatile",
+            ))
         messages.append(
             LLMMessage(
                 role="user",
@@ -46,6 +60,11 @@ class AgentLLMRequestBuilder:
             )
         )
         return messages
+
+    def append_loaded_skill(self, state: LoopState) -> None:
+        prompt = build_manual_skill_system_prompt(state.context)
+        if prompt and not any(message.role == "system" and message.content == prompt for message in state.messages):
+            state.messages.append(self._make_system_message(prompt))
 
     def compact_state_messages(self, state: LoopState) -> None:
         if state.phase == "approving" or state.pending_tool_call_id:
@@ -103,6 +122,8 @@ class AgentLLMRequestBuilder:
         return message.cache_segment == "summary" and message.content.startswith("Earlier runtime context summary:\n")
 
     def _truncate_message(self, message: LLMMessage) -> LLMMessage:
+        if message.role == "system":
+            return message
         truncated = self._truncate_text(message.content, self.MAX_MESSAGE_CONTENT_CHARS)
         if truncated == message.content:
             return message
@@ -120,6 +141,9 @@ class AgentLLMRequestBuilder:
         messages: list[LLMMessage] = []
         last_user_index = max((index for index, message in enumerate(state.messages) if message.role == "user"), default=-1)
         for index, message in enumerate(state.messages):
+            if message.cache_segment == "runtime_context":
+                messages.append(self._apply_cache_metadata(message, segment="runtime_context", status="volatile"))
+                continue
             if message.role == "system":
                 messages.append(self._apply_cache_metadata(message, segment="system", status="cacheable"))
                 continue

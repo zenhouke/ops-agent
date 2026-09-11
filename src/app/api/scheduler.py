@@ -9,7 +9,7 @@ from sqlmodel import Session, select, col
 from app.db.session import get_session
 from app.db.models import ScheduledJob
 from app.services.asset_service import get_asset_record
-from app.services.scheduler_service import get_scheduler_service
+from app.composition import get_scheduler_service
 
 router = APIRouter()
 

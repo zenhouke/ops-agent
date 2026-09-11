@@ -16,7 +16,7 @@ from app.api.groups import to_asset_group_view
 from app.api.ssh_keys import to_ssh_key_view
 from app.api.schemas import ConsoleApprovalRequest, ConsoleBootstrapView, ConsoleRunRequest, RuntimeEventsResponse, RuntimeMessageRequest, RuntimeSnapshotView, RuntimeSummaryView, TerminalRequestDecisionRequest
 from app.services.ssh_key_service import list_ssh_key_records
-from app.api.terminal import get_terminal_service
+from app.composition import get_terminal_service
 from app.db.repositories.models import get_default_model_config, list_model_configs
 from app.db.session import get_session
 from app.services.asset_service import get_asset_record, list_asset_group_records, list_asset_records
@@ -24,11 +24,12 @@ from app.services.asset_service import get_asset_record, list_asset_group_record
 from app.utils.local_terminal_asset import build_local_terminal_asset
 from app.services.model_service import ModelService
 from app.services.terminal_service import TerminalService
-from app.services.console_app_service import ConsoleAppService, TaskOrchestrator
+from app.services.console_app_service import TaskOrchestrator
+from app.composition import get_console_app_service
 from app.shared.enums import AssetType
 
 router = APIRouter()
-_console_app_service = ConsoleAppService()
+_console_app_service = get_console_app_service()
 logger = logging.getLogger(__name__)
 
 def _sse_event(payload: dict) -> str:
@@ -110,10 +111,6 @@ async def _parse_request_model(request: Request, model_type):
 
 def get_task_orchestrator(terminal_service: TerminalService = Depends(get_terminal_service)) -> TaskOrchestrator:
     return _console_app_service.build_orchestrator(terminal_service)
-
-
-def get_console_app_service() -> ConsoleAppService:
-    return _console_app_service
 
 
 @router.get("/api/console/bootstrap")

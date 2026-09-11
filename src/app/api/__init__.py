@@ -27,7 +27,8 @@ from app.api.conversations import router as conversations_router
 from app.api.skills import router as skills_router
 from app.api.ssh_keys import router as ssh_keys_router
 from app.api.system import router as system_router
-from app.api.terminal import get_terminal_service, router as terminal_router
+from app.api.terminal import router as terminal_router
+from app.composition import get_terminal_service
 from app.api.scheduler import router as scheduler_router
 from app.api.alerts import router as alerts_router
 from app.db.session import Session, engine, init_db
@@ -37,8 +38,8 @@ from app.services.credential_migration_service import migrate_legacy_credentials
 from app.shared.config import APP_DIR
 from app.utils.secure_storage import harden_storage_tree
 from app.utils.process_lock import ProcessLock
-from app.services.scheduler_service import get_scheduler_service
-from app.api.console import get_console_app_service
+from app.composition import get_scheduler_service
+from app.composition import get_console_app_service
 from app.services.observability_service import configure_telemetry, shutdown_telemetry
 
 logger = logging.getLogger(__name__)
