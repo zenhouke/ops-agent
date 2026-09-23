@@ -12,6 +12,10 @@ class AssetSummary:
     asset_type: str
     group_id: int | None = None
     tags: tuple[str, ...] = ()
+    host: str = ""
+    vendor: str = ""
+    group_name: str = ""
+    access_via: str = "direct"
 
 
 class AssetCatalog(Protocol):

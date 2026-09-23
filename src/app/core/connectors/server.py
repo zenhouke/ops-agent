@@ -122,7 +122,11 @@ class ServerConnector:
         )
         if self.tcp_proxy_socket is not None:
             connect_kwargs["sock"] = self.tcp_proxy_socket
-        self._connect_client(client, connect_kwargs)
+        try:
+            self._connect_client(client, connect_kwargs)
+        except Exception:
+            client.close()
+            raise
         transport = client.get_transport()
         if transport is not None:
             transport.set_keepalive(30)

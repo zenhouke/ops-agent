@@ -11,6 +11,7 @@ from app.api.terminal_channel import WebSocketTerminalChannel
 from app.services.auth_service import is_request_authorized
 from app.utils.local_terminal_asset import build_local_terminal_asset
 from app.services.terminal_service import TerminalService
+from app.services.ssh_host_key_service import confirm_host_key
 
 router = APIRouter()
 
@@ -25,6 +26,23 @@ class TerminalSessionResponse(BaseModel):
     terminal_id: str | None
     channel: str | None
     error: str
+    host_key: dict[str, str] | None = None
+
+
+class HostKeyConfirmationRequest(BaseModel):
+    asset_id: int | None = None
+    token: str
+
+
+@router.post("/api/terminal/host-key/confirm", status_code=204)
+def confirm_terminal_host_key(payload: HostKeyConfirmationRequest) -> Response:
+    try:
+        confirm_host_key(payload.asset_id, payload.token)
+    except ValueError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except OSError as exc:
+        raise HTTPException(status_code=503, detail="无法保存主机信任记录，请检查 known_hosts 文件的写入权限。") from exc
+    return Response(status_code=204)
 
 
 class TerminalContextRequest(BaseModel):
@@ -65,6 +83,7 @@ def open_terminal_session(
         terminal_id=result.get("terminal_id"),
         channel=result.get("channel"),
         error=result.get("error", ""),
+        host_key=result.get("host_key"),
     )
 
 
@@ -153,6 +172,7 @@ def reconnect_terminal_session(
             terminal_id=result.get("terminal_id"),
             channel=result.get("channel"),
             error=result.get("error", ""),
+            host_key=result.get("host_key"),
         )
     closed = terminal_service.close_session(terminal_id)
     if not closed:

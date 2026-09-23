@@ -3,6 +3,7 @@ import type { Asset } from '../../types/ops'
 import { LOCAL_TERMINAL_ASSET_ID } from '../../hooks/console/consoleShared'
 
 type TerminalHeaderProps = {
+  connectingAssetIds: number[]
   tabs: Asset[]
   activeAssetId: number
   busyCommand: string | null
@@ -17,6 +18,7 @@ type TerminalHeaderProps = {
 }
 
 export function TerminalHeader({
+  connectingAssetIds,
   tabs,
   activeAssetId,
   busyCommand,
@@ -57,6 +59,7 @@ export function TerminalHeader({
                   title={label}
                 >
                   <span className="truncate">{label}</span>
+                  {connectingAssetIds.includes(tabAsset.id) ? <span className="ml-2 shrink-0 text-ops-cyan">连接中…</span> : null}
                   {isNetwork ? (
                     <span className="ml-1.5 shrink-0 rounded-[3px] border border-ops-border/30 bg-ops-deep/60 px-1 py-px text-[8px] font-bold tracking-[0.06em] text-ops-muted/65">
                       {t('terminal.interactiveChannel')}
@@ -90,7 +93,7 @@ export function TerminalHeader({
           <ToolButton onClick={onCopy} title={t('terminal.copyBuffer')} aria-label={t('terminal.copyOutput')}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><rect x="9" y="9" width="13" height="13" rx="2" /><path d="M5 15H4a2 2 0 01-2-2V4a2 2 0 012-2h9a2 2 0 012 2v1" /></svg>
           </ToolButton>
-          <ToolButton onClick={onReconnect} title={t('terminal.resetSocket')} aria-label={t('terminal.reconnectSession')}>
+          <ToolButton disabled={connectingAssetIds.includes(activeAssetId)} onClick={onReconnect} title={t('terminal.resetSocket')} aria-label={t('terminal.reconnectSession')}>
             <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2.5" strokeLinecap="round" strokeLinejoin="round"><path d="M21 12a9 9 0 11-3-6.7M21 4v5h-5" /></svg>
           </ToolButton>
           <span className="mx-0.5 h-4 w-px bg-ops-border/30" aria-hidden="true" />
@@ -123,17 +126,19 @@ export function TerminalHeader({
 }
 
 type ToolButtonProps = {
+  disabled?: boolean
   onClick: () => void
   title: string
   'aria-label': string
   children: React.ReactNode
 }
 
-function ToolButton({ onClick, title, 'aria-label': ariaLabel, children }: ToolButtonProps) {
+function ToolButton({ disabled, onClick, title, 'aria-label': ariaLabel, children }: ToolButtonProps) {
   return (
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       title={title}
       aria-label={ariaLabel}
       className="flex h-6 w-6 items-center justify-center rounded-[3px] text-ops-muted transition-all duration-200 hover:bg-ops-border/30 hover:text-ops-cyan active:scale-95"

@@ -1,9 +1,24 @@
 import { requestJson, requestVoid } from './client'
 
-type TerminalSessionResponse = {
+export type HostKeyChallenge = {
+  token: string
+  hostname: string
+  algorithm: string
+  fingerprint: string
+}
+
+export type TerminalSessionResponse = {
   terminal_id: string | null
   channel: string | null
   error: string
+  host_key?: HostKeyChallenge | null
+}
+
+export async function confirmTerminalHostKey(assetId: number | null, token: string): Promise<void> {
+  return requestVoid('/api/terminal/host-key/confirm', {
+    method: 'POST',
+    body: JSON.stringify({ asset_id: assetId, token }),
+  })
 }
 
 export async function createTerminalSession(assetId: number): Promise<TerminalSessionResponse> {

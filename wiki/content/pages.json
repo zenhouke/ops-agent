@@ -1,0 +1,697 @@
+[
+  {
+    "id": "overview",
+    "group": [
+      "开始使用",
+      "Getting started"
+    ],
+    "title": [
+      "项目介绍",
+      "Overview"
+    ],
+    "intro": [
+      "以资产和终端为中心的 AI 运维工作台。",
+      "An AI operations workspace centered on assets and terminals."
+    ],
+    "sections": [
+      {
+        "id": "s1",
+        "title": [
+          "适用场景",
+          "Use cases"
+        ],
+        "body": [
+          "<p>Ops Agent 将资产管理、交互终端、AI 助手、命令审批和会话记录组合在同一个工作台，适合故障排查、日常巡检和运维经验整理。可通过 Web 控制台使用，也可打包为 Tauri 桌面应用。</p><p>助手的建议、人工授权、实际执行输出是不同环节。判断操作是否成功，应查看命令输出与退出码，而不能只看助手总结。</p>",
+          "<p>Ops Agent combines asset management, interactive terminals, an AI assistant, command approvals and conversation history. Use it for incident diagnosis, routine inspection and capturing operational knowledge. The console runs in a browser or a packaged Tauri desktop app.</p><p>Suggestions, authorization and execution are separate steps. Verify output and exit codes before treating an assistant summary as an operational result.</p>"
+        ]
+      },
+      {
+        "id": "s2",
+        "title": [
+          "功能范围",
+          "Capabilities"
+        ],
+        "body": [
+          "<ul><li>资产分组、SSH 密钥、代理、网络设备和串口连接。</li><li>流式助手、多轮会话、运行快照、重连、取消和人工审批。</li><li>模型配置、提示词、技能、运维插件与 MCP 工具。</li><li>知识库、定时任务、告警、网络拓扑与 JumpServer 资产同步。</li><li>健康检查、诊断与审计记录。</li></ul>",
+          "<ul><li>Asset groups, SSH keys, proxies, network devices and serial connections.</li><li>Streaming assistance, conversations, runtime snapshots, reconnect, cancellation and approvals.</li><li>Models, prompts, skills, operations plugins and MCP tools.</li><li>Knowledge, scheduled jobs, alerts, network topology and JumpServer synchronization.</li><li>Health checks, diagnostics and audit records.</li></ul>"
+        ]
+      },
+      {
+        "id": "s3",
+        "title": [
+          "组件与数据流",
+          "Components and data flow"
+        ],
+        "body": [
+          "<p>Web / 桌面界面通过 HTTP 管理资源，通过 SSE 接收助手事件，通过 WebSocket 访问终端。后端组织模型调用、审批、连接器和持久化；桌面壳负责后端进程与运行时地址。</p><img src=\"/assets/architecture-zh.svg\" alt=\"界面、API、助手与终端的数据流\">",
+          "<p>The web and desktop interfaces use HTTP for resources, SSE for assistant events and WebSocket for terminals. The backend coordinates models, approvals, connectors and persistence. The desktop shell manages the backend process and runtime endpoint.</p><img src=\"/assets/architecture-en.svg\" alt=\"Data flow between UI, API, assistant and terminal\">"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "quickstart",
+    "group": [
+      "开始使用",
+      "Getting started"
+    ],
+    "title": [
+      "首次使用",
+      "First session"
+    ],
+    "intro": [
+      "从配置模型到验证第一条命令。",
+      "Configure a model and verify your first command."
+    ],
+    "sections": [
+      {
+        "id": "s1",
+        "title": [
+          "准备工作",
+          "Before you start"
+        ],
+        "body": [
+          "<p>先确认后端就绪、控制台可访问，并完成访问令牌验证（启用认证时）。准备一台有明确操作权限的测试资产、连接凭据以及可用的模型路由。</p>",
+          "<p>Confirm backend readiness and console access. Verify your access token if authentication is enabled. Prepare an authorized test asset, connection credentials and a working model route.</p>"
+        ]
+      },
+      {
+        "id": "s2",
+        "title": [
+          "完成一次操作",
+          "Walk through a task"
+        ],
+        "body": [
+          "<ol><li>在模型配置中填写名称、协议、网关、模型标识和密钥，测试后设为默认。</li><li>建立资产分组并添加测试资产；检查连接方式、端口、用户名和认证方式。</li><li>测试连接，打开终端，确认设备提示符和目标身份。</li><li>新建会话，选择资产与模型，说明目标、约束和验收方式。</li><li>检查助手提出的命令；需要审批时核对目标、命令和风险再决定。</li><li>查看实际输出、退出码和最终结果；有复用价值时生成知识草稿并复核保存。</li></ol>",
+          "<ol><li>Create a model configuration with a name, protocol, gateway, model identifier and key. Test it and select it as default.</li><li>Create a group and add a test asset with the correct transport, port, username and authentication.</li><li>Test the connection, open a terminal and confirm the target identity and prompt.</li><li>Start a conversation, select an asset and model, and describe the goal, constraints and acceptance criteria.</li><li>Review proposed commands. Check the target, command and risk before approving.</li><li>Inspect real output, exit codes and results. Generate and review a knowledge draft when the work is reusable.</li></ol>"
+        ]
+      },
+      {
+        "id": "s3",
+        "title": [
+          "建议的首个任务",
+          "Suggested first task"
+        ],
+        "body": [
+          "<blockquote>请检查当前机器的磁盘使用情况，只执行只读命令，不删除文件；报告各挂载点使用率，并说明实际执行了什么。</blockquote><p>首次验证以单资产、短任务为宜。会话恢复和审批操作应针对当前 runtime，不能复用其他运行的审批令牌。</p>",
+          "<blockquote>Inspect disk usage on this machine using read-only commands. Do not delete files. Report usage for each mount and explain what you actually executed.</blockquote><p>Start with one asset and a short task. Recovery and approvals must refer to the current runtime; never reuse an approval token from another run.</p>"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "assets",
+    "group": [
+      "功能与操作",
+      "Features and operations"
+    ],
+    "title": [
+      "资产、凭据与终端",
+      "Assets, credentials and terminals"
+    ],
+    "intro": [
+      "先验证目标与连接，再让助手介入。",
+      "Verify the target and connection before running the assistant."
+    ],
+    "sections": [
+      {
+        "id": "s1",
+        "title": [
+          "资产与分组",
+          "Assets and groups"
+        ],
+        "body": [
+          "<p>资产保存名称、类型、主机、端口、用户名、认证方式、标签和说明。分组提供组织结构以及 HTTP CONNECT / SOCKS5 代理配置，资产可以继承或指定代理。SSH 密钥单独管理，再由资产引用。</p><p>支持本地终端、SSH、网络设备和串口相关连接。容器里的本地终端属于容器环境；访问宿主机或远端设备时应使用对应资产。</p>",
+          "<p>Assets contain a name, type, host, port, username, authentication method, tags and description. Groups organize assets and configure HTTP CONNECT or SOCKS5 proxies. Assets may inherit or override a proxy. Manage SSH keys separately and reference them from assets.</p><p>Connection support includes local terminals, SSH, network devices and serial ports. A local terminal inside a container belongs to that container; use an explicit asset to access the host or another machine.</p>"
+        ]
+      },
+      {
+        "id": "s2",
+        "title": [
+          "连接操作",
+          "Connection workflow"
+        ],
+        "body": [
+          "<ol><li>填写连接参数并测试；失败时先检查网络、代理和凭据。</li><li>SSH 目标必须匹配受信任的主机密钥，主机密钥变化需要独立确认。</li><li>打开终端后核对提示符；支持输入、输出、窗口尺寸调整与重连。</li><li>完成后关闭不再需要的终端，避免把旧终端误用于其他目标。</li></ol>",
+          "<ol><li>Enter connection parameters and test them. Check networking, proxies and credentials on failure.</li><li>SSH targets must match a trusted host key. Independently confirm any host key change.</li><li>Open a terminal and verify its prompt. Input, output, resizing and reconnect are supported.</li><li>Close unused terminals to avoid confusing them with another target.</li></ol>"
+        ]
+      },
+      {
+        "id": "s3",
+        "title": [
+          "终端与助手授权",
+          "Terminal and assistant authorization"
+        ],
+        "body": [
+          "<p>手动终端输入是直接操作目标的行为；助手命令则进入助手的校验与审批链路。助手请求打开额外资产终端时，界面会展示终端请求；同意请求可能扩大该会话的资产范围，应核对资产名称和理由。</p>",
+          "<p>Manual terminal input directly operates the target. Assistant commands pass through validation and approval. Requests to open another asset terminal are shown separately; approving one may expand the conversation scope, so check the asset and reason.</p>"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "assistant",
+    "group": [
+      "功能与操作",
+      "Features and operations"
+    ],
+    "title": [
+      "助手、审批与恢复",
+      "Assistant, approvals and recovery"
+    ],
+    "intro": [
+      "保留运行上下文，按实际输出确认执行结果。",
+      "Preserve runtime context and verify execution evidence."
+    ],
+    "sections": [
+      {
+        "id": "s1",
+        "title": [
+          "发起与跟进",
+          "Start and follow up"
+        ],
+        "body": [
+          "<p>发起运行时可选择资产、终端、模型和技能，并附带终端上下文。当前请求模式支持 standard 和 incident。运行中可补充消息或取消；会话记录用于重建多轮上下文。</p><p>流式事件包含消息、命令开始、输出分片、命令结束和错误等。取消请求不等于远端操作已回滚，应再次核对目标状态。</p>",
+          "<p>A run can select an asset, terminal, model and skill, with terminal context attached. Supported request modes are standard and incident. Send follow-up messages or cancel an active run; conversation history reconstructs multi-turn context.</p><p>Events include messages, command start, output chunks, command completion and errors. Cancellation does not imply remote rollback; inspect target state afterward.</p>"
+        ]
+      },
+      {
+        "id": "s2",
+        "title": [
+          "人工审批",
+          "Human approval"
+        ],
+        "body": [
+          "<p>需要审批时运行暂停。审批应核对目标资产、完整命令、工作目录、预期结果与风险，再选择同意或拒绝。审批请求绑定 runtime 和审批令牌；需要调整方案时可提供指导。</p><p>前缀信任与自动审批规则会改变后续命令的授权范围，应限制资产类型、标签、命令和风险，不应把一次同意理解为无范围限制的授权。</p><img src=\"/assets/approval-zh.svg\" alt=\"命令校验、审批、执行和结果流程\">",
+          "<p>A run pauses when approval is needed. Check the asset, full command, working directory, expected result and risk before approving or rejecting. Decisions bind to a runtime and approval token; include guidance when the plan needs adjustment.</p><p>Prefix trust and automatic approval rules affect future authorization. Constrain asset types, tags, commands and risk; one approval is not unrestricted authority.</p><img src=\"/assets/approval-en.svg\" alt=\"Validation, approval, execution and result flow\">"
+        ]
+      },
+      {
+        "id": "s3",
+        "title": [
+          "断线与进程重启",
+          "Disconnection and restart"
+        ],
+        "body": [
+          "<p>断线后先读取运行快照，再按事件序号获取遗漏事件或重连事件流，避免重复发起相同命令。服务启动会恢复持久化运行的状态；这不代表进程重启后原有终端命令会无缝继续。</p><p>HTTP 200 只表示流已建立，执行中仍可能产生 error 事件。会话持久化状态失败时，应保留当前输出并排查存储问题。</p>",
+          "<p>After disconnection, read the runtime snapshot and fetch missed events by sequence or reconnect the stream. Avoid submitting the same command again. Startup recovers persisted runtime state; this does not guarantee an interrupted terminal command resumes seamlessly.</p><p>HTTP 200 only establishes the stream; execution can still emit an error event. If conversation persistence fails, retain current output and investigate storage.</p>"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "models",
+    "group": [
+      "配置与扩展",
+      "Configuration and extensions"
+    ],
+    "title": [
+      "模型与提示词",
+      "Models and prompts"
+    ],
+    "intro": [
+      "按实际支持的协议配置网关。",
+      "Configure the gateway using the supported protocol."
+    ],
+    "sections": [
+      {
+        "id": "s1",
+        "title": [
+          "模型配置",
+          "Model configuration"
+        ],
+        "body": [
+          "<p>当前只支持 CC Switch Messages 路由，provider 必须为 anthropic。这里的 provider 表示线协议，模型标识由网关提供；不要把它理解成可任选其他 API 协议。</p><p>填写名称、base_url、api_key、model_name、超时、temperature 和 max_tokens。管理 API 支持连接测试、模型发现、默认配置切换和删除；删除前先确认是否仍被使用。</p>",
+          "<p>The current implementation supports the CC Switch Messages route only, with provider set to anthropic. Provider identifies the wire protocol; the gateway supplies the model identifier. Other API protocols cannot be selected interchangeably.</p><p>Set name, base_url, api_key, model_name, timeout, temperature and max_tokens. Management APIs support connection testing, model discovery, default selection and deletion. Check active usage before deleting a configuration.</p>"
+        ]
+      },
+      {
+        "id": "s2",
+        "title": [
+          "默认值与环境变量",
+          "Defaults and environment overrides"
+        ],
+        "body": [
+          "<p>无默认数据库配置时可读取本地设置及环境默认值。OPS_AGENT_PROVIDER、OPS_AGENT_MODEL、OPS_AGENT_BASE_URL、OPS_AGENT_API_KEY 用于相应模型设置；OPS_AGENT_TIMEOUT_SECONDS、OPS_AGENT_TEMPERATURE、OPS_AGENT_MAX_TOKENS 控制环境默认值。已保存的默认模型配置应在管理界面核对。</p><p>返回给界面的 API key 为掩码。不要将密钥写进提示词、知识库或排错截图。</p>",
+          "<p>Without a default database configuration, local settings and environment defaults are available. OPS_AGENT_PROVIDER, OPS_AGENT_MODEL, OPS_AGENT_BASE_URL and OPS_AGENT_API_KEY configure model settings; OPS_AGENT_TIMEOUT_SECONDS, OPS_AGENT_TEMPERATURE and OPS_AGENT_MAX_TOKENS control environment defaults. Check saved default configurations in model management.</p><p>The UI receives a masked API key. Keep keys out of prompts, knowledge entries and diagnostic screenshots.</p>"
+        ]
+      },
+      {
+        "id": "s3",
+        "title": [
+          "提示词管理",
+          "Prompt management"
+        ],
+        "body": [
+          "<p>提示词设置提供读取、更新、预览和重置能力。调整提示词时明确目标、可操作资产、约束和验收标准。提示词不能替代命令审批，也不能保证模型始终遵循指令；验证时仍应检查实际工具事件和执行结果。</p>",
+          "<p>Prompt settings support reading, updates, preview and reset. State the goal, allowed assets, constraints and acceptance criteria. Prompts do not replace command approval or guarantee model compliance; verify tool events and execution results.</p>"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "extensions",
+    "group": [
+      "配置与扩展",
+      "Configuration and extensions"
+    ],
+    "title": [
+      "技能、插件与 MCP",
+      "Skills, plugins and MCP"
+    ],
+    "intro": [
+      "为运维任务提供可发现、可检查的扩展能力。",
+      "Discover and inspect extensions for operational tasks."
+    ],
+    "sections": [
+      {
+        "id": "s1",
+        "title": [
+          "技能与运维插件",
+          "Skills and operations plugins"
+        ],
+        "body": [
+          "<p>技能列表包含名称、说明、有效性、错误和更新时间，可在助手运行时选择技能。技能提供任务指导，并不自动获得执行授权。</p><p>运维插件列表显示来源、版本、有效状态和工具输入 Schema；重新加载后检查错误信息。内置插件包含 Linux 运维工具。工具适用资产类型和参数约束应在使用前确认，插件命令仍受终端授权和审批约束。</p>",
+          "<p>Skill listings include names, descriptions, validity, errors and update time. Select a skill for an assistant run. Skills provide guidance, not execution authority.</p><p>Operations plugins expose source, version, validity and tool input schemas. Reload and inspect errors after changes. Built-in plugins include Linux operations tools. Check supported asset types and inputs; plugin commands remain subject to terminal authorization and approval.</p>"
+        ]
+      },
+      {
+        "id": "s2",
+        "title": [
+          "配置 MCP",
+          "Configure MCP"
+        ],
+        "body": [
+          "<ol><li>新增服务并选择 stdio 或 http_sse 传输。</li><li>填写所需启动参数或远端连接配置，敏感信息通过配置管理。</li><li>测试服务，再刷新工具发现结果。</li><li>检查工具说明、参数、启用状态和审批策略后再供助手使用。</li></ol><p>stdio 程序在后端环境运行；容器内必须存在相应程序和依赖。HTTP/SSE 的可达性也应从后端环境验证。</p>",
+          "<ol><li>Add a server using stdio or http_sse transport.</li><li>Configure startup arguments or the remote connection; handle secrets through configuration management.</li><li>Test the server and refresh tool discovery.</li><li>Review descriptions, inputs, enabled status and approval policy before use.</li></ol><p>stdio programs run in the backend environment, so the container must contain the executable and dependencies. Verify HTTP/SSE connectivity from that environment too.</p>"
+        ]
+      },
+      {
+        "id": "s3",
+        "title": [
+          "排查扩展问题",
+          "Troubleshoot extensions"
+        ],
+        "body": [
+          "<p>先检查服务或插件是否有效、启用以及工具是否成功发现，再检查参数与目标资产类型。工具发现成功只说明协议层可交互，并不证明实际运维动作可执行或目标权限足够。</p>",
+          "<p>Check validity, enabled state and tool discovery first, then inputs and asset compatibility. Successful discovery verifies protocol interaction, not target permissions or the success of an operational action.</p>"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "knowledge",
+    "group": [
+      "功能与操作",
+      "Features and operations"
+    ],
+    "title": [
+      "知识库",
+      "Knowledge base"
+    ],
+    "intro": [
+      "将已验证的排错过程整理为可复用知识。",
+      "Turn verified troubleshooting into reusable knowledge."
+    ],
+    "sections": [
+      {
+        "id": "s1",
+        "title": [
+          "从会话生成",
+          "Generate from a conversation"
+        ],
+        "body": [
+          "<ol><li>选择有实际结论的会话，生成知识草稿。</li><li>复核问题、诊断、解决方法以及命令的目的和结果。</li><li>检查引用的会话事件、资产与标签，处理脱敏提示。</li><li>确认内容准确后保存；生成草稿本身不等于知识已保存。</li></ol>",
+          "<ol><li>Select a conversation with verified findings and generate a draft.</li><li>Review the problem, diagnosis, resolution, command purposes and outcomes.</li><li>Check referenced events, assets and tags, and resolve redaction warnings.</li><li>Save after review. Draft generation is not the same as saving an entry.</li></ol>"
+        ]
+      },
+      {
+        "id": "s2",
+        "title": [
+          "搜索与维护",
+          "Search and maintain"
+        ],
+        "body": [
+          "<p>支持查询、分页、查看、编辑和删除知识条目，也可重建索引。重建后检查 indexed 和 failed 数量。当前模型服务不调用独立 embedding 提供方，检索可使用词法回退；不要据此承诺外部向量服务已配置。</p><p>更新知识时区分已验证事实和推断。执行过的命令仅是历史证据，复用时仍需核对目标和审批。</p>",
+          "<p>Search, paginate, read, edit and delete entries, or rebuild the index. Inspect indexed and failed counts afterward. The current model service does not call a separate embedding provider; retrieval can use lexical fallback. Do not assume an external vector service is configured.</p><p>Separate verified facts from inference. Recorded commands are historical evidence; recheck targets and approvals before reuse.</p>"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "automation",
+    "group": [
+      "功能与操作",
+      "Features and operations"
+    ],
+    "title": [
+      "定时任务与告警",
+      "Scheduled jobs and alerts"
+    ],
+    "intro": [
+      "按间隔巡检，并保留人工处理入口。",
+      "Run interval-based inspections with human follow-up."
+    ],
+    "sections": [
+      {
+        "id": "s1",
+        "title": [
+          "配置任务",
+          "Configure a job"
+        ],
+        "body": [
+          "<p>任务字段包括名称、资产、提示词、间隔秒数和启用状态。默认间隔为 3600 秒，最小为 60 秒；使用间隔调度而非 cron 表达式。名称和提示词不能为空，资产必须存在。</p><p>可编辑、禁用、删除或手动触发任务。已排队或运行中的任务再次触发会返回 409，避免反复点击。</p>",
+          "<p>A job contains a name, asset, prompt, interval in seconds and enabled state. The default interval is 3600 seconds and the minimum is 60. Scheduling is interval-based, not a cron expression. Name and prompt must be nonempty, and the asset must exist.</p><p>Edit, disable, delete or manually trigger a job. Triggering an already queued or running job returns 409; do not repeatedly submit it.</p>"
+        ]
+      },
+      {
+        "id": "s2",
+        "title": [
+          "审批与结果",
+          "Approvals and results"
+        ],
+        "body": [
+          "<p>调度通过助手运行完成任务。遇到待审批命令时会暂停并进入等待审批状态，不会因为是定时任务就跳过审批。应检查关联运行和会话中的事件与结果。</p><img src=\"/assets/schedule-zh.svg\" alt=\"调度、助手、审批与告警流程\">",
+          "<p>Jobs execute through assistant runs. A command requiring approval pauses the job; scheduling does not bypass human approval. Inspect the linked runtime and conversation events for results.</p><img src=\"/assets/schedule-en.svg\" alt=\"Scheduling, assistant, approval and alert flow\">"
+        ]
+      },
+      {
+        "id": "s3",
+        "title": [
+          "告警处理",
+          "Handle alerts"
+        ],
+        "body": [
+          "<p>告警包含严重级别、标题、消息、资产以及关联任务、运行或会话。支持按状态查询和 SSE 更新。状态仅接受 unread、resolved、ignored。</p><p>处理告警前查看原始运行证据；标记 resolved 只更新告警状态，并不会自动修复目标机器。</p>",
+          "<p>Alerts include severity, title, message, asset and optional job, runtime or conversation links. Filter by status or receive SSE updates. Allowed statuses are unread, resolved and ignored.</p><p>Review the original run evidence first. Setting resolved updates alert status; it does not repair the target machine.</p>"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "integrations",
+    "group": [
+      "功能与操作",
+      "Features and operations"
+    ],
+    "title": [
+      "JumpServer 与网络拓扑",
+      "JumpServer and network topology"
+    ],
+    "intro": [
+      "连接已有资产入口，保存网络采集快照。",
+      "Integrate asset access and retain network snapshots."
+    ],
+    "sections": [
+      {
+        "id": "s1",
+        "title": [
+          "JumpServer",
+          "JumpServer"
+        ],
+        "body": [
+          "<p>新增或修改 JumpServer 实例后先测试连接，再同步资产。查看同步资产绑定，为所需资产选择账号。同步结果应通过资产列表和实际连接分别确认；同步成功不等于所有账号具备连接权限。</p><p>配置权限、网络路径和凭据均由实际 JumpServer 环境决定。不要把实例密钥或账号凭据写进操作记录。</p>",
+          "<p>Test a JumpServer instance after creating or editing it, then synchronize assets. Inspect asset bindings and select an account for each required asset. Verify both the asset list and actual connectivity; synchronization does not prove every account can connect.</p><p>Permissions, network paths and credentials depend on the JumpServer environment. Keep instance secrets and account credentials out of operational notes.</p>"
+        ]
+      },
+      {
+        "id": "s2",
+        "title": [
+          "拓扑快照",
+          "Topology snapshots"
+        ],
+        "body": [
+          "<p>选择至少一个资产创建快照，可指定名称和 maxConcurrency；默认并发为 4，允许 1–8。API 提供快照列表与详情。采集会连接目标设备，应先确认资产范围和访问权限。</p><p>快照反映采集当时可获得的信息，不是持续实时发现。缺失节点或连接时，应检查设备可达性、类型、命令支持和采集错误。</p>",
+          "<p>Select at least one asset to collect a snapshot, with an optional name and maxConcurrency. Default concurrency is 4, with a range of 1–8. APIs list snapshots and return details. Collection connects to devices, so confirm scope and permissions first.</p><p>A snapshot reflects data available at collection time, not continuous discovery. For missing nodes or links, check reachability, device type, command support and collection errors.</p>"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "configuration",
+    "group": [
+      "配置与扩展",
+      "Configuration and extensions"
+    ],
+    "title": [
+      "运行配置",
+      "Runtime configuration"
+    ],
+    "intro": [
+      "区分开发环境、生产环境与桌面环境。",
+      "Distinguish development, production and desktop settings."
+    ],
+    "sections": [
+      {
+        "id": "s1",
+        "title": [
+          "核心环境变量",
+          "Core environment variables"
+        ],
+        "body": [
+          "<table><tr><th>变量</th><th>作用</th></tr><tr><td>OPS_AGENT_ENV</td><td>production 启用生产配置校验，并关闭后端内置文档入口。</td></tr><tr><td>OPS_AGENT_DATA_DIR</td><td>持久化目录；保存数据库和运行所需的文件数据。</td></tr><tr><td>OPS_AGENT_SECRET_KEY</td><td>凭据加密密钥；生产至少 32 字符，必须稳定保管。</td></tr><tr><td>OPS_AGENT_API_TOKEN</td><td>API 访问令牌；生产至少 32 字符且不得与加密密钥相同。</td></tr><tr><td>OPS_AGENT_AUTH_DISABLED</td><td>开发环境可关闭认证；生产明确禁止。</td></tr><tr><td>OPS_AGENT_ALLOWED_HOSTS</td><td>允许的 Host，逗号分隔；生产必须配置。</td></tr><tr><td>OPS_AGENT_CORS_ORIGINS</td><td>浏览器跨源来源白名单，逗号分隔。</td></tr><tr><td>OPS_AGENT_KNOWN_HOSTS_FILE</td><td>受信任 SSH 主机密钥文件。</td></tr></table>",
+          "<table><tr><th>Variable</th><th>Purpose</th></tr><tr><td>OPS_AGENT_ENV</td><td>production enables production validation and disables built-in backend documentation endpoints.</td></tr><tr><td>OPS_AGENT_DATA_DIR</td><td>Persistent directory for database and runtime file data.</td></tr><tr><td>OPS_AGENT_SECRET_KEY</td><td>Credential encryption key; at least 32 characters in production. Retain it securely.</td></tr><tr><td>OPS_AGENT_API_TOKEN</td><td>API access token; at least 32 characters in production and different from the encryption key.</td></tr><tr><td>OPS_AGENT_AUTH_DISABLED</td><td>May disable authentication in development; forbidden in production.</td></tr><tr><td>OPS_AGENT_ALLOWED_HOSTS</td><td>Comma-separated Host allowlist; required in production.</td></tr><tr><td>OPS_AGENT_CORS_ORIGINS</td><td>Comma-separated browser origin allowlist.</td></tr><tr><td>OPS_AGENT_KNOWN_HOSTS_FILE</td><td>Trusted SSH host key file.</td></tr></table>"
+        ]
+      },
+      {
+        "id": "s2",
+        "title": [
+          "限制与监听",
+          "Limits and listeners"
+        ],
+        "body": [
+          "<p>OPS_AGENT_MAX_REQUEST_BYTES 默认 2097152，OPS_AGENT_MAX_CONCURRENCY 默认 64。开发后端使用 OPS_AGENT_HOST、OPS_AGENT_PORT 和 OPS_AGENT_RELOAD 控制监听与热加载。项目本地开发对外端口统一使用 30000 以上，并绑定 0.0.0.0。</p><p>开发 Compose 的主机映射默认是后端 38082、前端 35174；这些映射与容器内部端口不同。改端口时同步核对反向代理与前端 API 配置。</p>",
+          "<p>OPS_AGENT_MAX_REQUEST_BYTES defaults to 2097152 and OPS_AGENT_MAX_CONCURRENCY to 64. OPS_AGENT_HOST, OPS_AGENT_PORT and OPS_AGENT_RELOAD control backend development binding and reload. Local development host ports must exceed 30000 and bind to 0.0.0.0.</p><p>Development Compose maps backend port 38082 and frontend port 35174 on the host by default. These differ from container-internal ports. Check reverse proxy and frontend API settings when changing them.</p>"
+        ]
+      },
+      {
+        "id": "s3",
+        "title": [
+          "桌面连接",
+          "Desktop connectivity"
+        ],
+        "body": [
+          "<p>桌面前端优先使用桌面壳提供的后端地址；浏览器使用构建配置或同源代理。不要在桌面版本里硬编码浏览器部署地址。桌面后端数据目录和普通开发目录可能不同，排错和备份时先确认实际目录。</p>",
+          "<p>The desktop frontend prefers the backend endpoint provided by its shell. Browser builds use build configuration or a same-origin proxy. Do not hardcode a browser deployment endpoint into desktop builds. Desktop data may use a different directory; confirm it before diagnostics or backups.</p>"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "deployment",
+    "group": [
+      "部署与维护",
+      "Deployment and maintenance"
+    ],
+    "title": [
+      "部署、升级与备份",
+      "Deploy, upgrade and back up"
+    ],
+    "intro": [
+      "以独立持久化数据和可验证的恢复过程维护服务。",
+      "Maintain persistent data and a verifiable recovery process."
+    ],
+    "sections": [
+      {
+        "id": "s1",
+        "title": [
+          "本地容器开发",
+          "Local container development"
+        ],
+        "body": [
+          "<p>准备 Docker Compose 和已安全注入的加密密钥，再启动现有开发栈。前后端采用目录挂载，后端自动重载、前端热更新。</p><pre><code>docker compose up -d --build\ndocker compose ps\ndocker compose logs --tail=100 backend frontend</code></pre><p>用后端 /health、/ready 以及前端页面分别核对存活、凭据存储就绪和前端可达性；这些检查不能代替一次真实助手操作验收。</p>",
+          "<p>Prepare Docker Compose and securely supply the encryption key before starting the development stack. Directory mounts enable backend reload and frontend hot updates.</p><pre><code>docker compose up -d --build\ndocker compose ps\ndocker compose logs --tail=100 backend frontend</code></pre><p>Check /health, /ready and the frontend separately for liveness, credential-store readiness and frontend access. These checks do not replace an actual assistant workflow validation.</p>"
+        ]
+      },
+      {
+        "id": "s2",
+        "title": [
+          "生产部署",
+          "Production deployment"
+        ],
+        "body": [
+          "<p>准备独立且足够长度的加密密钥与 API 令牌、允许的 Host、TLS 证书和私钥、受信任 SSH 主机密钥文件。生产 Compose 使用持久卷、只读根文件系统和 TLS 前端入口。允许的 Host 需覆盖实际访问主机与健康检查所用的 backend。</p><pre><code>docker compose -f docker-compose.production.yml config --quiet\ndocker compose -f docker-compose.production.yml up -d --build\ndocker compose -f docker-compose.production.yml ps</code></pre><p>开发栈关闭认证的设置不得搬到生产。实际部署前还需完成目标环境的证书、权限、依赖和安装包验收；存在部署配置不代表已经具备生产发布证据。</p>",
+          "<p>Prepare distinct encryption and API secrets of sufficient length, allowed Hosts, TLS certificate and private key, and trusted SSH host keys. Production Compose uses persistent storage, read-only root filesystems and a TLS frontend. Include the actual access host and backend used by health checks in the allowlist.</p><pre><code>docker compose -f docker-compose.production.yml config --quiet\ndocker compose -f docker-compose.production.yml up -d --build\ndocker compose -f docker-compose.production.yml ps</code></pre><p>Do not carry disabled development authentication into production. Validate certificates, permissions, dependencies and installed packages in the target environment; deployment configuration alone is not release evidence.</p>"
+        ]
+      },
+      {
+        "id": "s3",
+        "title": [
+          "备份、升级与恢复",
+          "Backup, upgrade and recovery"
+        ],
+        "body": [
+          "<ol><li>记录当前版本、镜像标签、运行配置和数据目录。</li><li>暂停写入或停止服务，备份完整数据目录、数据库及独立保管的加密密钥；不要只复制运行中的 SQLite 主文件。</li><li>保留旧镜像和配置，升级后检查 /ready、凭据可解密性、会话与一次授权测试操作。</li><li>出现数据兼容问题时停止写入，按匹配版本恢复数据与密钥，再启动旧版本。</li></ol><p>迁移备份恢复工具会先校验备份；只有服务已停止且明确给出 --confirm 才替换数据。迁移备份不是完整数据目录备份的替代品。恢复演练应使用隔离目录，不能直接覆盖当前工作数据。</p>",
+          "<ol><li>Record the version, image tag, configuration and data directory.</li><li>Pause writes or stop the service, then back up the full data directory, database and separately secured encryption key. Do not copy only a live SQLite main file.</li><li>Retain the old image and configuration. After upgrading, verify /ready, credential decryption, conversations and an authorized test operation.</li><li>On compatibility failure, stop writes, restore data and keys matching the old version, and start that version.</li></ol><p>The migration-backup restore utility verifies the backup before replacement and requires a stopped service plus explicit --confirm. Migration backups do not replace full data-directory backups. Rehearse recovery with isolated data, never by overwriting active work.</p>"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "desktop",
+    "group": [
+      "部署与维护",
+      "Deployment and maintenance"
+    ],
+    "title": [
+      "桌面打包与验收",
+      "Desktop packaging and validation"
+    ],
+    "intro": [
+      "桌面壳、后端二进制与前端一起交付。",
+      "Deliver the shell, backend binary and frontend together."
+    ],
+    "sections": [
+      {
+        "id": "s1",
+        "title": [
+          "构建准备",
+          "Build prerequisites"
+        ],
+        "body": [
+          "<p>准备 Python 环境、项目依赖、Node/pnpm、Rust 与目标平台的 Tauri 系统依赖。打包过程构建后端二进制并将其纳入桌面资源。跨平台参数选择目标配置，不代表单台主机具备所有平台工具链。</p><pre><code>./scripts/build_desktop_bundle.sh macos\n./scripts/build_desktop_bundle.sh linux\n./scripts/build_desktop_bundle.sh windows</code></pre>",
+          "<p>Prepare Python and project dependencies, Node/pnpm, Rust and platform-specific Tauri requirements. Packaging builds a backend binary and includes it as a desktop resource. A platform argument selects the target configuration; it does not supply every cross-platform toolchain.</p><pre><code>./scripts/build_desktop_bundle.sh macos\n./scripts/build_desktop_bundle.sh linux\n./scripts/build_desktop_bundle.sh windows</code></pre>"
+        ]
+      },
+      {
+        "id": "s2",
+        "title": [
+          "验收层次",
+          "Validation layers"
+        ],
+        "body": [
+          "<p>前端构建、Rust 编译检查、后端二进制冒烟测试和已安装应用验收是不同层次。需要验证首次启动、后端进程连接、模型配置、终端、审批、退出和再次打开；桌面发布还应核对平台签名、macOS 公证和更新清单签名。</p><pre><code>cd web\npnpm build\ncd src-tauri\ncargo check</code></pre>",
+          "<p>Frontend build, Rust compile checks, backend binary smoke tests and installed-application validation are different layers. Verify initial startup, backend connection, model setup, terminal, approval, shutdown and reopening. Release checks also include platform signing, macOS notarization and signed updater manifests.</p><pre><code>cd web\npnpm build\ncd src-tauri\ncargo check</code></pre>"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "streaming",
+    "group": [
+      "API 参考",
+      "API reference"
+    ],
+    "title": [
+      "认证、SSE 与 WebSocket",
+      "Authentication, SSE and WebSocket"
+    ],
+    "intro": [
+      "HTTP Schema 之外的流式协议说明。",
+      "Streaming contracts beyond the HTTP schema."
+    ],
+    "sections": [
+      {
+        "id": "s1",
+        "title": [
+          "HTTP 认证",
+          "HTTP authentication"
+        ],
+        "body": [
+          "<p>启用认证时发送 Authorization: Bearer &lt;token&gt;。/health、/ready、/api/auth/status 为公开路径；/api/auth/verify 用于验证令牌。生产环境关闭内置 /docs、/redoc 和 /openapi.json，本文档 提供独立静态规范。</p><p>Swagger 阅读器禁用请求执行，避免将文档站误当成实际后端。使用自己的 API 客户端连接已确认的目标环境。</p>",
+          "<p>When authentication is enabled, send Authorization: Bearer &lt;token&gt;. /health, /ready and /api/auth/status are public; /api/auth/verify validates the token. Production disables built-in /docs, /redoc and /openapi.json; this documentation includes an independent static specification.</p><p>The Swagger viewer disables request execution so the documentation server cannot be mistaken for the backend. Use your API client against the confirmed target environment.</p>"
+        ]
+      },
+      {
+        "id": "s2",
+        "title": [
+          "助手 SSE",
+          "Assistant SSE"
+        ],
+        "body": [
+          "<p>POST /api/console/run 与 POST /api/console/approval 返回 text/event-stream。每条事件由可选 id、event 和 JSON data 行组成，空行分隔。event 通常对应 data.kind。客户端必须增量处理字节块，不能假定一次读取就是完整事件。</p><pre><code>event: command_start\ndata: {\"kind\":\"command_start\",\"id\":\"example\"}\n\n</code></pre><p>示例仅展示帧结构，不是完整执行结果。按 runtimeId、sequence 与 eventId 去重，使用 /api/console/runtimes/{runtime_id}/snapshot 和 /events?since= 获取状态，通过 POST /reconnect 恢复流。流中 error 事件和 HTTP 建流失败应分别处理。</p>",
+          "<p>POST /api/console/run and POST /api/console/approval return text/event-stream. Events contain optional id, event and JSON data lines separated by a blank line. The event name normally matches data.kind. Parse incrementally; one network chunk is not necessarily one event.</p><pre><code>event: command_start\ndata: {\"kind\":\"command_start\",\"id\":\"example\"}\n\n</code></pre><p>This illustrates framing only, not a complete execution result. Deduplicate using runtimeId, sequence and eventId. Read /api/console/runtimes/{runtime_id}/snapshot and /events?since=, then POST /reconnect to resume streaming. Handle error events separately from HTTP connection failures.</p>"
+        ]
+      },
+      {
+        "id": "s3",
+        "title": [
+          "终端 WebSocket",
+          "Terminal WebSocket"
+        ],
+        "body": [
+          "<p>先通过 POST /api/terminal/sessions 创建终端，再连接 /api/terminal/sessions/{terminal_id}/ws。认证支持 Bearer 头，浏览器需同时声明 ops-agent 子协议，并通过 token.&lt;base64url-token&gt; 子协议传递令牌，切勿把令牌放进 URL 或日志。</p><p>客户端发送 input（data）、resize（cols、rows）或 ping；服务端发送 output（data）、error（message）或 pong。关闭终端使用 DELETE /api/terminal/sessions/{terminal_id}。WebSocket 不属于 OpenAPI 的 HTTP 操作列表。</p>",
+          "<p>Create a terminal with POST /api/terminal/sessions, then connect to /api/terminal/sessions/{terminal_id}/ws. Authentication supports a Bearer header; browser clients must offer the ops-agent subprotocol alongside a token.&lt;base64url-token&gt; subprotocol. Keep tokens out of URLs and logs.</p><p>Clients send input (data), resize (cols, rows) or ping; the server sends output (data), error (message) or pong. Delete the terminal through DELETE /api/terminal/sessions/{terminal_id}. WebSocket is outside the OpenAPI HTTP operation list.</p>"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "api",
+    "group": [
+      "API 参考",
+      "API reference"
+    ],
+    "title": [
+      "Swagger / OpenAPI",
+      "Swagger / OpenAPI"
+    ],
+    "intro": [
+      "从当前后端路由导出的可展开接口规范。",
+      "Expandable API specification exported from current backend routes."
+    ],
+    "sections": [
+      {
+        "id": "s1",
+        "title": [
+          "使用接口参考",
+          "Use the reference"
+        ],
+        "body": [
+          "<p>这里展示请求参数、请求体、响应与数据模型。控制台手工解析的请求体、SSE 响应类型和中间件认证已在导出时补充。部分动态字典响应仍保持后端实际声明的宽泛类型，请结合流式协议说明使用。</p><p><a href=\"/assets/openapi.json\" download>下载 OpenAPI JSON</a> · <a href=\"/swagger.html\" target=\"_blank\" rel=\"noopener\">在独立页面打开 Swagger</a></p><iframe title=\"Ops Agent Swagger API\" src=\"/swagger.html\"></iframe>",
+          "<p>Explore parameters, bodies, responses and models. Export supplements manually parsed console bodies, SSE media types and middleware authentication. Some dynamic dictionary responses retain the broad types declared by the backend; use the streaming guide alongside them.</p><p><a href=\"/assets/openapi.json\" download>Download OpenAPI JSON</a> · <a href=\"/swagger.html\" target=\"_blank\" rel=\"noopener\">Open Swagger separately</a></p><iframe title=\"Ops Agent Swagger API\" src=\"/swagger.html\"></iframe>"
+        ]
+      }
+    ]
+  },
+  {
+    "id": "troubleshooting",
+    "group": [
+      "部署与维护",
+      "Deployment and maintenance"
+    ],
+    "title": [
+      "诊断与常见问题",
+      "Diagnostics and troubleshooting"
+    ],
+    "intro": [
+      "从具体失败层次开始排查。",
+      "Start with the layer that actually failed."
+    ],
+    "sections": [
+      {
+        "id": "s1",
+        "title": [
+          "启动或访问失败",
+          "Startup or access failure"
+        ],
+        "body": [
+          "<dl><dt>401</dt><dd>检查 API 令牌和认证状态，确认客户端连接的是预期后端。</dd><dt>Host 校验失败</dt><dd>核对允许的 Host 与代理转发的 Host；CORS 来源白名单不能替代 Host 配置。</dd><dt>/health 成功但 /ready 失败</dt><dd>检查数据库访问和凭据解密，确认加密密钥与现有数据一致；不要通过更换密钥掩盖问题。</dd><dt>请求体过大或并发受限</dt><dd>检查请求大小与并发配置，缩小上下文并减少重复请求。</dd></dl>",
+          "<dl><dt>401</dt><dd>Check the API token and authentication state, and confirm the backend target.</dd><dt>Host validation failure</dt><dd>Compare allowed Hosts with proxy forwarding. A CORS allowlist does not replace Host configuration.</dd><dt>/health succeeds but /ready fails</dt><dd>Check database access and credential decryption. Preserve the encryption key matching existing data.</dd><dt>Request size or concurrency limit</dt><dd>Check configured limits, reduce context and avoid duplicate requests.</dd></dl>"
+        ]
+      },
+      {
+        "id": "s2",
+        "title": [
+          "模型、终端或流式输出失败",
+          "Model, terminal or stream failure"
+        ],
+        "body": [
+          "<ul><li>模型：检查 CC Switch Messages 协议、模型标识、网关可达性、密钥和超时。</li><li>SSH：检查主机密钥、网络路径、代理、认证方式与目标权限。</li><li>SSE 无输出：检查反向代理缓冲、连接超时和认证头；读取 runtime 快照区分等待审批、执行中和已结束。</li><li>重复事件：按运行和事件序号去重，不要重复执行工具。</li><li>定时任务没结束：查看是否等待人工审批，确认关联告警和会话。</li></ul>",
+          "<ul><li>Model: verify CC Switch Messages protocol, model identifier, gateway reachability, key and timeout.</li><li>SSH: verify host keys, network path, proxy, authentication and target permissions.</li><li>No SSE output: inspect proxy buffering, timeout and auth headers; read the runtime snapshot to distinguish approval waits, execution and completion.</li><li>Duplicate events: deduplicate by runtime and sequence; never re-execute a tool merely to rebuild the UI.</li><li>Job not finishing: inspect pending approval, associated alerts and the conversation.</li></ul>"
+        ]
+      },
+      {
+        "id": "s3",
+        "title": [
+          "诊断与审计",
+          "Diagnostics and audit"
+        ],
+        "body": [
+          "<p>/api/system/runtime-health 提供运行健康信息，/api/system/diagnostics 提供诊断数据，/api/system/audit-logs 用于查看审计。收集错误时记录时间、运行标识、失败操作和状态码，分享前去除令牌、密码、私钥和敏感输出。</p><p>健康检查通过、页面可访问、接口可调用、真实命令执行成功是不同结论。本文档 的生成不代表所有外部集成或生产环境已验收。</p>",
+          "<p>/api/system/runtime-health reports runtime health, /api/system/diagnostics provides diagnostic information, and /api/system/audit-logs exposes audit records. Record timestamps, runtime identifiers, failed operations and status codes; remove tokens, passwords, private keys and sensitive output before sharing.</p><p>Health checks, page access, API access and successful real commands are distinct results. This documentation does not certify every external integration or production environment.</p>"
+        ]
+      }
+    ]
+  }
+]

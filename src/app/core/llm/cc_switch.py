@@ -3,7 +3,7 @@ from app.shared.enums import ModelProvider
 
 PROVIDER = ModelProvider.ANTHROPIC
 DEFAULT_BASE_URL = "http://127.0.0.1:15721"
-DEFAULT_MODEL = "gpt-5.6-sol"
+DEFAULT_MODEL = ""
 LOCAL_API_KEY = "cc-switch-local"
 
 

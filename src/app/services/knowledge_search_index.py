@@ -65,10 +65,6 @@ class KnowledgeSearchIndex:
             with connection:
                 connection.execute("DELETE FROM knowledge_index")
                 for entry in entries:
-                    if not entry.embedding:
-                        # Skip if there's no embedding stored in the JSON document
-                        failed += 1
-                        continue
                     savepoint = f"entry_{indexed + failed}"
                     connection.execute(f"SAVEPOINT {savepoint}")
                     try:
@@ -87,7 +83,7 @@ class KnowledgeSearchIndex:
                                 entry.source_conversation.id,
                                 asset_ids,
                                 tags,
-                                array('f', entry.embedding).tobytes(),
+                                array('f', entry.embedding or []).tobytes(),
                             ),
                         )
                     except Exception:

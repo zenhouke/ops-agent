@@ -16,7 +16,9 @@ from app.api.schemas import (
     KnowledgeSourceConversationView,
     KnowledgeSourceRefView,
 )
-from app.services.knowledge_factory import get_knowledge_service
+from app.services.knowledge_factory import get_knowledge_service, get_knowledge_extraction_service
+from app.services.knowledge_models import KnowledgeExtractionJob
+from pydantic import BaseModel
 from app.services.knowledge_models import (
     KnowledgeAssetRef,
     KnowledgeCommand,
@@ -28,9 +30,92 @@ from app.services.knowledge_models import (
     KnowledgeSourceConversation,
     KnowledgeSourceRef,
 )
-from app.services.knowledge_service import KnowledgeConversationNotFoundError, RecoverableKnowledgeServiceError
+from app.services.knowledge_service import KnowledgeConversationNotFoundError, RecoverableKnowledgeServiceError, KnowledgeVersionConflictError
 
 router = APIRouter()
+
+
+class KnowledgeExtractionStatus(BaseModel):
+    job: KnowledgeExtractionJob | None = None
+    entries: list[KnowledgeEntryView]
+
+
+@router.post("/api/knowledge/extractions/{conversation_id}", response_model=KnowledgeExtractionJob, status_code=202)
+def start_knowledge_extraction(conversation_id: str, payload: KnowledgeGenerateDraftRequest) -> KnowledgeExtractionJob:
+    try:
+        return get_knowledge_extraction_service().submit(conversation_id, max_source_events=payload.maxSourceEvents, model_name=payload.modelName)
+    except KnowledgeConversationNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=str(exc)) from exc
+    except RecoverableKnowledgeServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="会话参数无效。") from exc
+
+
+@router.get("/api/knowledge/extractions/{conversation_id}", response_model=KnowledgeExtractionStatus)
+def knowledge_extraction_status(conversation_id: str) -> KnowledgeExtractionStatus:
+    return KnowledgeExtractionStatus(
+        job=get_knowledge_extraction_service().latest(conversation_id),
+        entries=[_entry_to_view(entry) for entry in get_knowledge_service().linked_entries(conversation_id)],
+    )
+
+
+class KnowledgeMarkdownView(BaseModel):
+    markdown: str
+
+
+class KnowledgeVersionView(BaseModel):
+    id: str
+    updatedAt: str
+    title: str
+
+
+class KnowledgeVersionPreview(BaseModel):
+    markdown: str
+    diff: str
+    currentUpdatedAt: str
+
+
+class KnowledgeRestoreRequest(BaseModel):
+    expectedUpdatedAt: str
+
+
+@router.get("/api/knowledge/{entry_id}/versions", response_model=list[KnowledgeVersionView])
+def knowledge_versions(entry_id: str) -> list[KnowledgeVersionView]:
+    try:
+        return [KnowledgeVersionView(**item) for item in get_knowledge_service().versions(entry_id)]
+    except (ValueError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail="知识文件不存在") from exc
+
+
+@router.get("/api/knowledge/{entry_id}/versions/{version_id}", response_model=KnowledgeVersionPreview)
+def knowledge_version_preview(entry_id: str, version_id: str) -> KnowledgeVersionPreview:
+    try:
+        return KnowledgeVersionPreview(**get_knowledge_service().version_preview(entry_id, version_id))
+    except (ValueError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail="知识版本不存在") from exc
+
+
+@router.post("/api/knowledge/{entry_id}/versions/{version_id}/restore", response_model=KnowledgeEntryView)
+def restore_knowledge_version(entry_id: str, version_id: str, payload: KnowledgeRestoreRequest) -> KnowledgeEntryView:
+    try:
+        return _entry_to_view(get_knowledge_service().restore_version(entry_id, version_id, payload.expectedUpdatedAt))
+    except KnowledgeVersionConflictError as exc:
+        raise HTTPException(status_code=409, detail=str(exc)) from exc
+    except (ValueError, FileNotFoundError) as exc:
+        raise HTTPException(status_code=404, detail="知识版本不存在") from exc
+    except RecoverableKnowledgeServiceError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
+
+
+@router.get("/api/knowledge/{entry_id}/markdown", response_model=KnowledgeMarkdownView)
+def knowledge_markdown(entry_id: str) -> KnowledgeMarkdownView:
+    try:
+        return KnowledgeMarkdownView(markdown=get_knowledge_service().markdown(entry_id))
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="知识文件 ID 无效") from exc
+    except FileNotFoundError as exc:
+        raise HTTPException(status_code=404, detail="知识文件不存在") from exc
 
 
 def _command_to_view(command: KnowledgeCommand) -> KnowledgeCommandView:

@@ -23,6 +23,7 @@ function eventValue(event: EventItem, key: string): string | undefined {
 export function EventCard({ event, onTerminalRequestDecision, settledTerminalRequestIds, onEditRun, onRetryRun, actionsDisabled = false }: EventCardProps) {
   const { t } = useAppearance()
   const [submittingTerminalDecision, setSubmittingTerminalDecision] = useState(false)
+  const [connectingTerminal, setConnectingTerminal] = useState(false)
   const [editingPrompt, setEditingPrompt] = useState(false)
   const [editedPrompt, setEditedPrompt] = useState('')
   const [actionPending, setActionPending] = useState(false)
@@ -109,7 +110,13 @@ export function EventCard({ event, onTerminalRequestDecision, settledTerminalReq
           </p>
         ) : null}
         {settled ? <p className="mt-3 text-xs text-ops-muted">This request has been decided.</p> : null}
-        {canDecide ? (
+        {submittingTerminalDecision ? (
+          <p role="status" aria-live="polite" className="mt-3 flex items-center gap-2 text-xs text-ops-warning">
+            <span aria-hidden="true" className="h-3 w-3 animate-spin rounded-full border-2 border-ops-warning/30 border-t-ops-warning" />
+            {connectingTerminal ? `正在连接 ${assetName}，请稍候…` : '正在提交拒绝请求…'}
+          </p>
+        ) : null}
+        {canDecide || submittingTerminalDecision ? (
           <div className="mt-3 flex gap-2 border-t border-ops-warning/15 pt-3">
             <button
               type="button"
@@ -117,13 +124,14 @@ export function EventCard({ event, onTerminalRequestDecision, settledTerminalReq
               disabled={!canDecide}
               onClick={() => {
                 if (!runtimeId || !requestId || !approvalToken || !onTerminalRequestDecision) return
+                setConnectingTerminal(true)
                 setSubmittingTerminalDecision(true)
                 void onTerminalRequestDecision({ runtimeId, requestId, approvalToken, approved: true }).finally(() => {
                   setSubmittingTerminalDecision(false)
                 })
               }}
             >
-              {submittingTerminalDecision ? '提交中' : event.scopeExpansionRequired ? '加入范围并连接' : '允许连接'}
+              {submittingTerminalDecision ? (connectingTerminal ? '连接中…' : '提交中…') : event.scopeExpansionRequired ? '加入范围并连接' : '允许连接'}
             </button>
             <button
               type="button"
@@ -131,6 +139,7 @@ export function EventCard({ event, onTerminalRequestDecision, settledTerminalReq
               disabled={!canDecide}
               onClick={() => {
                 if (!runtimeId || !requestId || !approvalToken || !onTerminalRequestDecision) return
+                setConnectingTerminal(false)
                 setSubmittingTerminalDecision(true)
                 void onTerminalRequestDecision({ runtimeId, requestId, approvalToken, approved: false }).finally(() => {
                   setSubmittingTerminalDecision(false)
@@ -150,6 +159,9 @@ export function EventCard({ event, onTerminalRequestDecision, settledTerminalReq
   }
 
   if (event.kind === 'terminal_session_rejected') {
+    if (event.terminalCreationStatus === 'failed') {
+      return <p role="status" className="my-2 rounded border border-ops-danger/30 bg-ops-danger/10 p-3 text-xs text-ops-danger">连接 {event.assetName} 失败：{event.reason || '无法建立终端连接'}。Agent 将根据失败结果继续排查。</p>
+    }
     return null
   }
 

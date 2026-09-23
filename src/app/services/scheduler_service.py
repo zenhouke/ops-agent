@@ -93,7 +93,12 @@ class SchedulerService:
 
     async def _run_claimed_job(self, job_id: int, owner: str) -> None:
         async with self._capacity:
-            await asyncio.to_thread(self._run_claimed_job_sync, job_id, owner)
+            worker = asyncio.create_task(asyncio.to_thread(self._run_claimed_job_sync, job_id, owner))
+            while not worker.done():
+                await asyncio.wait({worker}, timeout=10)
+                if not worker.done():
+                    self._leases.renew(job_id, owner)
+            await worker
 
     def _run_claimed_job_sync(self, job_id: int, owner: str) -> None:
         status = "failed"
@@ -109,11 +114,66 @@ class SchedulerService:
         finally:
             self._leases.finish(job_id, owner, status=status, error=error)
 
+    def inspect_asset(self, asset_id: int, prompt: str, name: str, job_id: int | None = None, progress=None) -> dict:
+        """Run one explicitly scoped inspection through the normal approval pipeline."""
+        from app.services.operation_progress import OperationCancelled
+        runtime_id = None
+        conversation_id = None
+        stream = None
+        reported_runtime = None
+        try:
+            with Session(engine) as session:
+                model = self._console_service.resolve_model_config(session, None)
+                service = self._conversation_factory()
+                conversation = service.create_conversation(model.model_name, asset_id=asset_id, can_reuse=lambda _: False)
+                conversation_id = conversation.id
+                service.append_events(conversation_id, [{"id": f"inspection-{conversation_id}", "kind": "user", "text": prompt}], async_title_generation=False)
+                stream = self._console_service.stream_run(session=session, prompt=prompt, asset_id=asset_id,
+                                                         conversation_id=conversation_id, terminal_service=self._terminal_service)
+                for event in stream:
+                    runtime_id = runtime_id or event.get("runtimeId")
+                    if progress:
+                        if runtime_id != reported_runtime:
+                            progress.report(item={"assetId": asset_id, "assetName": name, "status": "running", "message": "巡检中", "conversationId": conversation_id, "runtimeId": runtime_id})
+                            reported_runtime = runtime_id
+                        progress.checkpoint()
+                runtime = self._console_service.runtime_manager.get_runtime(runtime_id) if runtime_id else None
+                state = runtime.state if runtime else None
+                phase = state.phase if state else "failed"
+                status = {"completed": "completed", "approving": "waiting_approval", "waiting_terminal_approval": "waiting_approval", "waiting_user_input": "waiting_input"}.get(phase, "failed")
+                summary = (state.summary or state.error_message or "") if state else "未返回有效运行结果。"
+                if status == "completed" and "[ALERT" in summary:
+                    status = "warning"
+                if status != "completed":
+                    get_alert_service().create_alert(session, asset_id=asset_id, title=f"组织巡检：{name}",
+                        message=summary or "请打开设备任务处理审批或补充信息。", severity="warning", job_id=job_id,
+                        runtime_id=runtime_id, conversation_id=conversation_id)
+                return {"assetId": asset_id, "status": status, "message": summary or ("巡检完成" if status == "completed" else "等待人工处理"), "conversationId": conversation_id, "runtimeId": runtime_id}
+        except OperationCancelled:
+            if runtime_id:
+                self._console_service.runtime_manager.cancel(runtime_id, reason="Organization inspection cancelled")
+            return {"assetId": asset_id, "status": "cancelled", "message": "已取消", "conversationId": conversation_id, "runtimeId": runtime_id}
+        except Exception as exc:
+            return {"assetId": asset_id, "status": "failed", "message": str(exc), "conversationId": conversation_id, "runtimeId": runtime_id}
+        finally:
+            if stream is not None:
+                close = getattr(stream, "close", None)
+                if callable(close):
+                    close()
+
     def _run_job_sync(self, job_id: int) -> str:
         with Session(engine) as session:
             job = session.get(ScheduledJob, job_id)
             if not job or not job.enabled:
                 return "skipped"
+
+            if job.instance_id is not None:
+                from app.services.operations_service import get_operations_service
+                operation = get_operations_service().start("inspection", {
+                    "instanceId": job.instance_id, "organization": job.organization,
+                    "prompt": job.prompt, "scheduledJobId": job.id,
+                }, inline=True)
+                return operation["status"]
 
             conversation_service = self._conversation_factory()
             console_app = self._console_service

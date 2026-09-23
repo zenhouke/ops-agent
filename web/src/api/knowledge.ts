@@ -207,3 +207,51 @@ export async function reindexKnowledgeEntries(): Promise<KnowledgeReindexRespons
   })
   return mapKnowledgeReindexResponse(response)
 }
+
+export type KnowledgeExtractionJob = {
+  id: string
+  conversation_id: string
+  status: 'queued' | 'running' | 'succeeded' | 'failed'
+  created_ids: string[]
+  updated_ids: string[]
+  kept_ids: string[]
+  error: string | null
+  total_batches: number
+  completed_batches: number
+  retry_count: number
+  progress: string
+}
+
+export async function startKnowledgeExtraction(conversationId: string, modelName: string | null): Promise<KnowledgeExtractionJob> {
+  return requestJson(`/api/knowledge/extractions/${encodeURIComponent(conversationId)}`, {
+    method: 'POST', body: JSON.stringify({ modelName }),
+  })
+}
+
+export async function getKnowledgeExtraction(conversationId: string): Promise<{ job: KnowledgeExtractionJob | null; entries: KnowledgeEntry[] }> {
+  const response = await requestJson<{ job: KnowledgeExtractionJob | null; entries: KnowledgeEntryDto[] }>(`/api/knowledge/extractions/${encodeURIComponent(conversationId)}`)
+  return { job: response.job, entries: response.entries.map(mapKnowledgeEntry) }
+}
+
+export async function getKnowledgeMarkdown(entryId: string): Promise<string> {
+  const response = await requestJson<{ markdown: string }>(`/api/knowledge/${encodeURIComponent(entryId)}/markdown`)
+  return response.markdown
+}
+
+export type KnowledgeVersion = { id: string; updatedAt: string; title: string }
+export type KnowledgeVersionPreview = { markdown: string; diff: string; currentUpdatedAt: string }
+
+export function getKnowledgeVersions(entryId: string): Promise<KnowledgeVersion[]> {
+  return requestJson(`/api/knowledge/${encodeURIComponent(entryId)}/versions`)
+}
+
+export function getKnowledgeVersion(entryId: string, versionId: string): Promise<KnowledgeVersionPreview> {
+  return requestJson(`/api/knowledge/${encodeURIComponent(entryId)}/versions/${encodeURIComponent(versionId)}`)
+}
+
+export async function restoreKnowledgeVersion(entryId: string, versionId: string, expectedUpdatedAt: string): Promise<KnowledgeEntry> {
+  const response = await requestJson<KnowledgeEntryDto>(`/api/knowledge/${encodeURIComponent(entryId)}/versions/${encodeURIComponent(versionId)}/restore`, {
+    method: 'POST', body: JSON.stringify({ expectedUpdatedAt }),
+  })
+  return mapKnowledgeEntry(response)
+}

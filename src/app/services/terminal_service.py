@@ -14,6 +14,7 @@ from app.services.terminal_channel import TerminalChannel, TerminalChannelClosed
 from app.core.connectors.context_bridge import build_terminal_context
 from app.core.connectors.session_manager import TerminalSessionManager
 from app.core.connectors.ssh_proxy import describe_ssh_proxy_error
+from app.services.ssh_host_key_service import host_key_challenge
 
 
 T = TypeVar("T")
@@ -75,7 +76,7 @@ class TerminalService:
         for terminal_id in expired_ids:
             self.close_session(terminal_id)
 
-    def open_session(self, asset, *, reuse_existing: bool = False):
+    def open_session(self, asset, *, reuse_existing: bool = False) -> dict[str, Any]:
         self._expire_detached_sessions()
         session_key = self._build_session_key(asset)
         if reuse_existing:
@@ -94,7 +95,8 @@ class TerminalService:
                 session_manager.close()
             elif connector is not None:
                 connector.close()
-            return {"terminal_id": None, "channel": None, "error": describe_ssh_proxy_error(exc)}
+            return {"terminal_id": None, "channel": None, "error": describe_ssh_proxy_error(exc),
+                    "host_key": host_key_challenge(exc, getattr(asset, "id", None))}
         with self._state_lock:
             self._sessions[terminal_id] = TerminalSessionRuntime(session_manager=session_manager, state="created")
             self._session_keys[terminal_id] = session_key

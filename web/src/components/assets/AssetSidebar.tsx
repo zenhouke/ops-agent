@@ -12,12 +12,13 @@ type ConversationRunBadge = {
 }
 
 type AssetSidebarProps = {
+  connectingAssetIds?: number[]
   assets: Asset[]
   groups: AssetGroup[]
   conversationSummaries: ConversationSummary[]
   activeConversationId: string | null
   runs: ConversationRunBadge[]
-  selectedAssetId: number
+  selectedAssetId: number | null
   collapsed: boolean
   activeSection: WorkspaceSection
   onToggleCollapse: () => void
@@ -32,11 +33,18 @@ type AssetSidebarProps = {
   onDeleteAssetConfirm?: (asset: Asset) => void
 }
 
-export function AssetSidebar({ assets, groups, conversationSummaries, activeConversationId, runs, selectedAssetId, collapsed, activeSection, onToggleCollapse, onSelectAsset, onSelectConversation, onDeleteConversation, onUpdateAsset, onDeleteAsset, onAddAsset, onManageGroups, onEditAsset, onDeleteAssetConfirm }: AssetSidebarProps) {
+export function AssetSidebar({ connectingAssetIds, assets, groups, conversationSummaries, activeConversationId, runs, selectedAssetId, collapsed, activeSection, onToggleCollapse, onSelectAsset, onSelectConversation, onDeleteConversation, onUpdateAsset, onDeleteAsset, onAddAsset, onManageGroups, onEditAsset, onDeleteAssetConfirm }: AssetSidebarProps) {
   const { t } = useAppearance()
   const visibleAssets = activeSection === 'jumpserver'
     ? assets.filter((asset) => asset.authType === 'jumpserver')
     : assets.filter((asset) => asset.authType !== 'jumpserver')
+  const isEmptyDraft = (item: ConversationSummary) => item.eventCount === 0
+    && (!item.title.trim() || item.title.trim() === 'New')
+    && !runs.some((run) => run.conversationId === item.id)
+  const drafts = conversationSummaries.filter(isEmptyDraft)
+  const visibleDraftId = drafts.find((item) => item.id === activeConversationId)?.id
+    ?? [...drafts].sort((a, b) => b.updatedAt.localeCompare(a.updatedAt))[0]?.id
+  const visibleConversations = conversationSummaries.filter((item) => !isEmptyDraft(item) || item.id === visibleDraftId)
 
   return (
     <aside className={`h-full overflow-hidden border-r bg-ops-panel/70 transition-[width,border-color] duration-200 ease-out ${collapsed ? 'w-0 border-transparent' : 'w-[248px] border-ops-border/35'}`} aria-label="Resource explorer">
@@ -46,9 +54,9 @@ export function AssetSidebar({ assets, groups, conversationSummaries, activeConv
             <h2 className="truncate text-[11px] font-semibold text-ops-text">
               {activeSection === 'assets' ? t('assets.nodes') : activeSection === 'jumpserver' ? t('management.jumpServerAssets') : t('conversation.taskHistory')}
             </h2>
-            {activeSection === 'conversations' && conversationSummaries.length > 0 ? (
+            {activeSection === 'conversations' && visibleConversations.length > 0 ? (
               <span className="rounded border border-ops-border/30 px-1.5 py-0.5 text-[9px] leading-none text-ops-muted/70">
-                {conversationSummaries.length}
+                {visibleConversations.length}
               </span>
             ) : null}
           </div>
@@ -73,6 +81,8 @@ export function AssetSidebar({ assets, groups, conversationSummaries, activeConv
           {activeSection === 'assets' || activeSection === 'jumpserver' ? (
           <div className="h-full overflow-y-auto overflow-x-hidden">
             <AssetList
+              organizationTree={activeSection === 'jumpserver'}
+              connectingAssetIds={connectingAssetIds}
               assets={visibleAssets}
               groups={groups}
               selectedAssetId={selectedAssetId}
@@ -86,7 +96,7 @@ export function AssetSidebar({ assets, groups, conversationSummaries, activeConv
           ) : (
           <div className="h-full overflow-hidden">
             <ConversationList
-              items={conversationSummaries}
+              items={visibleConversations}
               activeConversationId={activeConversationId}
               runs={runs}
               onSelect={onSelectConversation}

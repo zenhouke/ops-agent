@@ -27,7 +27,7 @@ type AssistantPanelProps = {
   models: string[]
   selectedModel: string
   prompt: string
-  selectedAsset: Asset
+  selectedAsset: Asset | null
   contextStatus: ConversationContextStatus | null
   loadError: string | null
   conversationSaveStatus: ConversationSaveStatus
@@ -51,6 +51,7 @@ type AssistantPanelProps = {
   onEditRun: (eventId: string, prompt: string) => Promise<void>
   onRetryRun: (eventId: string, prompt: string) => Promise<void>
   onExtractKnowledge: () => Promise<void>
+  knowledgeExtraction: { busy: boolean; message: string | null | undefined; failed: boolean; entries: { id: string; title: string }[] }
 }
 
 function backgroundRunCopy(run: BackgroundRunState) {
@@ -172,6 +173,7 @@ export function AssistantPanel({
   onEditRun,
   onRetryRun,
   onExtractKnowledge,
+  knowledgeExtraction,
 }: AssistantPanelProps) {
   const { t } = useAppearance()
   return (
@@ -185,7 +187,7 @@ export function AssistantPanel({
             {activeConversationTitle || t('assistant.unclassifiedMission')}
           </h2>
           <span className={`rounded border px-1.5 py-0.5 text-[9px] font-semibold ${conversationScopeMode === 'multi' ? 'border-ops-warning/30 bg-ops-warning/[0.08] text-ops-warning' : 'border-ops-border/25 text-ops-muted/65'}`}>
-            {conversationScopeMode === 'multi' ? `多资产 · ${allowedAssetCount} 台` : '单资产'}
+            {!selectedAsset ? (allowedAssetCount ? `已关联 ${allowedAssetCount} 台` : '未关联设备') : conversationScopeMode === 'multi' ? `多资产 · ${allowedAssetCount} 台` : '单资产'}
           </span>
           <span className="hidden items-center gap-1.5 text-[9px] text-ops-muted/60 lg:inline-flex"><span className="h-1.5 w-1.5 rounded-full bg-ops-green" />任务工作台</span>
         </div>
@@ -207,11 +209,11 @@ export function AssistantPanel({
           <button
             type="button"
             className="desktop-toolbar-button"
-            disabled={events.length === 0 || isRunActive}
+            disabled={events.length === 0 || isRunActive || knowledgeExtraction.busy || conversationSaveStatus === 'saving' || conversationSaveStatus === 'failed'}
             onClick={() => void onExtractKnowledge()}
-            title="从当前对话生成可审核的知识草稿"
+            title="在后台按主题整理知识，自动新增或更新文件"
           >
-            提炼知识
+            {knowledgeExtraction.busy ? '后台提炼中…' : '提炼知识'}
           </button>
           <button
             type="button"
@@ -234,6 +236,13 @@ export function AssistantPanel({
           </button>
         </div>
       </header>
+
+      {knowledgeExtraction.message || knowledgeExtraction.entries.length > 0 ? (
+        <div className="shrink-0 border-b border-ops-border/25 px-4 py-2 text-xs text-ops-muted" role={knowledgeExtraction.failed ? 'alert' : 'status'}>
+          {knowledgeExtraction.message ? <p className={knowledgeExtraction.failed ? 'text-ops-danger' : ''}>{knowledgeExtraction.message}</p> : null}
+          {knowledgeExtraction.entries.length > 0 ? <details className="mt-1"><summary className="cursor-pointer">已关联 {knowledgeExtraction.entries.length} 份知识文件</summary><ul className="mt-1 space-y-1">{knowledgeExtraction.entries.map((entry) => <li key={entry.id}>{entry.title}.md</li>)}</ul></details> : null}
+        </div>
+      ) : null}
 
       <div className="min-h-0 flex flex-1 overflow-hidden">
         <div className="min-w-0 flex flex-1 flex-col overflow-hidden bg-ops-bg relative">

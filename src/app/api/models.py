@@ -43,11 +43,13 @@ def list_models(session: Session = Depends(get_session)) -> ModelsView:
     except OperationalError:
         record = None
     config = model_service.from_record(record) if record is not None else model_service.load_settings()
-    return ModelsView(
-        provider=config.provider.value,
-        selected_model=config.model_name,
-        available_models=model_service.list_available_models(config.provider, session),
-    )
+    try:
+        models = model_service.discover_models(config)
+    except ValueError as error:
+        raise HTTPException(status_code=502, detail=str(error)) from error
+    return ModelsView(provider=config.provider.value,
+                      selected_model=config.model_name if config.model_name in models else "",
+                      available_models=models)
 
 
 @router.get("/api/model-configs")
@@ -65,7 +67,7 @@ def create_model_config_record(payload: ModelConfigCreate, session: Session = De
         base_url=payload.base_url,
         api_key=payload.api_key,
         model_name=payload.model_name,
-        is_default=payload.is_default,
+        is_default=payload.is_default or get_default_model_config(session) is None,
         timeout_seconds=payload.timeout_seconds,
         temperature=payload.temperature,
         max_tokens=payload.max_tokens,
@@ -124,13 +126,21 @@ def set_default_model_config_record(config_id: int, session: Session = Depends(g
 
 
 @router.post("/api/model-configs/discover")
-def discover_model_configs(payload: ModelDiscoveryRequest) -> ModelDiscoveryResponse:
+def discover_model_configs(payload: ModelDiscoveryRequest, session: Session = Depends(get_session)) -> ModelDiscoveryResponse:
     model_service = ModelService()
+    key = payload.api_key
+    if key is None and payload.config_id is not None:
+        record = get_model_config(session, payload.config_id)
+        if record is None:
+            raise HTTPException(status_code=404, detail="API 服务配置不存在。")
+        key = model_service.decrypt_api_key(record)
+    if key is None:
+        raise HTTPException(status_code=400, detail="请填写 API Key。")
     config = ModelConfig(
         provider=ModelProvider(payload.provider),
         model_name="",
         base_url=payload.base_url,
-        api_key=SecretStr(payload.api_key.get_secret_value()),
+        api_key=key,
         timeout_seconds=payload.timeout_seconds,
         provider_options=payload.provider_options,
     )
@@ -139,7 +149,7 @@ def discover_model_configs(payload: ModelDiscoveryRequest) -> ModelDiscoveryResp
     except ValueError as error:
         raise HTTPException(status_code=400, detail=str(error)) from error
     except Exception as error:
-        raise HTTPException(status_code=502, detail=f"Model discovery failed: {error}") from error
+        raise HTTPException(status_code=502, detail="获取模型列表失败，请检查服务配置。") from error
 
 
 @router.post("/api/model-configs/test")

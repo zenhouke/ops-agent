@@ -119,12 +119,8 @@ def get_console_bootstrap(
     terminal_service: TerminalService = Depends(get_terminal_service),
 ) -> ConsoleBootstrapView:
     assets = list_asset_records(session)
-    model_service = ModelService()
-    default_record = get_default_model_config(session)
-    default_config = model_service.from_record(default_record) if default_record is not None else model_service.load_settings()
-    model_options = [record.model_name for record in list_model_configs(session)] or model_service.list_available_models(default_config.provider, session)
-    if default_config.model_name and default_config.model_name not in model_options:
-        model_options = [default_config.model_name, *model_options]
+    # Model discovery is lazy in the selector; do not block console bootstrap.
+    model_options: list[str] = []
     local_terminal_asset = next((asset for asset in assets if asset.asset_type == AssetType.LOCAL_TERMINAL.value), None)
     if local_terminal_asset is None:
         local_terminal_asset = build_local_terminal_asset()
@@ -161,15 +157,9 @@ async def run_console_agent(
     effective_prompt = payload.prompt
     t_parse = _time.monotonic()
     asset_id = payload.asset_id
-    if asset_id is None:
-        local_terminal_asset = next((asset for asset in list_asset_records(session) if asset.asset_type == AssetType.LOCAL_TERMINAL.value), None)
-        asset_id = local_terminal_asset.id if local_terminal_asset is not None and local_terminal_asset.id is not None else 0
-    if asset_id is None:
-        raise HTTPException(status_code=400, detail="Asset id is required")
-
-    conversation_scope_mode = "single"
+    conversation_scope_mode = "multi" if asset_id is None else "single"
     conversation_primary_asset_id = asset_id
-    allowed_asset_ids = [asset_id]
+    allowed_asset_ids = [] if asset_id is None else [asset_id]
     if payload.conversation_id and payload.conversation_id != "console":
         conversation_service = get_conversation_service()
         user_event = {
@@ -180,9 +170,16 @@ async def run_console_agent(
             "assetId": asset_id,
         }
         try:
+            conversation = conversation_service.get_conversation(payload.conversation_id)
+            if conversation.asset_id is None:
+                asset_id = None
+                payload.terminal_id = None
+            elif asset_id is None:
+                asset_id = conversation.asset_id
+            user_event["assetId"] = asset_id
             conversation = conversation_service.ensure_asset_access(payload.conversation_id, asset_id)
             conversation_scope_mode = conversation.scope_mode
-            conversation_primary_asset_id = conversation.asset_id if conversation.asset_id is not None else asset_id
+            conversation_primary_asset_id = conversation.asset_id
             allowed_asset_ids = conversation.allowed_asset_ids
             conversation_service.append_events(payload.conversation_id, [user_event])
         except FileNotFoundError as exc:
@@ -327,12 +324,10 @@ async def decide_terminal_request(
         raise HTTPException(status_code=400, detail=str(exc)) from exc
     if result["status"] == "expired":
         raise HTTPException(status_code=409, detail=result)
-    if result.get("terminalCreationStatus") == "failed":
-        raise HTTPException(status_code=502, detail=result)
 
     response_event = {
         "id": f"evt-terminal-decision-{request_id}",
-        "kind": "terminal_session_opened" if result.get("status") == "approved" else "terminal_session_rejected",
+        "kind": "terminal_session_opened" if result.get("authorizationId") else "terminal_session_rejected",
         "runtimeId": payload.runtime_id,
         "requestId": result.get("requestId"),
         "authorizationId": result.get("authorizationId"),

@@ -1,0 +1,1 @@
+{"name":"ops-agent-wiki","private":true,"version":"1.0.0","scripts":{"build":"python3 build.py","check":"python3 build.py --check","serve":"python3 serve.py"},"dependencies":{"swagger-ui-dist":"5.32.5"}}

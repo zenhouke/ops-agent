@@ -17,6 +17,7 @@ import {
   type TerminalTabState,
 } from './terminalSessionPersistence'
 import { useTerminalSockets } from './useTerminalSockets'
+import { useHostKeyConfirmation } from './useHostKeyConfirmation'
 
 type TerminalTab = TerminalTabState
 
@@ -31,6 +32,20 @@ export function useTerminalSessions({
   historyByAsset,
   setLoadError,
 }: UseTerminalSessionsProps) {
+  const { hostKeyChallenge, answerHostKey, withHostKeyConfirmation } = useHostKeyConfirmation()
+  const [connectingAssetIds, setConnectingAssetIds] = useState<number[]>([])
+  const connectionRequestsRef = useRef(new Map<number, ReturnType<typeof createTerminalSession>>())
+  const connectWithStatus = useCallback((assetId: number, operation: () => ReturnType<typeof createTerminalSession>) => {
+    const pending = connectionRequestsRef.current.get(assetId)
+    if (pending) return pending
+    setConnectingAssetIds((current) => [...current, assetId])
+    const request = withHostKeyConfirmation(assetId, operation).finally(() => {
+      connectionRequestsRef.current.delete(assetId)
+      setConnectingAssetIds((current) => current.filter((id) => id !== assetId))
+    })
+    connectionRequestsRef.current.set(assetId, request)
+    return request
+  }, [withHostKeyConfirmation])
   const [terminalTabs, setTerminalTabs] = useState<TerminalTab[]>([
     {
       assetId: LOCAL_TERMINAL_ASSET_ID,
@@ -119,7 +134,7 @@ export function useTerminalSessions({
       const existingTab = terminalTabsRef.current.find(
         (item) => item.assetId === asset.id
       )
-      if (existingTab) {
+      if (existingTab || connectionRequestsRef.current.has(asset.id)) {
         return
       }
 
@@ -130,7 +145,7 @@ export function useTerminalSessions({
       firstOutputHandledRef.current[asset.id] = false
 
       try {
-        const result = await createTerminalSession(asset.id)
+        const result = await connectWithStatus(asset.id, () => createTerminalSession(asset.id))
         if (result.error) {
           throw new Error(result.error)
         }
@@ -161,7 +176,7 @@ export function useTerminalSessions({
         )
       }
     },
-    [syncTerminalTabs, setLoadError]
+    [syncTerminalTabs, setLoadError, connectWithStatus]
   )
 
   const removeTerminalTab = useCallback(
@@ -218,7 +233,7 @@ export function useTerminalSessions({
 
   const reconnectActiveTerminal = useCallback(async () => {
     const tab = terminalTabsRef.current.find((item) => item.assetId === activeTerminalAssetId)
-    if (!tab) return
+    if (!tab || connectionRequestsRef.current.has(activeTerminalAssetId)) return
     const existingSocket = terminalSocketsRef.current[activeTerminalAssetId]
     if (existingSocket && (existingSocket.readyState === WebSocket.OPEN || existingSocket.readyState === WebSocket.CONNECTING)) {
       existingSocket.close()
@@ -238,13 +253,13 @@ export function useTerminalSessions({
     try {
       let nextSessionId: string | null = null
       if (tab.sessionId) {
-        const result = await reconnectTerminalSession(tab.sessionId, activeTerminalAssetId)
+        const result = await connectWithStatus(activeTerminalAssetId, () => reconnectTerminalSession(tab.sessionId!, activeTerminalAssetId))
         if (result.error || !result.terminal_id) {
           throw new Error(result.error || 'Reconnection failed')
         }
         nextSessionId = result.terminal_id
       } else {
-        const result = await createTerminalSession(activeTerminalAssetId)
+        const result = await connectWithStatus(activeTerminalAssetId, () => createTerminalSession(activeTerminalAssetId))
         if (result.error || !result.terminal_id) {
           throw new Error(result.error || 'Reconnection failed')
         }
@@ -259,7 +274,7 @@ export function useTerminalSessions({
       const errorMessage = error instanceof Error ? error.message : 'Terminal reconnection failed'
       setLoadError(errorMessage)
     }
-  }, [activeTerminalAssetId, syncTerminalTabs, setLoadError])
+  }, [activeTerminalAssetId, syncTerminalTabs, setLoadError, connectWithStatus])
 
   const selectedAsset = useMemo(
     () =>
@@ -323,7 +338,7 @@ export function useTerminalSessions({
       }
 
       reconnectingRestoredAssetsRef.current.add(tab.assetId)
-      void createTerminalSession(tab.assetId)
+      void connectWithStatus(tab.assetId, () => createTerminalSession(tab.assetId))
         .then((result) => {
           if (result.error || !result.terminal_id) {
             throw new Error(result.error || 'Terminal reconnection failed')
@@ -338,6 +353,7 @@ export function useTerminalSessions({
         .catch((error) => {
           const errorMessage = error instanceof Error ? error.message : 'Terminal reconnection failed'
           setLoadError(errorMessage)
+          restoredAssetIdsRef.current.delete(tab.assetId)
           reconnectingRestoredAssetsRef.current.delete(tab.assetId)
         })
     }
@@ -348,9 +364,12 @@ export function useTerminalSessions({
     if (!hasPendingRestoredTabs) {
       persistTerminalState(terminalTabs, activeTerminalAssetId)
     }
-  }, [activeTerminalAssetId, syncTerminalTabs, terminalTabs, setLoadError])
+  }, [activeTerminalAssetId, syncTerminalTabs, terminalTabs, setLoadError, connectWithStatus])
 
   return {
+    connectingAssetIds,
+    hostKeyChallenge,
+    answerHostKey,
     terminalTabs,
     activeTerminalAssetId,
     selectTerminalTab,

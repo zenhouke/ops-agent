@@ -16,6 +16,8 @@ type AlertDto = {
 }
 
 type ScheduledJobDto = {
+  instance_id: number | null
+  organization: string | null
   id: number
   name: string
   asset_id: number
@@ -45,6 +47,8 @@ export function mapAlert(dto: AlertDto): Alert {
 
 export function mapScheduledJob(dto: ScheduledJobDto): ScheduledJob {
   return {
+    instanceId: dto.instance_id,
+    organization: dto.organization,
     id: dto.id,
     name: dto.name,
     assetId: dto.asset_id,
@@ -77,6 +81,8 @@ export async function getScheduledJobs(): Promise<ScheduledJob[]> {
 }
 
 export async function createScheduledJob(payload: {
+  instance_id?: number | null
+  organization?: string | null
   name: string
   asset_id: number
   prompt: string
@@ -94,6 +100,8 @@ export async function updateScheduledJob(
   jobId: number,
   payload: {
     name?: string
+    instance_id?: number | null
+    organization?: string | null
     asset_id?: number
     prompt?: string
     interval_seconds?: number

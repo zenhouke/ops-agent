@@ -99,6 +99,7 @@ class LoopState:
     last_output_excerpt: str = ""
     summary: str | None = None
     error_message: str | None = None
+    last_request_input_tokens: int = 0
     latest_usage: dict[str, int | str] | None = None
     started_monotonic: float = field(default_factory=time.monotonic)
     deadline_monotonic: float | None = None

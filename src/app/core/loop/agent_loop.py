@@ -9,7 +9,9 @@ import uuid
 from collections.abc import Iterator
 from typing import Any
 
-from app.core.llm.types import LLMCompletionResponse, LLMMessage, LLMTokenUsage
+from app.core.llm.types import LLMCompletionChunk, LLMCompletionRequest, LLMCompletionResponse, LLMMessage, LLMTokenUsage
+from app.core.llm.base import SupportsCompletion
+from app.core.llm.retry import MAX_MODEL_RETRIES, ModelRetryExhausted, is_retryable_model_error, model_retry_delay
 from app.core.llm.factory import build_llm_provider
 from app.core.loop.agent_loop_support import AgentLoopSupportMixin
 from app.core.loop.request_builder import AgentLLMRequestBuilder
@@ -74,6 +76,41 @@ class AgentLoop(AgentLoopSupportMixin):
             get_runtime_control().metrics.increment("budget_exceeded")
             raise RuntimeBudgetExceededError("Maximum tool call budget exceeded.")
         state.tool_calls += 1
+
+    def _wait_for_model_retry(self, state: LoopState, delay: float) -> None:
+        deadline = time.monotonic() + delay
+        while True:
+            self._check_runtime_budget(state)
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                return
+            time.sleep(min(0.1, remaining))
+
+    def _stream_model_with_retries(
+        self, state: LoopState, provider: SupportsCompletion,
+        request: LLMCompletionRequest, manager: MessageManager,
+    ) -> Iterator[LLMCompletionChunk | LoopEvent]:
+        for attempt in range(MAX_MODEL_RETRIES + 1):
+            self._before_llm_call(state)
+            received_output = False
+            try:
+                for chunk in provider.stream_complete(config=state.context.model_config, request=request):
+                    received_output = True
+                    yield chunk
+                return
+            except Exception as error:
+                # Never replay a partially consumed stream, command preview or tool call.
+                if received_output or not is_retryable_model_error(error):
+                    raise
+                if attempt == MAX_MODEL_RETRIES:
+                    raise ModelRetryExhausted() from error
+                delay = model_retry_delay(error, attempt + 1)
+                yield from manager.replace_text(
+                    f"模型服务暂时繁忙或连接中断，{delay:.1f} 秒后自动重试（{attempt + 1}/{MAX_MODEL_RETRIES}）。已完成的命令不会重复执行。"
+                )
+                get_runtime_control().metrics.increment("llm_retries")
+                self._wait_for_model_retry(state, delay)
+                yield from manager.replace_text("")
 
     def run(self, state: LoopState) -> Iterator[LoopEvent]:
         manager = MessageManager(runtime_id=state.context.runtime_id)
@@ -216,12 +253,14 @@ class AgentLoop(AgentLoopSupportMixin):
             yield from manager.begin_message(message_type="say", say_type="text")
 
             previews = CommandPreviewMessages(ctx.runtime_id)
-            self._before_llm_call(state)
             try:
-                for chunk in provider.stream_complete(
-                    config=ctx.model_config,
-                    request=self._request_builder.build_tool_calling_request(state=state, tools=tools),
+                for chunk in self._stream_model_with_retries(
+                    state, provider,
+                    self._request_builder.build_tool_calling_request(state=state, tools=tools), manager,
                 ):
+                    if isinstance(chunk, LoopEvent):
+                        yield chunk
+                        continue
                     self._check_runtime_budget(state)
                     if not state.first_response_recorded and (chunk.delta or chunk.tool_calls):
                         get_runtime_control().metrics.record_first_response(

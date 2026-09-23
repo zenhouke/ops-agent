@@ -16,7 +16,7 @@ from app.api.schemas import (
     ConversationDetailView,
     ConversationSummaryView,
 )
-from app.db.repositories.model_usage import sum_conversation_usage
+from app.db.repositories.model_usage import latest_agent_usage, sum_conversation_usage
 from app.db.session import engine, get_session
 from app.services.asset_service import get_asset_record
 from app.services.context_manager import ContextManager, JsonObject
@@ -37,7 +37,7 @@ def create_conversation(
     payload: ConversationCreateRequest,
     session: Session = Depends(get_session),
 ) -> ConversationCreateResponse:
-    allowed_asset_ids = (
+    allowed_asset_ids = [] if payload.asset_id is None else (
         sorted({payload.asset_id, *payload.allowed_asset_ids})
         if payload.scope_mode == "multi"
         else [payload.asset_id]
@@ -53,11 +53,14 @@ def create_conversation(
             detail=f"Assets not found: {', '.join(str(asset_id) for asset_id in missing_asset_ids)}",
         )
     service = get_conversation_service()
+    from app.composition import get_console_app_service
+    runtime_manager = get_console_app_service().runtime_manager
     summary = service.create_conversation(
         selected_model=payload.selected_model,
         asset_id=payload.asset_id,
         scope_mode=payload.scope_mode,
         allowed_asset_ids=allowed_asset_ids,
+        can_reuse=lambda conversation_id: not runtime_manager.list_runtimes(conversation_id),
     )
     return ConversationCreateResponse(
         conversation=ConversationSummaryView.model_validate(summary.__dict__),
@@ -126,6 +129,20 @@ def get_conversation_context(conversation_id: str) -> ConversationContextStatusV
         total_tokens=usage.total_tokens,
         measurement="reported" if usage.total_tokens > 0 else "unavailable",
     )
+    # Restore the most recent real agent request, never cumulative usage or a
+    # title-generation call, so refresh uses the same measurement as live SSE.
+    with Session(engine) as session:
+        latest = latest_agent_usage(session, conversation_id)
+    if latest is not None:
+        config = ModelService().load_settings().model_copy(update={"model_name": latest.model_name})
+        input_tokens = latest.input_tokens + latest.cache_read_input_tokens + latest.cache_creation_input_tokens
+        percent = context_manager.context_percent_for_tokens(input_tokens, config)
+        return ConversationContextStatusView(
+            context_percent=percent, context_status=context_manager.status_for_percent(percent),
+            context_measurement="reported", request_input_tokens=input_tokens,
+            cache_read_tokens=latest.cache_read_input_tokens, cache_write_tokens=latest.cache_creation_input_tokens,
+            token_usage=token_usage,
+        )
     metadata = context_manager.read_metadata(conversation_id)
     source_revision = context_manager.source_revision(events)
     if metadata is None or metadata.source_conversation_revision != source_revision:

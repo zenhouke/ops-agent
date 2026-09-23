@@ -29,6 +29,10 @@ class ListAssetsHandler:
             input_schema={
                 "type": "object",
                 "properties": {
+                    "query": {"type": "string", "description": "Case-insensitive name, IP, vendor, group or tag search; leave empty to discover candidates."},
+                    "asset_type": {"type": "string", "description": "Optional exact asset type filter."},
+                    "offset": {"type": "integer", "minimum": 0, "default": 0},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50},
                     "intent": {
                         "type": "string",
                         "enum": ["user_requested_assets", "remote_execution_required"],
@@ -59,20 +63,33 @@ class ListAssetsHandler:
         )
 
     def execute(self, *, state: LoopState, step_id: str, args: dict[str, Any], manager: MessageManager | None = None) -> Iterator[LoopEvent]:
-        _ = state, step_id, args
+        _ = state, step_id
         assets = self._catalog.list_assets()
+        query = str(args.get("query") or "").strip().casefold()
+        asset_type = str(args.get("asset_type") or "").strip()
+        assets = [asset for asset in assets
+                  if (not asset_type or asset.asset_type == asset_type)
+                  and (not query or query in " ".join((asset.name, asset.host, asset.vendor, asset.group_name, *asset.tags)).casefold())]
+        offset = max(0, int(args.get("offset") or 0))
+        limit = max(1, min(100, int(args.get("limit") or 50)))
         result = {
+            "total": len(assets),
+            "next_offset": offset + limit if offset + limit < len(assets) else None,
             "assets": [
                 {
                     "asset_id": asset.id,
                     "name": asset.name,
                     "asset_type": asset.asset_type,
                     "group_id": asset.group_id,
-                    "connection_status": "connectable",
+                    "host": asset.host,
+                    "vendor": asset.vendor,
+                    "group_name": asset.group_name,
+                    "access_via": asset.access_via,
+                    "connection_status": "not_checked",
                     "tags": list(asset.tags),
                     "connectable": asset.id is not None,
                 }
-                for asset in assets
+                for asset in assets[offset:offset + limit]
                 if asset.id is not None
             ]
         }
@@ -134,21 +151,6 @@ class RequestTerminalSessionHandler:
         reason = str(args.get("reason") or "").strip()
         if not reason:
             output = _json_tool_output("request_terminal_session", "error", {"message": "A reason is required to request terminal access."})
-            if manager:
-                yield from manager.update(tool_output=output)
-            return False, output
-        primary_asset_id = state.context.conversation_primary_asset_id if state.context.conversation_primary_asset_id is not None else state.context.asset_id
-        is_cross_asset = asset_id != primary_asset_id
-        if is_cross_asset and state.context.conversation_scope_mode != "multi":
-            output = _json_tool_output(
-                "request_terminal_session",
-                "scope_denied",
-                {
-                    "assetId": asset_id,
-                    "primaryAssetId": primary_asset_id,
-                    "message": "This conversation is bound to one asset. Create a multi-asset task before requesting another asset.",
-                },
-            )
             if manager:
                 yield from manager.update(tool_output=output)
             return False, output

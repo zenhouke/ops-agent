@@ -14,7 +14,6 @@ export function ModelsSection({
   onStartEdit,
   onStartDelete,
   onFormChange,
-  onProviderChange,
   onConnectionFieldChange,
   onCancelForm,
   onSave,
@@ -26,64 +25,57 @@ export function ModelsSection({
     <div className="flex flex-col gap-8">
       <div className="flex items-center justify-between pb-4 border-b border-ops-border/20">
         <div>
-          <h4 className="text-[14px] font-bold text-ops-text">{t('settings.modelsTitle')}</h4>
+          <h4 className="text-[14px] font-bold text-ops-text">模型服务</h4>
           <p className="text-[10px] font-medium text-ops-muted mt-1 tracking-wider opacity-60">{t('settings.activeModel')}<span className="text-ops-cyan">{selectedModel || t('settings.undefined')}</span></p>
         </div>
-        <button type="button" className="button button-primary" onClick={onStartCreate}>{t('settings.deployNewModel')}</button>
+        <button type="button" className="button button-primary" onClick={onStartCreate}>添加 API 服务</button>
       </div>
 
       {showModelForm ? (
         <form className="bg-ops-deep/40 p-6 rounded-2xl border border-ops-border/20 grid grid-cols-2 gap-5 mt-2 animate-in slide-in-from-top-4 duration-300" onSubmit={onSave}>
-          <label className="flex flex-col gap-2 text-[11px] font-bold  tracking-widest text-ops-muted/70">
-            {t('settings.internalName')}
-            <input className="field-control" value={modelForm.name} onChange={(event) => onFormChange({ ...modelForm, name: event.target.value })} placeholder="CC Switch" required />
-          </label>
-          <label className="flex flex-col gap-2 text-[11px] font-bold  tracking-widest text-ops-muted/70">
-            {t('settings.providerIdentity')}
-            <select className="field-control" value={modelForm.provider} onChange={(event) => onProviderChange(event.target.value)}>
-              {modelProviderPresets.map((preset) => (
-                <option key={preset.provider} value={preset.provider}>{preset.label}</option>
-              ))}
-            </select>
-          </label>
           <label className="flex flex-col gap-2 text-[11px] font-bold  tracking-widest text-ops-muted/70 col-span-2">
             {t('settings.endpointBaseUrl')}
-            <input className="field-control font-mono" value={modelForm.baseUrl} onChange={(event) => onConnectionFieldChange({ baseUrl: event.target.value })} placeholder="http://127.0.0.1:15721" required />
+            <input className="field-control font-mono" value={modelForm.baseUrl} onChange={(event) => onConnectionFieldChange({ baseUrl: event.target.value })} placeholder="https://你的服务地址/v1" required />
           </label>
           <label className="flex flex-col gap-2 text-[11px] font-bold  tracking-widest text-ops-muted/70 col-span-2">
             {t('settings.authorizationToken')}
-            <input className="field-control font-mono" type="password" value={modelForm.apiKey} onChange={(event) => onConnectionFieldChange({ apiKey: event.target.value })} placeholder={editingModel ? t('settings.unmodified') : 'cc-switch-local'} required={!editingModel} />
+            <input className="field-control font-mono" type="password" value={modelForm.apiKey} onChange={(event) => onConnectionFieldChange({ apiKey: event.target.value })} placeholder={editingModel ? t('settings.unmodified') : 'API Key'} required={!editingModel} />
           </label>
-          <label className="flex flex-col gap-2 text-[11px] font-bold tracking-widest text-ops-muted/70 col-span-2">
-            {t('settings.targetModelIdentifier')}
-            <input className="field-control font-mono" value={modelForm.modelName} onChange={(event) => onFormChange({ ...modelForm, modelName: event.target.value })} placeholder="gpt-5.6-sol" required />
-          </label>
-          <label className="flex flex-col gap-2 text-[11px] font-bold  tracking-widest text-ops-muted/70">
-            {t('settings.requestTimeout')}
-            <input className="field-control font-mono" type="number" min="1" value={modelForm.timeoutSeconds} onChange={(event) => onFormChange({ ...modelForm, timeoutSeconds: event.target.value })} required />
-          </label>
-          <label className="flex flex-col gap-2 text-[11px] font-bold  tracking-widest text-ops-muted/70">
-            {t('settings.temperature')}
-            <input className="field-control font-mono" type="number" step="0.1" value={modelForm.temperature} onChange={(event) => onFormChange({ ...modelForm, temperature: event.target.value })} required />
-          </label>
-          <label className="flex flex-col gap-2 text-[11px] font-bold  tracking-widest text-ops-muted/70 col-span-2 sm:col-span-1">
-            {t('settings.maxTokenOutput')}
-            <input className="field-control font-mono" type="number" min="1" value={modelForm.maxTokens} onChange={(event) => onFormChange({ ...modelForm, maxTokens: event.target.value })} required />
-          </label>
-          <label className="flex items-center gap-3 text-[11px] font-bold  tracking-widest text-ops-text col-span-2 mt-2">
-            <input type="checkbox" className="accent-ops-cyan w-4 h-4 rounded-md" checked={modelForm.isDefault} disabled={editingModel?.isDefault} onChange={(event) => onFormChange({ ...modelForm, isDefault: event.target.checked })} />
-            {editingModel?.isDefault ? t('settings.primaryDefaultDeployment') : t('settings.setAsPrimaryDefault')}
-          </label>
-          <label className="flex flex-col gap-2 text-[11px] font-bold  tracking-widest text-ops-muted/70 col-span-2">
-            {t('settings.instanceDescription')}
-            <textarea className="field-control min-h-[80px]" value={modelForm.description} onChange={(event) => onFormChange({ ...modelForm, description: event.target.value })} placeholder={t('settings.deploymentDetailsPlaceholder')} rows={3} />
-          </label>
+          <p className="col-span-2 text-xs text-ops-muted">保存服务地址和 API Key 后，在聊天输入框旁打开模型列表，自行选择该服务提供的模型。</p>
+          <details className="col-span-2">
+            <summary className="cursor-pointer text-xs text-ops-muted">高级设置（可选）</summary>
+            <div className="mt-4 grid grid-cols-2 gap-5">
+              <label className="col-span-2 flex flex-col gap-2 text-xs text-ops-muted">服务名称
+                <input className="field-control" value={modelForm.name} onChange={(event) => onFormChange({ ...modelForm, name: event.target.value })} />
+              </label>
+              <label className="flex flex-col gap-2 text-[11px] font-bold  tracking-widest text-ops-muted/70">
+                {t('settings.requestTimeout')}
+                <input className="field-control font-mono" type="number" min="1" value={modelForm.timeoutSeconds} onChange={(event) => onFormChange({ ...modelForm, timeoutSeconds: event.target.value })} required />
+              </label>
+              <label className="flex flex-col gap-2 text-[11px] font-bold  tracking-widest text-ops-muted/70">
+                {t('settings.temperature')}
+                <input className="field-control font-mono" type="number" step="0.1" value={modelForm.temperature} onChange={(event) => onFormChange({ ...modelForm, temperature: event.target.value })} required />
+              </label>
+              <label className="flex flex-col gap-2 text-[11px] font-bold  tracking-widest text-ops-muted/70 col-span-2 sm:col-span-1">
+                {t('settings.maxTokenOutput')}
+                <input className="field-control font-mono" type="number" min="1" value={modelForm.maxTokens} onChange={(event) => onFormChange({ ...modelForm, maxTokens: event.target.value })} required />
+              </label>
+              <label className="flex items-center gap-3 text-[11px] font-bold  tracking-widest text-ops-text col-span-2 mt-2">
+                <input type="checkbox" className="accent-ops-cyan w-4 h-4 rounded-md" checked={modelForm.isDefault} disabled={editingModel?.isDefault} onChange={(event) => onFormChange({ ...modelForm, isDefault: event.target.checked })} />
+                {editingModel?.isDefault ? t('settings.primaryDefaultDeployment') : t('settings.setAsPrimaryDefault')}
+              </label>
+              <label className="flex flex-col gap-2 text-[11px] font-bold  tracking-widest text-ops-muted/70 col-span-2">
+                {t('settings.instanceDescription')}
+                <textarea className="field-control min-h-[80px]" value={modelForm.description} onChange={(event) => onFormChange({ ...modelForm, description: event.target.value })} placeholder={t('settings.deploymentDetailsPlaceholder')} rows={3} />
+              </label>
+            </div>
+          </details>
           {testResult ? <div className="col-span-2 p-4 text-[11px] font-mono text-ops-cyan bg-ops-cyan/10 border border-ops-cyan/20 rounded-xl break-all animate-in fade-in duration-300">{testResult}</div> : null}
           <div className="flex items-center justify-between gap-3 mt-4 pt-6 border-t border-ops-border/20 col-span-2">
-            <button type="button" className="button px-6" onClick={onTest} disabled={saving || !modelForm.apiKey.trim() || !modelForm.modelName.trim()} title={editingModel && !modelForm.apiKey.trim() ? t('settings.enterApiKeyToTest') : undefined}>{t('settings.pingEndpoint')}</button>
+            <button type="button" className="button px-6" onClick={onTest} disabled={saving || !modelForm.baseUrl.trim() || (!editingModel && !modelForm.apiKey.trim())}>测试并获取模型列表</button>
             <div className="flex items-center gap-3">
               <button type="button" className="button px-6" onClick={onCancelForm}>{t('common.cancel')}</button>
-              <button type="submit" className="button button-primary px-8" disabled={saving || !modelForm.modelName.trim()}>{saving ? t('settings.processing') : t('settings.authorize')}</button>
+              <button type="submit" className="button button-primary px-8" disabled={saving || !modelForm.baseUrl.trim()}>{saving ? t('settings.processing') : '保存服务'}</button>
             </div>
           </div>
         </form>
@@ -116,7 +108,7 @@ export function ModelsSection({
                 <strong className="text-[13px] font-bold text-ops-text tracking-tight">{config.name}</strong>
                 {config.isDefault ? <span className="px-2 py-0.5 text-[9px] font-bold  tracking-widest rounded-md text-ops-emerald bg-ops-emerald/10 border border-ops-emerald/20 shadow-glow">{t('settings.primary')}</span> : null}
               </div>
-              <span className="text-[10px] text-ops-muted font-bold  tracking-[0.1em] opacity-60">{modelProviderPresets.find((preset) => preset.provider === config.provider)?.label || config.provider} / {config.modelName} / {config.apiKeyMasked}</span>
+              <span className="text-[10px] text-ops-muted font-bold  tracking-[0.1em] opacity-60">{modelProviderPresets.find((preset) => preset.provider === config.provider)?.label || config.provider} / {config.baseUrl} / {config.apiKeyMasked}</span>
             </div>
             <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-all duration-200">
               {!config.isDefault ? <button type="button" className="button h-8 px-4 text-[10px]" onClick={() => onSetDefault(config)} disabled={saving}>{t('settings.setPrimary')}</button> : null}

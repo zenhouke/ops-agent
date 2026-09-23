@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import replace
 import logging
 
+from app.core.llm.context import estimate_request_tokens, input_budget_tokens
 from app.core.llm.types import LLMCompletionRequest, LLMMessage, LLMPromptCachePolicy
 from app.core.loop.loop_state import LoopContext, LoopState
 from app.core.prompts.agent import (
@@ -23,9 +24,21 @@ class AgentLLMRequestBuilder:
     MAX_COMPACTED_SUMMARY_CHARS = 12_000
 
     def build_tool_calling_request(self, *, state: LoopState, tools: list[LLMToolDefinition]) -> LLMCompletionRequest:
+        full_estimate = estimate_request_tokens(LLMCompletionRequest(messages=state.messages, tools=tools))
+        threshold = input_budget_tokens(state.context.model_config) * 0.7
+        if max(full_estimate, state.last_request_input_tokens) >= threshold:
+            self.compact_state_messages(state, force=True)
         messages = self._annotate_state_messages(state)
         if messages and messages[0].role == "system":
-            messages[0] = replace(messages[0], content=build_tool_calling_system_prompt(state.context))
+            full_prompt = build_tool_calling_system_prompt(state.context)
+            runtime_context, separator, stable_rules = full_prompt.partition("Configurable operating guidance:\n")
+            if separator:
+                messages[0:1] = [
+                    replace(messages[0], content=separator + stable_rules),
+                    LLMMessage(role="system", content=runtime_context, cache_segment="runtime_context", cache_status="volatile"),
+                ]
+            else:
+                messages[0] = replace(messages[0], content=full_prompt)
         sorted_tools = sorted(tools, key=lambda tool: tool.name)
         logger.debug(
             "Agent request sections=%s tool_count=%d",
@@ -66,12 +79,12 @@ class AgentLLMRequestBuilder:
         if prompt and not any(message.role == "system" and message.content == prompt for message in state.messages):
             state.messages.append(self._make_system_message(prompt))
 
-    def compact_state_messages(self, state: LoopState) -> None:
+    def compact_state_messages(self, state: LoopState, *, force: bool = False) -> None:
         if state.phase == "approving" or state.pending_tool_call_id:
             return
 
         total_chars = sum(len(message.content) for message in state.messages)
-        needs_compaction = len(state.messages) > self.MAX_STATE_MESSAGES or total_chars > self.MAX_STATE_MESSAGE_CHARS
+        needs_compaction = force or len(state.messages) > self.MAX_STATE_MESSAGES or total_chars > self.MAX_STATE_MESSAGE_CHARS
         if not needs_compaction:
             state.messages = [self._truncate_message(message) for message in state.messages]
             return
@@ -102,6 +115,7 @@ class AgentLLMRequestBuilder:
             )
         compacted_messages.extend(self._truncate_message(message) for message in recent_messages)
         state.messages = compacted_messages
+        state.last_request_input_tokens = 0
 
     def _build_compacted_summary(self, *, existing_summary: str | None, messages: list[LLMMessage]) -> str:
         lines: list[str] = []

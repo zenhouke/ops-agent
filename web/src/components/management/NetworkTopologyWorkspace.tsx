@@ -1,7 +1,10 @@
-import { useEffect, useMemo, useState } from 'react'
+import { useEffect, useMemo, useRef, useState } from 'react'
+import { startOperation, operationActive } from '../../api/operations'
+import { useOperations } from '../../hooks/useOperations'
+import { OperationPanel } from '../operations/OperationPanel'
 import type { Asset } from '../../types/ops'
+import { listJumpServerInstances, listJumpServerOrganizations, type JumpServerInstance, type JumpServerOrganization } from '../../api/jumpserver'
 import {
-  collectTopologySnapshot,
   getTopologySnapshot,
   listTopologySnapshots,
   type TopologyLink,
@@ -9,7 +12,6 @@ import {
   type TopologySnapshot,
 } from '../../api/networkTopology'
 
-const NETWORK_TYPES = new Set(['network', 'cisco', 'huawei', 'h3c', 'juniper'])
 const CONCURRENCY_OPTIONS = [1, 2, 4, 8]
 type TopologyLayerId = 'external' | 'router' | 'core' | 'aggregation' | 'access'
 type TopologyLinkGroup = {
@@ -72,14 +74,21 @@ function topologyLinkPath(
   return `M ${a.x} ${startY} C ${a.x} ${middleY}, ${b.x} ${middleY}, ${b.x} ${endY}`
 }
 
-export function NetworkTopologyWorkspace({ assets }: { assets: Asset[] }) {
-  const networkAssets = useMemo(
-    () => assets.filter((asset) => NETWORK_TYPES.has(asset.assetType)),
-    [assets],
-  )
-  const [selectedIds, setSelectedIds] = useState<number[]>([])
+export function NetworkTopologyWorkspace({ assets, onOpenAsset }: { assets: Asset[]; onOpenAsset: (id: number, action: 'terminal' | 'diagnose') => void }) {
+  const [instances, setInstances] = useState<JumpServerInstance[]>([])
+  const [instanceId, setInstanceId] = useState<number | null>(null)
+  const [organizations, setOrganizations] = useState<JumpServerOrganization[]>([])
+  const [organization, setOrganization] = useState<string | null>(null)
+  const [loadingOrganizations, setLoadingOrganizations] = useState(false)
+  const background = useOperations('topology', instanceId ?? undefined, organization ?? undefined)
+  const operations = background.operations.filter((op) => op.payload.instanceId === instanceId && op.payload.organization === organization)
+  const collecting = operations.some((op) => operationActive(op.status))
+  const latestResult = operations[0]?.result?.id
+  const selectedOrganization = organizations.find((item) => item.id === organization)
   const [snapshots, setSnapshots] = useState<TopologySnapshot[]>([])
-  const [current, setCurrent] = useState<TopologySnapshot | null>(null)
+  const [loadedSnapshot, setCurrent] = useState<TopologySnapshot | null>(null)
+  const current = loadedSnapshot?.instanceId === instanceId && loadedSnapshot?.organization === organization ? loadedSnapshot : null
+  const snapshotRequest = useRef(0)
   const [maxConcurrency, setMaxConcurrency] = useState(4)
   const [confirming, setConfirming] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -91,32 +100,54 @@ export function NetworkTopologyWorkspace({ assets }: { assets: Asset[] }) {
 
   useEffect(() => {
     let active = true
-    void listTopologySnapshots()
+    void listJumpServerInstances().then((items) => {
+      if (active) {
+        const enabled = items.filter((item) => item.enabled && item.authMode === 'ssh_gateway')
+        setInstances(enabled)
+        setInstanceId((current) => enabled.some((item) => item.id === current) ? current : enabled[0]?.id ?? null)
+      }
+    }).catch((reason) => { if (active) setError(String(reason)) })
+    return () => { active = false }
+  }, [assets])
+
+  useEffect(() => {
+    let active = true
+    setOrganizations([])
+    setLoadingOrganizations(instanceId !== null)
+    if (instanceId !== null) void listJumpServerOrganizations(instanceId).then((items) => {
+      if (active) { setOrganizations(items); setOrganization((current) => items.some((item) => item.id === current) ? current : items[0]?.id ?? null) }
+    }).catch((reason) => { if (active) setError(String(reason)) })
+      .finally(() => { if (active) setLoadingOrganizations(false) })
+    return () => { active = false }
+  }, [instanceId, assets])
+
+  useEffect(() => {
+    let active = true
+    const request = ++snapshotRequest.current
+    setCurrent(null)
+    setSnapshots([])
+    setError('')
+    if (instanceId === null || organization === null) return
+    void listTopologySnapshots(instanceId, organization)
       .then(async (items) => {
-        if (!active) return
+        if (!active || request !== snapshotRequest.current) return
         setSnapshots(items)
         if (items[0]) {
           const latest = await getTopologySnapshot(items[0].id)
-          if (active) setCurrent(latest)
+          if (active && request === snapshotRequest.current) setCurrent(latest)
         }
       })
       .catch((reason) => {
-        if (active) setError(reason instanceof Error ? reason.message : String(reason))
+        if (active && request === snapshotRequest.current) setError(reason instanceof Error ? reason.message : String(reason))
       })
     return () => { active = false }
-  }, [])
-
-  useEffect(() => {
-    const available = new Set(networkAssets.map((asset) => asset.id))
-    setSelectedIds((ids) => ids.filter((id) => available.has(id)))
-  }, [networkAssets])
+  }, [instanceId, organization, latestResult])
 
   useEffect(() => {
     setFocusedNodeId(null)
     setHoveredLinkKey(null)
   }, [current?.id])
 
-  const selectedAssets = networkAssets.filter((asset) => selectedIds.includes(asset.id))
   const topologyLayout = useMemo(() => {
     const nodes = current?.nodes ?? []
     const degree = new Map(nodes.map((node) => [node.id, 0]))
@@ -227,22 +258,24 @@ export function NetworkTopologyWorkspace({ assets }: { assets: Asset[] }) {
 
   const openSnapshot = async (id: number) => {
     setError('')
+    const request = ++snapshotRequest.current
     try {
-      setCurrent(await getTopologySnapshot(id))
+      const result = await getTopologySnapshot(id)
+      if (request === snapshotRequest.current) setCurrent(result)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     }
   }
 
   const collect = async () => {
-    if (!selectedIds.length) return
+    if (instanceId === null || organization === null || !selectedOrganization?.networkAssetIds.length) return
+    ++snapshotRequest.current
     setConfirming(false)
     setBusy(true)
     setError('')
     try {
-      const snapshot = await collectTopologySnapshot(selectedIds, '', maxConcurrency)
-      setCurrent(snapshot)
-      setSnapshots(await listTopologySnapshots())
+      await startOperation({ kind: 'topology', instanceId, organization, maxConcurrency })
+      await background.refresh()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
@@ -250,6 +283,8 @@ export function NetworkTopologyWorkspace({ assets }: { assets: Asset[] }) {
     }
   }
 
+  const focusedNode = current?.nodes?.find((node) => node.id === focusedNodeId)
+  const focusedAsset = assets.find((asset) => asset.id === focusedNode?.assetId)
   const statusClass = current?.status === 'completed'
     ? 'text-ops-green'
     : current?.status === 'failed'
@@ -260,7 +295,7 @@ export function NetworkTopologyWorkspace({ assets }: { assets: Asset[] }) {
     <header className="flex flex-wrap items-center justify-between gap-3 border-b border-ops-border/35 bg-ops-panel/60 px-5 py-3">
       <div>
         <div className="text-[10px] font-bold uppercase tracking-[0.14em] text-ops-cyan/70">Network discovery</div>
-        <h1 className="mt-0.5 text-[15px] font-semibold text-ops-text">网络拓扑</h1>
+        <h1 className="mt-0.5 text-[15px] font-semibold text-ops-text">{selectedOrganization ? `${selectedOrganization.name} · 网络拓扑` : '组织网络拓扑'}</h1>
       </div>
       <div className="flex items-center gap-2">
         <label className="flex items-center gap-1.5 text-[10px] text-ops-muted/70">
@@ -276,41 +311,41 @@ export function NetworkTopologyWorkspace({ assets }: { assets: Asset[] }) {
         </label>
         <button
           type="button"
-          disabled={busy || !selectedIds.length}
+          disabled={busy || collecting || loadingOrganizations || !selectedOrganization?.networkAssetIds.length}
           onClick={() => setConfirming(true)}
           className="rounded-[4px] border border-ops-cyan/35 bg-ops-cyan/10 px-3 py-1.5 text-[11px] font-bold text-ops-cyan disabled:opacity-40"
         >
-          {busy ? '并发采集中…' : `采集所选设备（${selectedIds.length}）`}
+          {busy || collecting ? '后台采集中…' : `采集组织拓扑（${selectedOrganization?.networkAssetIds.length ?? 0}）`}
         </button>
       </div>
     </header>
 
     <div className="grid min-h-0 flex-1 grid-cols-[260px_minmax(0,1fr)]">
       <aside className="overflow-y-auto border-r border-ops-border/30 bg-ops-panel/30 p-3">
-        <div className="mb-2 flex items-center justify-between">
-          <span className="text-[10px] font-bold text-ops-muted/60">采集资产</span>
-          <span className="flex gap-2 text-[9px]">
-            <button type="button" onClick={() => setSelectedIds(networkAssets.map((asset) => asset.id))} className="text-ops-cyan/75 hover:text-ops-cyan">全选</button>
-            <button type="button" onClick={() => setSelectedIds([])} className="text-ops-muted/60 hover:text-ops-text">清空</button>
-          </span>
-        </div>
-        <div className="space-y-1">
-          {networkAssets.map((asset) => <label key={asset.id} className="flex cursor-pointer items-center gap-2 rounded-[4px] px-2 py-1.5 text-[11px] text-ops-text/80 hover:bg-ops-border/15">
-            <input
-              type="checkbox"
-              checked={selectedIds.includes(asset.id)}
-              onChange={() => setSelectedIds((ids) => ids.includes(asset.id) ? ids.filter((id) => id !== asset.id) : [...ids, asset.id])}
-            />
-            <span className="truncate">{asset.name}</span>
-            <span className="ml-auto text-[9px] text-ops-muted/50">{asset.assetType}</span>
-          </label>)}
-        </div>
+        <label className="mb-3 flex flex-col gap-2 text-[11px] text-ops-muted">采集范围
+          <select className="field-control" value={instanceId ?? ''} disabled={busy} onChange={(event) => { setInstanceId(event.target.value ? Number(event.target.value) : null); setOrganizations([]); setOrganization(null) }}>
+            <option value="">请选择 SSH 实例</option>
+            {instances.map((item) => <option key={item.id} value={item.id}>{item.name} · SSH 组织</option>)}
+          </select>
+        </label>
+        {instanceId !== null ? <div className="mb-3 space-y-3">
+          <label className="flex flex-col gap-2 text-[11px] text-ops-muted">组织
+            <select className="field-control" value={organization === null ? '' : JSON.stringify(organization)} disabled={busy || loadingOrganizations} onChange={(event) => setOrganization(event.target.value ? JSON.parse(event.target.value) as string : null)}>
+              <option value="">{loadingOrganizations ? '加载组织…' : '请选择组织'}</option>
+              {organizations.map((item) => <option key={item.id} value={JSON.stringify(item.id)}>{item.name} · {item.networkAssetIds.length} 台网络设备</option>)}
+            </select>
+          </label>
+          <p className="text-[10px] leading-5 text-ops-muted">组织资产由设置中的 JumpServer 同步。{selectedOrganization ? `当前组织已导入 ${selectedOrganization.assetCount} 台可连接资产，其中 ${selectedOrganization.networkAssetIds.length} 台网络设备。` : '请先前往「设置 → JumpServer」同步组织资产。'}</p>
+        </div> : null}
+        {operations.slice(0, 3).map((op) => <div key={op.id} className="my-3"><OperationPanel operation={op} onRefresh={() => void background.refresh()} onOpenResult={(id) => void openSnapshot(id)} /></div>)}
+        {background.error ? <p className="text-xs text-ops-danger">{background.error}</p> : null}
         <div className="my-3 h-px bg-ops-border/25" />
-        <div className="mb-2 text-[10px] font-bold text-ops-muted/60">历史快照</div>
+        <div className="mb-2 text-[10px] font-bold text-ops-muted/60">当前组织的历史快照</div>
         <div className="space-y-1">
-          {snapshots.map((snapshot) => <button
+          {snapshots.filter((snapshot) => snapshot.instanceId === instanceId && snapshot.organization === organization).map((snapshot) => <button
             type="button"
             key={snapshot.id}
+            disabled={busy}
             onClick={() => void openSnapshot(snapshot.id)}
             className={`w-full rounded-[4px] border px-2 py-2 text-left ${current?.id === snapshot.id ? 'border-ops-cyan/30 bg-ops-cyan/8' : 'border-transparent hover:bg-ops-border/15'}`}
           >
@@ -322,7 +357,12 @@ export function NetworkTopologyWorkspace({ assets }: { assets: Asset[] }) {
 
       <main className="min-h-0 overflow-auto p-4">
         {error ? <div className="mb-3 rounded border border-ops-danger/30 bg-ops-danger/8 p-2 text-[11px] text-ops-danger">{error}</div> : null}
-        {!current ? <div className="flex h-full items-center justify-center text-[12px] text-ops-muted/55">选择设备后执行一次明确确认的只读采集。</div> : <>
+        {focusedNode ? <div className="mb-4 rounded border border-ops-cyan/30 bg-ops-panel/50 p-3 text-[11px]">
+          <div className="flex flex-wrap items-center justify-between gap-2"><strong>{focusedNode.name} · {focusedNode.host}</strong><div className="flex gap-2">{focusedAsset ? <><button className="button" onClick={() => onOpenAsset(focusedAsset.id, 'terminal')}>打开终端</button><button className="button" onClick={() => onOpenAsset(focusedAsset.id, 'diagnose')}>发起排障</button></> : <span className="text-ops-muted">外部邻居或资产已移除，无法直接操作</span>}</div></div>
+          <p className="my-2 text-ops-muted">{focusedNode.vendor} · {focusedNode.model || '型号未知'} · {focusedNode.softwareVersion || '版本未知'} · {focusedNode.serialNumber || '序列号未知'}</p>
+          <details><summary className="cursor-pointer text-ops-cyan">接口详情（{focusedNode.interfaces.length}）</summary><div className="mt-2 max-h-64 overflow-auto">{focusedNode.interfaces.map((item, index) => <dl key={index} className="mb-2 grid grid-cols-[120px_1fr] gap-1 border-t border-ops-border/25 pt-2">{Object.entries(item).map(([key, value]) => <div key={key} className="contents"><dt className="text-ops-muted">{key}</dt><dd className="break-all">{typeof value === 'object' ? JSON.stringify(value) : String(value ?? '')}</dd></div>)}</dl>)}</div></details>
+        </div> : null}
+        {!current ? <div className="flex h-full items-center justify-center text-[12px] text-ops-muted/55">{selectedOrganization ? `「${selectedOrganization.name}」暂无组织拓扑，请采集该组织的网络设备。` : '请选择 SSH 实例和组织；若尚未配置，请前往「设置 → JumpServer」配置并同步资产。'}</div> : <>
           <div className="mb-3 flex flex-wrap items-center gap-3 text-[10px] text-ops-muted/60">
             <span>{current.nodes?.length ?? 0} 节点</span>
             <span>{current.links?.length ?? 0} 链路</span>
@@ -436,7 +476,8 @@ export function NetworkTopologyWorkspace({ assets }: { assets: Asset[] }) {
               if (!position) return null
               const layer = TOPOLOGY_LAYERS.find((item) => item.id === position.layer)
                 ?? TOPOLOGY_LAYERS.find((item) => item.id === 'access')!
-              const detail = node.external ? '未纳管邻居' : [node.vendor, node.model].filter(Boolean).join(' · ') || '类型待识别'
+              const collectionFailed = current.errors.some((item) => item.assetId === node.assetId)
+              const detail = collectionFailed ? '采集失败 · 链路未知' : node.external ? '未纳管邻居' : [node.vendor, node.model].filter(Boolean).join(' · ') || '类型待识别'
               const focused = focusedNodeId === node.id
               const relatedToFocus = focusedNodeId === null || focusedNeighborIds.has(node.id)
               return <g
@@ -455,7 +496,7 @@ export function NetworkTopologyWorkspace({ assets }: { assets: Asset[] }) {
                 }}
               >
                 <title>{`${node.name}\n${detail}\n自动归类：${layer.label}`}</title>
-                <rect x={position.x - 76} y={position.y - 34} width="152" height="68" rx="7" fill={node.external ? '#202733' : '#12343b'} stroke={focused ? '#fff1a8' : layer.color} strokeWidth={focused ? 3 : 1.5} />
+                <rect x={position.x - 76} y={position.y - 34} width="152" height="68" rx="7" fill={node.external ? '#202733' : '#12343b'} stroke={focused ? '#fff1a8' : collectionFailed ? '#f59e0b' : layer.color} strokeWidth={focused ? 3 : 1.5} />
                 <circle cx={position.x - 60} cy={position.y - 18} r="3.5" fill={layer.color} />
                 <text x={position.x - 50} y={position.y - 14} fill={layer.color} fontSize="8" fontWeight="700">{shortNodeLabel(layer.label, 14)}</text>
                 <text x={position.x + 60} y={position.y - 14} textAnchor="end" fill="#8ba3aa" fontSize="8">{topologyLayout.degree.get(node.id) ?? 0} 条链路</text>
@@ -484,10 +525,10 @@ export function NetworkTopologyWorkspace({ assets }: { assets: Asset[] }) {
       <div role="dialog" aria-modal="true" aria-labelledby="topology-confirm-title" className="w-full max-w-lg rounded-[6px] border border-ops-border/55 bg-ops-panel p-5 shadow-2xl">
         <h2 id="topology-confirm-title" className="text-[14px] font-semibold text-ops-text">确认只读拓扑采集</h2>
         <p className="mt-2 text-[11px] leading-5 text-ops-muted/75">
-          将通过 JumpServer 连接 {selectedAssets.length} 台设备，最多同时采集 {maxConcurrency} 台。系统只执行版本、接口和 LLDP/CDP 邻居查询，不进入配置模式。
+          {selectedOrganization ? `将通过 SSH 采集组织「${selectedOrganization.name}」的 ${selectedOrganization.networkAssetIds.length} 台网络设备` : '请选择组织'}，最多同时采集 {maxConcurrency} 台。系统只执行版本、接口和 LLDP/CDP 邻居查询，不进入配置模式。
         </p>
         <div className="mt-3 max-h-40 overflow-y-auto rounded-[4px] border border-ops-border/35 bg-ops-deep/60 p-2 text-[10px] text-ops-text/75">
-          {selectedAssets.map((asset) => <div key={asset.id} className="flex justify-between gap-3 py-0.5"><span className="truncate">{asset.name}</span><span className="shrink-0 text-ops-muted/55">{asset.assetType}</span></div>)}
+          {(assets.filter((asset) => selectedOrganization?.networkAssetIds.includes(asset.id))).map((asset) => <div key={asset.id} className="flex justify-between gap-3 py-0.5"><span className="truncate">{asset.name}</span><span className="shrink-0 text-ops-muted/55">{asset.assetType}</span></div>)}
         </div>
         <div className="mt-5 flex justify-end gap-2">
           <button type="button" onClick={() => setConfirming(false)} className="rounded-[4px] border border-ops-border/45 px-3 py-1.5 text-[11px] text-ops-muted hover:text-ops-text">取消</button>

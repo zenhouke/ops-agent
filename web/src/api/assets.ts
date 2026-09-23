@@ -1,3 +1,4 @@
+import type { HostKeyChallenge } from './terminal'
 import { requestJson, requestVoid } from './client'
 import type { Asset, AssetContext, AssetType } from '../types/ops'
 
@@ -23,6 +24,7 @@ export type AssetPayload = {
 }
 
 export type AssetConnectionTestResult = {
+  host_key?: HostKeyChallenge | null
   success: boolean
   message: string
   detected_device_type: string | null

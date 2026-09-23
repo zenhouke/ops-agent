@@ -255,6 +255,12 @@ class LoopRuntimeManager(RuntimeExecutionMixin, RuntimePersistenceMixin):
             "terminalCreationStatus": request.terminal_creation_status,
             "channel": "terminal connected" if authorization else None,
             "failureReason": request.failure_reason,
+            "resumeMessage": (
+                f"Connection to asset {request.asset_name} failed: {request.failure_reason}. "
+                "No terminal was authorized and no commands ran on this asset. "
+                "Consider other candidate assets and request approval before connecting; do not repeatedly retry this asset."
+                if request.terminal_creation_status == "failed" else "Terminal request was rejected by the user."
+            ),
             "scopeExpansionRequired": request.scope_expansion_required,
         }
 

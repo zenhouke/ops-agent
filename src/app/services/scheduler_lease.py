@@ -43,6 +43,10 @@ class SchedulerLeaseStore:
     def mark_running(self, job_id: int, owner: str) -> bool:
         return self._update_owned(job_id, owner, run_status="running") == 1
 
+    def renew(self, job_id: int, owner: str) -> bool:
+        expires_at = datetime.now(UTC) + timedelta(seconds=self._lease_seconds)
+        return self._update_owned(job_id, owner, lease_expires_at=expires_at) == 1
+
     def finish(self, job_id: int, owner: str, *, status: str, error: str = "") -> bool:
         now = datetime.now(UTC)
         with engine.begin() as connection:

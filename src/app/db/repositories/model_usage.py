@@ -1,4 +1,4 @@
-from sqlmodel import Session, func, select
+from sqlmodel import Session, col, func, select
 
 from app.core.llm.types import LLMTokenUsage
 from app.db.models import ModelUsage
@@ -54,3 +54,10 @@ def sum_conversation_usage(session: Session, conversation_id: str) -> LLMTokenUs
         cache_creation_input_tokens=int(row[2] or 0),
         cache_read_input_tokens=int(row[3] or 0),
     )
+
+
+def latest_agent_usage(session: Session, conversation_id: str) -> ModelUsage | None:
+    return session.exec(select(ModelUsage).where(
+        ModelUsage.conversation_id == conversation_id,
+        ModelUsage.call_kind == "agent",
+    ).order_by(col(ModelUsage.id).desc())).first()

@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { appendConversationEvents, cancelAgentRuntime, getRuntimeSnapshot, listConversationRuntimes, streamApproveAgent, streamReconnectRuntime, streamRunAgent, streamRuntimeMessage } from '../../api'
 import type { AgentMessage, EventItem, RuntimeSummary } from '../../types/ops'
-import { finalizeStreamMessages, flushDeltaBuffer, LOCAL_TERMINAL_ASSET_ID, mergeEventsBySequence, PENDING_ASSISTANT_MESSAGE_ID, upsertMessageEvent, upsertStreamEvent } from './consoleShared'
+import { finalizeStreamMessages, flushDeltaBuffer, mergeEventsBySequence, PENDING_ASSISTANT_MESSAGE_ID, upsertMessageEvent, upsertStreamEvent } from './consoleShared'
 import { createDeltaBatcher, derivePendingApprovalState, getRunErrorMessage, isAbortError, type BackgroundRunState, type BackgroundRunStatus, type ConversationSaveStatus, type UseAgentRunProps } from './agentRunSupport'
 import { useTerminalRequestDecision } from './useTerminalRequestDecision'
 
@@ -88,21 +88,22 @@ export function useAgentRun({
 
   useEffect(() => {
     if (!activeConversationId) return
+    const unbound = conversationSummaries.find((item) => item.id === activeConversationId)?.assetId === null
     const pending = derivePendingApprovalState(events)
     if (!pending || submittedApprovalKeysRef.current.get(activeConversationId) === pending.approvalKey) return
     submittedApprovalKeysRef.current.delete(activeConversationId)
     updateRun(activeConversationId, (run) => ({
       conversationId: activeConversationId,
       title: run?.title ?? (activeConversationTitle || '当前会话'),
-      assetId: run?.assetId ?? selectedAsset.id,
-      assetName: run?.assetName ?? selectedAsset.name,
+      assetId: run?.assetId ?? (unbound ? 0 : selectedAsset.id),
+      assetName: run?.assetName ?? (unbound ? '未指定设备' : selectedAsset.name),
       runtimeId: pending.runtimeId,
       status: 'needs_approval', hasUnread: false,
       pendingApprovalToken: pending.approvalToken ?? run?.pendingApprovalToken ?? null,
       pendingApprovalKey: pending.approvalKey,
       saveStatus: run?.saveStatus ?? 'saved',
     }))
-  }, [activeConversationId, activeConversationTitle, events, selectedAsset.id, selectedAsset.name, updateRun])
+  }, [activeConversationId, activeConversationTitle, conversationSummaries, events, selectedAsset.id, selectedAsset.name, updateRun])
 
   useEffect(() => {
     let cancelled = false
@@ -121,7 +122,7 @@ export function useAgentRun({
             conversationId: summary.id,
             title: summary.title || run?.title || '未命名会话',
             assetId: runtime.assetId,
-            assetName: run?.assetName ?? (runtime.assetId === selectedAsset.id ? selectedAsset.name : `资产 #${runtime.assetId}`),
+            assetName: run?.assetName ?? (summary.assetId === null ? '未指定设备' : runtime.assetId === selectedAsset.id ? selectedAsset.name : `资产 #${runtime.assetId}`),
             runtimeId: runtime.runtimeId, status,
             hasUnread: run?.hasUnread ?? activeConversationIdRef.current !== summary.id,
             pendingApprovalToken: snapshot?.pendingApprovalToken ?? run?.pendingApprovalToken ?? null,
@@ -190,6 +191,10 @@ export function useAgentRun({
         if (event.kind === 'context_status') {
           if (activeConversationIdRef.current === conversationId) {
             setContextStatus((current) => ({
+              contextMeasurement: event.contextMeasurement ?? current?.contextMeasurement,
+              requestInputTokens: event.requestInputTokens !== undefined ? event.requestInputTokens : current?.requestInputTokens,
+              cacheReadTokens: event.cacheReadTokens !== undefined ? event.cacheReadTokens : current?.cacheReadTokens,
+              cacheWriteTokens: event.cacheWriteTokens !== undefined ? event.cacheWriteTokens : current?.cacheWriteTokens,
               contextPercent: event.contextPercent ?? current?.contextPercent ?? 0,
               contextStatus: event.contextStatus ?? current?.contextStatus ?? 'normal',
               tokenUsage: event.tokenUsage ?? current?.tokenUsage,
@@ -296,18 +301,22 @@ export function useAgentRun({
         }
         return
       }
+      if (!selectedModel.trim()) throw new Error('请先在输入框旁选择模型。')
       const activeConversation = conversationId
         ? conversationSummaries.find((item) => item.id === conversationId)
         : undefined
+      const unbound = !activeConversation || activeConversation.assetId === null
       const selectedAssetAllowed = activeConversation?.allowedAssetIds.includes(selectedAsset.id) ?? false
-      if (!conversationId || (activeConversation && !selectedAssetAllowed)) {
+      if (!conversationId) {
+        conversationId = await createConversation()
+      } else if (activeConversation && !unbound && !selectedAssetAllowed) {
         conversationId = await createConversation(selectedAsset.id, 'single')
       }
       if (!conversationId) throw new Error('No active conversation available for agent run.')
       updateRun(conversationId, () => ({
         conversationId: conversationId!,
         title: activeConversationId === conversationId ? activeConversationTitle || '当前会话' : '后台会话',
-        assetId: selectedAsset.id, assetName: selectedAsset.name, runtimeId: null,
+        assetId: unbound ? 0 : selectedAsset.id, assetName: unbound ? '未指定设备' : selectedAsset.name, runtimeId: null,
         status: 'running', hasUnread: false, pendingApprovalToken: null, pendingApprovalKey: null, saveStatus: 'saving',
       }))
       const userEventId = createUserEventId()
@@ -318,7 +327,7 @@ export function useAgentRun({
       const controller = new AbortController()
       abortControllersRef.current.set(conversationId, controller)
       intentionalCancellationsRef.current.delete(conversationId)
-      const stream = await streamRunAgent(runPrompt, selectedAsset.id === LOCAL_TERMINAL_ASSET_ID ? undefined : selectedAsset.id, activeTerminalTab?.sessionId ?? null, selectedModel, conversationId, userEventId, selectedSkillName, mode, controller.signal)
+      const stream = await streamRunAgent(runPrompt, unbound ? null : selectedAsset.id, unbound ? null : (activeTerminalTab?.sessionId ?? null), selectedModel, conversationId, userEventId, selectedSkillName, mode, controller.signal)
       const result = await processStream(conversationId, stream)
       runtimeId = result.runtimeId
       lastSequence = result.lastSequence
@@ -417,6 +426,7 @@ export function useAgentRun({
     } : run)
   }, [activeConversationIdRef, updateRun])
   const decideTerminalAccess = useTerminalRequestDecision({
+    setContextStatus,
     activeConversationId, activeConversationIdRef, latestEventsRef, setEvents, setLoadError,
     syncConversationRuntimes, upsertConversationSummary,
     onPersistenceStatus: observePersistenceStatus,

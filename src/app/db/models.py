@@ -124,6 +124,8 @@ class AuditLog(SQLModel, table=True):
 
 class ScheduledJob(SQLModel, table=True):
     __tablename__: ClassVar[str] = "scheduled_jobs"  # pyright: ignore[reportIncompatibleVariableOverride]
+    instance_id: int | None = None
+    organization: str | None = None
     id: int | None = Field(default=None, primary_key=True)
     name: str
     asset_id: int
@@ -188,6 +190,8 @@ class NetworkTopologySnapshot(SQLModel, table=True):
     __tablename__: ClassVar[str] = "network_topology_snapshots"  # pyright: ignore[reportIncompatibleVariableOverride]
     id: int | None = Field(default=None, primary_key=True)
     name: str
+    instance_id: int | None = None
+    organization: str | None = None
     status: str = "completed"
     requested_asset_ids_json: str = "[]"
     errors_json: str = "[]"
@@ -254,6 +258,8 @@ class JumpServerAssetBinding(SQLModel, table=True):
     asset_id: int = Field(index=True)
     external_asset_id: str = Field(index=True)
     external_name: str
+    org_id: str = ""
+    org_name: str = ""
     address: str = ""
     platform: str = ""
     category: str = ""

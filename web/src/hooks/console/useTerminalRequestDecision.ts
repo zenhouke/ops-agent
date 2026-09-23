@@ -8,9 +8,10 @@ import {
   upsertMessageEvent,
   upsertStreamEvent,
 } from './consoleShared'
-import { createDeltaBatcher } from './agentRunSupport'
+import { createDeltaBatcher, type UseAgentRunProps } from './agentRunSupport'
 
 type Props = {
+  setContextStatus: UseAgentRunProps['setContextStatus']
   activeConversationId: string | null
   activeConversationIdRef: RefObject<string | null>
   latestEventsRef: RefObject<EventItem[]>
@@ -24,6 +25,7 @@ type Props = {
 }
 
 export function useTerminalRequestDecision({
+  setContextStatus,
   activeConversationId,
   activeConversationIdRef,
   latestEventsRef,
@@ -54,6 +56,21 @@ export function useTerminalRequestDecision({
       const messages = new Map<string, AgentMessage>()
       for await (const event of stream) {
         onPersistenceStatus(activeConversationId, event)
+        if (event.kind === 'context_status') {
+          if (activeConversationIdRef.current === activeConversationId) {
+            setContextStatus((current) => ({
+              ...current,
+              contextPercent: event.contextPercent ?? current?.contextPercent ?? 0,
+              contextStatus: event.contextStatus ?? current?.contextStatus ?? 'normal',
+              contextMeasurement: event.contextMeasurement ?? current?.contextMeasurement,
+              requestInputTokens: event.requestInputTokens !== undefined ? event.requestInputTokens : current?.requestInputTokens,
+              cacheReadTokens: event.cacheReadTokens !== undefined ? event.cacheReadTokens : current?.cacheReadTokens,
+              cacheWriteTokens: event.cacheWriteTokens !== undefined ? event.cacheWriteTokens : current?.cacheWriteTokens,
+              tokenUsage: event.tokenUsage ?? current?.tokenUsage,
+            }))
+          }
+          continue
+        }
         if (event.kind === 'message_update') {
           const message = { ...event, kind: 'message' as const } as unknown as AgentMessage
           if (activeConversationIdRef.current === activeConversationId) {
@@ -116,7 +133,7 @@ export function useTerminalRequestDecision({
       }
     }
   }, [
-    activeConversationId,
+    setContextStatus,    activeConversationId,
     activeConversationIdRef,
     latestEventsRef,
     setEvents,

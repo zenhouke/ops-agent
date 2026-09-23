@@ -236,6 +236,7 @@ export function useKnowledgeBase() {
     updateEntry,
     deleteEntry,
     reindex,
+    refresh: refreshCurrentSearch,
     setDraft,
   }
 }

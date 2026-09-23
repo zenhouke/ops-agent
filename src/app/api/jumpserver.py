@@ -61,6 +61,14 @@ def list_instance_assets(instance_id: int, session: Session = Depends(get_sessio
     return service.list_assets(session, instance_id)
 
 
+@router.get("/instances/{instance_id}/organizations")
+def list_instance_organizations(instance_id: int, session: Session = Depends(get_session)):
+    try:
+        return get_jumpserver_service().list_organizations(session, instance_id)
+    except KeyError as exc:
+        raise HTTPException(status_code=404, detail="JumpServer instance not found") from exc
+
+
 @router.patch("/assets/{binding_id}/account", response_model=JumpServerAssetBindingView)
 def select_asset_account(binding_id: int, payload: JumpServerAccountSelection, session: Session = Depends(get_session)):
     try:

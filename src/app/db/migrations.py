@@ -15,7 +15,7 @@ from app.utils.file_store import atomic_write_json
 from app.utils.secure_storage import ensure_private_directory, ensure_private_file
 
 
-CURRENT_SCHEMA_VERSION = 2
+CURRENT_SCHEMA_VERSION = 5
 SCHEMA_VERSION_TABLE = "app_schema_version"
 BACKUP_RETENTION = 5
 

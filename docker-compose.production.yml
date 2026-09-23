@@ -9,6 +9,7 @@ services:
     restart: unless-stopped
     environment:
       OPS_AGENT_ENV: production
+      OPS_AGENT_JUMPSERVER_CONNECT_TIMEOUT: ${OPS_AGENT_JUMPSERVER_CONNECT_TIMEOUT:-90}
       OPS_AGENT_SECRET_KEY: ${OPS_AGENT_SECRET_KEY:?required}
       OPS_AGENT_API_TOKEN: ${OPS_AGENT_API_TOKEN:?required}
       OPS_AGENT_AUTH_DISABLED: "false"

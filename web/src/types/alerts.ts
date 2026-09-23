@@ -16,6 +16,8 @@ export type Alert = {
 }
 
 export type ScheduledJob = {
+  instanceId: number | null
+  organization: string | null
   id: number
   name: string
   assetId: number

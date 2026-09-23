@@ -3,7 +3,8 @@ import json
 
 from app.core.approval import ApprovalContext
 from app.core.tool.ports import AssetSummary
-from app.db.models import Asset
+from app.db.models import Asset, AssetGroup, JumpServerAssetBinding
+from sqlmodel import select
 from app.db.repositories.assets import get_asset, list_assets
 from app.db.repositories.audit import create_audit_log
 from app.db.session import Session, engine
@@ -13,15 +14,19 @@ from app.services.redaction_service import RedactionService
 
 class ToolAssetCatalog:
     @staticmethod
-    def _summary(asset: Asset) -> AssetSummary:
+    def _summary(asset: Asset, group_name: str = "", access_via: str = "direct") -> AssetSummary:
         if asset.id is None:
             raise ValueError("Asset is not persisted")
         return AssetSummary(asset.id, asset.name, asset.asset_type, asset.group_id,
-                            tuple(tag.strip() for tag in asset.tags.split(",") if tag.strip()))
+                            tuple(tag.strip() for tag in asset.tags.split(",") if tag.strip()),
+                            host=asset.host, vendor=asset.vendor, group_name=group_name, access_via=access_via)
 
     def list_assets(self) -> list[AssetSummary]:
         with Session(engine) as session:
-            return [self._summary(asset) for asset in list_assets(session) if asset.id is not None]
+            groups = {group.id: group.name for group in session.exec(select(AssetGroup)).all()}
+            jump_assets = {binding.asset_id for binding in session.exec(select(JumpServerAssetBinding)).all()}
+            return [self._summary(asset, groups.get(asset.group_id, ""), "jumpserver" if asset.id in jump_assets else "direct")
+                    for asset in list_assets(session) if asset.id is not None]
 
     def get_asset(self, asset_id: int) -> AssetSummary | None:
         with Session(engine) as session:
