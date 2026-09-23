@@ -8,7 +8,8 @@ from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from app.core.connectors.device_profiles import select_device_profile, select_execution_profile
-from app.core.connectors.execution_context import build_asset_summary, build_device_context, infer_os_type
+from app.core.connectors.execution_context import build_asset_summary, infer_os_type
+from app.core.prompts.device import build_device_context
 from app.core.loop.loop_state import LoopContext
 from app.core.loop.runtime_execution import RuntimeExecutionMixin
 from app.core.loop.runtime_persistence import RuntimePersistenceMixin
@@ -18,20 +19,20 @@ from app.core.loop.runtime_models import (
     RuntimeTerminalAuthorization,
     TerminalAuthorizationStatus,
 )
-from app.services.runtime_store import RuntimeStore
+from app.core.loop.runtime_store import RuntimeStore
 
 
 class LoopRuntimeManager(RuntimeExecutionMixin, RuntimePersistenceMixin):
     COMPLETED_RUNTIME_TTL = timedelta(minutes=30)
 
-    def __init__(self, *, tools_factory, usage_callback=None):
+    def __init__(self, *, tools_factory, runtime_store: RuntimeStore, usage_callback=None):
         self._tools_factory = tools_factory
         self._usage_callback = usage_callback
         self._by_runtime: dict[str, RuntimeState] = {}
         self._by_conversation: dict[str, dict[str, RuntimeState]] = {}
         self._terminal_slots: dict[str, str] = {}
         self._state_lock = threading.RLock()
-        self._runtime_store = RuntimeStore()
+        self._runtime_store = runtime_store
 
     def _now(self) -> datetime:
         return datetime.now(UTC)
@@ -254,6 +255,12 @@ class LoopRuntimeManager(RuntimeExecutionMixin, RuntimePersistenceMixin):
             "terminalCreationStatus": request.terminal_creation_status,
             "channel": "terminal connected" if authorization else None,
             "failureReason": request.failure_reason,
+            "resumeMessage": (
+                f"Connection to asset {request.asset_name} failed: {request.failure_reason}. "
+                "No terminal was authorized and no commands ran on this asset. "
+                "Consider other candidate assets and request approval before connecting; do not repeatedly retry this asset."
+                if request.terminal_creation_status == "failed" else "Terminal request was rejected by the user."
+            ),
             "scopeExpansionRequired": request.scope_expansion_required,
         }
 

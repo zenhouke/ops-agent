@@ -1,0 +1,1 @@
+SwaggerUIBundle({url:'/assets/openapi.json',dom_id:'#swagger-ui',deepLinking:true,filter:true,docExpansion:'none',supportedSubmitMethods:[],validatorUrl:null,persistAuthorization:false,defaultModelsExpandDepth:-1});

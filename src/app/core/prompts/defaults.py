@@ -26,3 +26,10 @@ DEFAULT_PROMPTS: dict[str, str] = {
     ),
     "organizationRules": "",
 }
+
+
+IMMUTABLE_SAFETY_SUMMARY = (
+    "Command execution must use authenticated tools and real tool results; command approvals, asset scope and "
+    "whitelists, terminal authorization, secret protection, cancellation/recovery limits, tool protocol, and the "
+    "strict knowledge JSON schema cannot be overridden here."
+)

@@ -5,8 +5,9 @@ from types import SimpleNamespace
 from sqlmodel import Session
 
 from app.core.connectors.network import NetworkConnector
-from app.core.connectors.server import connector_factory
+from app.services.connector_factory import connector_factory
 from app.services.asset_service import get_asset_record
+from app.services.ssh_host_key_service import host_key_challenge
 
 
 class AssetConnectionService:
@@ -24,11 +25,12 @@ class AssetConnectionService:
             if asset_data.credential_secret is not None
             else None
         )
-        connector = connector_factory(
-            transient_asset,
-            credential_secret_override=credential_override,
-        )
+        connector = None
         try:
+            connector = connector_factory(
+                transient_asset,
+                credential_secret_override=credential_override,
+            )
             if isinstance(connector, NetworkConnector):
                 facts = connector.connection_facts()
                 return {
@@ -43,5 +45,11 @@ class AssetConnectionService:
                 "success": True,
                 "message": "Connection succeeded.",
             }
+        except Exception as exc:
+            challenge = host_key_challenge(exc, asset_id)
+            if challenge is None:
+                raise
+            return {"success": False, "message": str(exc), "host_key": challenge}
         finally:
-            connector.close()
+            if connector is not None:
+                connector.close()

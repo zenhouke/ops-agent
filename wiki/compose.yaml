@@ -1,0 +1,20 @@
+name: ops-agent-wiki
+services:
+  wiki:
+    image: python:3.13-alpine
+    working_dir: /wiki
+    command: ["python", "serve.py"]
+    ports:
+      - "0.0.0.0:33003:33003"
+    volumes:
+      - .:/wiki:ro
+    tmpfs:
+      - /tmp
+    environment:
+      PYTHONDONTWRITEBYTECODE: "1"
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:33003/')"]
+      interval: 15s
+      timeout: 3s
+      retries: 3

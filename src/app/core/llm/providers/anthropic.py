@@ -2,11 +2,13 @@ import json
 from jiter import from_json
 from collections.abc import Iterator
 from typing import Any, cast
+from urllib.parse import urlsplit, urlunsplit
 
 from anthropic.types import JSONOutputFormatParam, TextBlockParam
 
 from app.core.llm.base import LLMCompletionChunk, LLMCompletionRequest, LLMCompletionResponse
 from app.core.llm.types import LLMTokenUsage
+from app.core.llm.retry import ModelStreamInterrupted
 from app.core.tool import LLMToolCall
 from app.shared.schemas import ModelConfig
 
@@ -28,7 +30,8 @@ class AnthropicLLMProvider:
         finish_reason = None
         usage = None
         stopped = False
-        with self._get_client(config).messages.create(
+        # AgentLoop owns the visible, cancellable retry budget for streaming calls.
+        with self._get_client(config).with_options(max_retries=0).messages.create(
             stream=True,
             model=config.model_name,
             max_tokens=request.max_tokens if request.max_tokens is not None else config.max_tokens,
@@ -85,7 +88,7 @@ class AnthropicLLMProvider:
                 elif event.type == "error":
                     raise RuntimeError("AI gateway returned a streaming error")
         if not stopped:
-            raise RuntimeError("AI gateway stream ended before message_stop")
+            raise ModelStreamInterrupted("AI gateway stream ended before message_stop")
         tool_calls = []
         for block in tool_blocks.values():
             arguments = json.loads(block["json"]) if block["json"] else block["input"]
@@ -148,9 +151,16 @@ class AnthropicLLMProvider:
             return self._client
         from anthropic import Anthropic
 
+        endpoint = urlsplit(config.base_url.strip())
+        path = endpoint.path.rstrip("/")
+        if path.endswith("/messages"):
+            path = path[:-len("/messages")]
+        if path.endswith("/v1"):
+            path = path[:-len("/v1")]
+        base_url = urlunsplit((endpoint.scheme, endpoint.netloc, path, endpoint.query, ""))
         self._client = Anthropic(
             api_key=config.api_key.get_secret_value(),
-            base_url=config.base_url,
+            base_url=base_url,
             timeout=config.timeout_seconds,
         )
         return self._client
@@ -171,8 +181,6 @@ class AnthropicLLMProvider:
                 content_blocks: list[dict[str, Any]] = []
                 if message.content:
                     text_block: dict[str, Any] = {"type": "text", "text": message.content}
-                    if index == breakpoint_index:
-                        text_block["cache_control"] = self._build_cache_control(request)
                     content_blocks.append(text_block)
                 for tool_call in message.tool_calls:
                     content_blocks.append(
@@ -183,6 +191,8 @@ class AnthropicLLMProvider:
                             "input": tool_call.arguments,
                         }
                     )
+                if index == breakpoint_index:
+                    content_blocks[-1]["cache_control"] = self._build_cache_control(request)
                 messages.append({"role": "assistant", "content": content_blocks})
                 continue
             if message.role == "tool":
@@ -194,6 +204,7 @@ class AnthropicLLMProvider:
                                 "type": "tool_result",
                                 "tool_use_id": message.tool_call_id or "",
                                 "content": message.content,
+                                **({"cache_control": self._build_cache_control(request)} if index == breakpoint_index else {}),
                             }
                         ],
                     }
@@ -202,9 +213,11 @@ class AnthropicLLMProvider:
 
     def _serialize_system_prompt(self, request: LLMCompletionRequest) -> list[TextBlockParam] | str:
         system_entries = [(index, message.content) for index, message in enumerate(request.messages) if message.role == "system" and message.content]
+        system_entries.sort(key=lambda entry: self._resolve_cache_status(request.messages[entry[0]]) != "cacheable")
         if not system_entries:
             return ""
-        breakpoint_index = self._find_cache_breakpoint(request)
+        breakpoint_index = next((index for index, message in reversed(list(enumerate(request.messages)))
+            if message.role == "system" and self._message_supports_cache_marker(message)), None) if request.cache_policy and request.cache_policy.enabled else None
         blocks: list[TextBlockParam] = []
         for index, content in system_entries:
             block: dict[str, Any] = {"type": "text", "text": content}
@@ -242,7 +255,9 @@ class AnthropicLLMProvider:
         if message.role == "user":
             return bool(message.content)
         if message.role == "assistant":
-            return bool(message.content)
+            return bool(message.content or message.tool_calls)
+        if message.role == "tool":
+            return bool(message.tool_call_id)
         return False
 
     def _resolve_cache_status(self, message) -> str:

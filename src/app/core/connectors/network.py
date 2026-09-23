@@ -61,6 +61,8 @@ class NetworkConnector:
         narrowed_proxy = cast(SSHProxyConfig, proxy_config) if proxy_config is not None else None
         try:
             connect_params = dict(self.device_params)
+            if not str(connect_params.get("device_type", "")).endswith(("_telnet", "_serial")):
+                self._verify_host_key(narrowed_proxy)
             if connect_params.get("device_type") == "autodetect":
                 detect_params = self._with_netmiko_proxy(connect_params, narrowed_proxy)
                 detector = SSHDetect(**detect_params)
@@ -91,6 +93,31 @@ class NetworkConnector:
             raise SSHTargetConnectionThroughProxyError(
                 f"Network device connection to {host}:{port} failed through proxy asset {narrowed_proxy.name}."
             ) from exc
+
+    def _verify_host_key(self, proxy_config: SSHProxyConfig | None) -> None:
+        """Obtain a confirmation challenge before Netmiko starts authentication."""
+        import paramiko
+
+        client = self._create_ssh_client()
+        try:
+            params = self._with_netmiko_proxy({}, proxy_config)
+            client.connect(
+                hostname=str(self.ssh_params.get("host")),
+                port=int(self.ssh_params.get("port", 22)),
+                username=str(self.ssh_params.get("username", "")),
+                sock=params.get("sock"),
+                allow_agent=False,
+                look_for_keys=False,
+                timeout=15,
+                banner_timeout=15,
+                auth_timeout=15,
+            )
+        except paramiko.SSHException as exc:
+            if str(exc) != "No authentication methods available":
+                raise
+        finally:
+            client.close()
+            self._release_netmiko_proxy()
 
     def run_command(self, command: str) -> str:
         if self.connection is None:

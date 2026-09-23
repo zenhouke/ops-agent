@@ -40,7 +40,7 @@ export function ActivityRail({ activeWorkspace, onSelectWorkspace, onOpenSetting
           <svg viewBox="0 0 24 24" aria-hidden="true"><rect x="3" y="4" width="18" height="6" rx="1.5" /><rect x="3" y="14" width="18" height="6" rx="1.5" /><path d="M7 7h.01M7 17h.01" /></svg>
         </RailButton>
         <RailButton active={activeWorkspace === 'jumpserver'} label={t('management.jumpServerAssets')} onClick={() => onSelectWorkspace('jumpserver')}>
-          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M4 5h16v5H4zM4 14h16v5H4z" /><path d="M8 10v4M16 10v4M7 7h.01M7 16h.01" /></svg>
+          <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 3v6c0 4-4 7-8 9-4-2-8-5-8-9V6z" /><path d="M8 12h8m-3-3 3 3-3 3" /></svg>
         </RailButton>
         <RailButton active={activeWorkspace === 'conversations'} label={t('assets.history')} onClick={() => onSelectWorkspace('conversations')}>
           <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M6 3h9l3 3v15H6z" /><path d="M15 3v4h4M9 11h6M9 15h4" /></svg>

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import os
 import re
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import UTC, datetime
@@ -16,8 +17,9 @@ from app.db.models import Asset, AssetGroup, JumpServerAssetBinding, JumpServerI
 from app.db.repositories.jumpserver import get_binding, get_binding_for_asset, get_instance, list_bindings, list_instances
 from app.services.credential_service import CredentialService
 from app.services.jumpserver_client import JumpServerClient
+from app.services.operation_progress import OperationProgress, OperationCancelled
 from app.services.jumpserver_ssh_client import JumpServerSSHClient
-from app.services.secret_key import get_ops_agent_secret_key
+from app.shared.secret_key import get_ops_agent_secret_key
 
 
 class JumpServerService:
@@ -46,6 +48,7 @@ class JumpServerService:
             gateway_url=instance.base_url,
             username=instance.access_key_id,
             private_key=private_key,
+            asset_connect_timeout=float(os.environ.get("OPS_AGENT_JUMPSERVER_CONNECT_TIMEOUT", "90")),
         )
 
     def list_instances(self, session: Session) -> list[dict[str, Any]]:
@@ -124,13 +127,15 @@ class JumpServerService:
         session.commit()
         return {"success": success, "message": message}
 
-    def sync(self, session: Session, instance_id: int) -> dict[str, Any]:
+    def sync(self, session: Session, instance_id: int, *, progress: OperationProgress | None = None) -> dict[str, Any]:
         instance = get_instance(session, instance_id)
         if instance is None:
             raise KeyError(instance_id)
         client: Any = self.gateway_client(instance) if instance.auth_mode == "ssh_gateway" else self.client(instance)
         try:
-            remote_assets = client.list_all_assets()
+            remote_assets = client.list_all_assets(progress=progress) if progress and instance.auth_mode == "ssh_gateway" else client.list_all_assets()
+        except OperationCancelled:
+            raise
         except Exception as exc:
             instance.connection_status = "failed"
             instance.last_error = str(exc)
@@ -176,9 +181,15 @@ class JumpServerService:
             session.add(jumpserver_group)
         if jumpserver_group.id is None:
             raise ValueError("JumpServer asset group id was not generated.")
+        organization_groups: dict[str, AssetGroup] = {}
+        existing_bindings = list_bindings(session, instance_id)
         seen: set[str] = set()
         created = updated = skipped = 0
-        for remote in remote_assets:
+        for index, remote in enumerate(remote_assets):
+            if progress:
+                progress.checkpoint()
+                progress.report(message="写入组织资产（完成前不会提交）", total=len(remote_assets), completed=index,
+                                item={"assetId": str(remote.get("id", "")), "assetName": str(remote.get("name", "")), "status": "completed" if self._normalize_asset(remote, details.get(str(remote.get("id", ""))) or remote)["supported"] else "skipped", "message": "已读取"})
             external_id = str(remote.get("id", ""))
             if not external_id:
                 continue
@@ -189,6 +200,28 @@ class JumpServerService:
                 continue
             seen.add(external_id)
             binding = get_binding(session, instance_id, external_id)
+            org_id = "" if instance.auth_mode == "ssh_gateway" else str(remote.get("org_id") or instance.org_id or "")
+            org_name = str(remote.get("org_name") or org_id or "")
+            organization = org_id or org_name
+            group = jumpserver_group
+            if organization:
+                if organization not in organization_groups:
+                    marker = f"{group_marker}:org:{organization}"
+                    org_group = session.exec(select(AssetGroup).where(AssetGroup.description == marker)).first()
+                    if org_group is None:
+                        org_group = AssetGroup(name=f"{expected_group_name} · {org_name}", description=marker)
+                    org_group.name = f"{expected_group_name} · {org_name}"
+                    session.add(org_group)
+                    session.flush()
+                    organization_groups[organization] = org_group
+                group = organization_groups[organization]
+            if binding is None and instance.auth_mode == "ssh_gateway":
+                # Upgrade legacy imports in place, preserving terminal/conversation references.
+                legacy = [item for item in existing_bindings if not item.org_name and not item.org_id
+                          and item.external_name == normalized["name"] and item.address == normalized["address"]]
+                if len(legacy) == 1:
+                    binding = legacy[0]
+                    binding.external_asset_id = external_id
             if binding is None:
                 local_asset = Asset(
                     group_id=jumpserver_group.id, name=normalized["name"], asset_type=normalized["local_type"],
@@ -208,7 +241,9 @@ class JumpServerService:
                 local_asset.name = normalized["name"]; local_asset.host = normalized["address"]; local_asset.port = normalized["port"]
                 local_asset.asset_type = normalized["local_type"]; local_asset.vendor = normalized["platform"]
                 updated += 1
-            local_asset.group_id = jumpserver_group.id
+            local_asset.group_id = group.id
+            binding.org_id = org_id
+            binding.org_name = org_name
             valid_refs = {str(account.get("id") or account.get("name") or account.get("username") or "") for account in normalized["accounts"]}
             if instance.auth_mode != "ssh_gateway" and (
                 not binding.account_ref or binding.account_ref not in valid_refs
@@ -230,8 +265,12 @@ class JumpServerService:
                     local_asset.description = f"JumpServer access revoked on instance {instance.name}"
                     local_asset.updated_at = now
                     session.add(local_asset)
+        if progress:
+            progress.checkpoint()
         instance.last_sync_at = now; instance.connection_status = "ok"; instance.last_error = ""; instance.updated_at = now
         session.add(instance); session.commit()
+        if progress:
+            progress.report(total=len(remote_assets), completed=len(remote_assets), message="同步完成")
         return {
             "success": True,
             "created": created,
@@ -242,6 +281,21 @@ class JumpServerService:
 
     def list_assets(self, session: Session, instance_id: int) -> list[dict[str, Any]]:
         return [self._binding_view(item) for item in list_bindings(session, instance_id)]
+
+    def list_organizations(self, session: Session, instance_id: int) -> list[dict[str, Any]]:
+        if get_instance(session, instance_id) is None:
+            raise KeyError(instance_id)
+        organizations: dict[str, dict[str, Any]] = {}
+        for binding in list_bindings(session, instance_id):
+            if not binding.active:
+                continue
+            key = binding.org_id or binding.org_name
+            row = organizations.setdefault(key, {"id": key, "name": binding.org_name or "未识别组织", "assetCount": 0, "networkAssetIds": []})
+            row["assetCount"] += 1
+            asset = session.get(Asset, binding.asset_id)
+            if asset and asset.asset_type in {"network", "cisco", "huawei", "h3c", "juniper"}:
+                row["networkAssetIds"].append(binding.asset_id)
+        return sorted(organizations.values(), key=lambda item: item["name"])
 
     def select_account(self, session: Session, binding_id: int, account_ref: str) -> dict[str, Any]:
         binding = session.get(JumpServerAssetBinding, binding_id)
@@ -286,6 +340,7 @@ class JumpServerService:
             raise ValueError("JumpServer instance is unavailable.")
         if instance.auth_mode == "ssh_gateway":
             gateway = self.gateway_client(instance)
+            gateway.org_name = binding.org_name
             if not binding.account_ref:
                 discovered_account = gateway.discover_default_account(
                     asset_name=binding.external_name,
@@ -378,6 +433,7 @@ class JumpServerService:
     @staticmethod
     def _binding_view(row: JumpServerAssetBinding) -> dict[str, Any]:
         return {"id": row.id, "assetId": row.asset_id, "externalAssetId": row.external_asset_id, "name": row.external_name,
+                "orgId": row.org_id, "orgName": row.org_name,
                 "address": row.address, "platform": row.platform, "category": row.category, "type": row.asset_type,
                 "accounts": json.loads(row.accounts_json), "accountRef": row.account_ref, "accountUsername": row.account_username, "active": row.active}
 

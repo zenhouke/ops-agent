@@ -1,11 +1,10 @@
-import { type FormEvent, useCallback, useEffect, useRef, useState } from 'react'
+import { type FormEvent, useCallback, useEffect, useState } from 'react'
 import {
   createModelConfig,
   deleteModelConfig,
   discoverModelConfigModels,
   getModelConfigs,
   setDefaultModelConfig,
-  testModelConfig,
   updateModelConfig,
 } from '../../api'
 import type { ModelConfig } from '../../types/ops'
@@ -14,12 +13,12 @@ import type { ModelForm, SettingsDialogProps } from './settingsTypes'
 
 const defaultPreset = modelProviderPresets[0]
 const emptyModelForm: ModelForm = {
-  name: 'CC Switch',
+  name: 'API 服务',
   provider: defaultPreset.provider,
   baseUrl: defaultPreset.baseUrl,
-  apiKey: 'cc-switch-local',
+  apiKey: '',
   modelName: defaultPreset.modelName,
-  isDefault: false,
+  isDefault: true,
   timeoutSeconds: '180',
   temperature: '0.2',
   maxTokens: '4096',
@@ -52,7 +51,6 @@ export function useModelSettings({
   onModelOptionsChange,
   onSelectedModelChange,
 }: ModelSettingsOptions) {
-  const modelOptionsChangeRef = useRef(onModelOptionsChange)
   const [modelConfigs, setModelConfigs] = useState<ModelConfig[]>([])
   const [modelForm, setModelForm] = useState<ModelForm>(emptyModelForm)
   const [showModelForm, setShowModelForm] = useState(false)
@@ -65,15 +63,10 @@ export function useModelSettings({
   const [saving, setSaving] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
-  useEffect(() => {
-    modelOptionsChangeRef.current = onModelOptionsChange
-  }, [onModelOptionsChange])
-
   const loadModels = useCallback(async () => {
     try {
       const models = await getModelConfigs()
       setModelConfigs(models)
-      modelOptionsChangeRef.current(models.map((config) => config.modelName))
     } catch (loadError) {
       setError(loadError instanceof Error ? loadError.message : 'Failed to load models')
     }
@@ -142,11 +135,11 @@ export function useModelSettings({
   }
 
   const payload = () => ({
-    name: modelForm.name.trim(),
+    name: modelForm.name.trim() || 'API 服务',
     provider: modelForm.provider,
     baseUrl: modelForm.baseUrl.trim(),
     apiKey: modelForm.apiKey.trim() || undefined,
-    modelName: modelForm.modelName.trim(),
+    modelName: '',
     isDefault: modelForm.isDefault,
     timeoutSeconds: Number(modelForm.timeoutSeconds) || 30,
     temperature: Number(modelForm.temperature) || 0.2,
@@ -161,6 +154,7 @@ export function useModelSettings({
     setError(null)
     try {
       const result = await discoverModelConfigModels({
+        configId: editingModel?.id,
         provider: modelForm.provider,
         baseUrl: modelForm.baseUrl.trim(),
         apiKey: modelForm.apiKey.trim(),
@@ -203,8 +197,11 @@ export function useModelSettings({
           isDefault: saved.isDefault ? false : config.isDefault,
         }))]
       setModelConfigs(next)
-      onModelOptionsChange(next.map((config) => config.modelName))
-      if (saved.isDefault) onSelectedModelChange(saved.modelName)
+      onModelOptionsChange([])
+      if (saved.isDefault) {
+        onSelectedModelChange('')
+        window.dispatchEvent(new Event('ops-agent:model-service-changed'))
+      }
       resetForm()
     }, 'Failed to save model')
   }
@@ -214,8 +211,9 @@ export function useModelSettings({
       const selected = await setDefaultModelConfig(config.id)
       const next = modelConfigs.map((item) => ({ ...item, isDefault: item.id === selected.id }))
       setModelConfigs(next)
-      onModelOptionsChange(next.map((item) => item.modelName))
-      onSelectedModelChange(selected.modelName)
+      onModelOptionsChange([])
+      onSelectedModelChange('')
+      window.dispatchEvent(new Event('ops-agent:model-service-changed'))
     }, 'Failed to set default model')
   }
 
@@ -225,7 +223,7 @@ export function useModelSettings({
       await deleteModelConfig(deletingModel.id)
       const next = modelConfigs.filter((config) => config.id !== deletingModel.id)
       setModelConfigs(next)
-      onModelOptionsChange(next.map((config) => config.modelName))
+      onModelOptionsChange([])
       setDeletingModel(null)
     }, 'Failed to delete model')
   }
@@ -233,18 +231,15 @@ export function useModelSettings({
   const test = async () => {
     setTestResult(null)
     await runSaving(async () => {
-      const result = await testModelConfig({
+      const result = await discoverModelConfigModels({
+        configId: editingModel?.id,
         provider: modelForm.provider,
         baseUrl: modelForm.baseUrl.trim(),
         apiKey: modelForm.apiKey.trim(),
-        modelName: modelForm.modelName.trim(),
         timeoutSeconds: Number(modelForm.timeoutSeconds) || 30,
-        temperature: Number(modelForm.temperature) || 0.2,
-        maxTokens: Number(modelForm.maxTokens) || 1024,
-        providerOptions: modelForm.providerOptions,
       })
-      setTestResult(result.message)
-    }, 'Connection test failed')
+      setTestResult(result.models.length ? `连接成功，发现 ${result.models.length} 个模型。保存后可在聊天中选择。` : '连接成功，但服务返回的模型列表为空。请检查该服务是否提供模型目录。')
+    }, '获取模型列表失败')
   }
 
   return {

@@ -10,7 +10,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Mapping
 
-from app.core.loop.prompt_defaults import DEFAULT_PROMPTS
+from app.core.prompts.defaults import DEFAULT_PROMPTS, IMMUTABLE_SAFETY_SUMMARY
 from app.shared import config as shared_config
 
 
@@ -23,11 +23,7 @@ PROMPT_KEYS = (
 )
 MAX_PROMPT_CHARS = 8_000
 
-IMMUTABLE_SAFETY_SUMMARY = (
-    "Command execution must use authenticated tools and real tool results; command approvals, asset scope and "
-    "whitelists, terminal authorization, secret protection, cancellation/recovery limits, tool protocol, and the "
-    "strict knowledge JSON schema cannot be overridden here."
-)
+
 
 
 class PromptSettingsConflictError(Exception):

@@ -1,13 +1,9 @@
-import { useEffect, useRef, useState } from 'react'
-import type {
-  KnowledgeAssetRef,
-  KnowledgeCommand,
-  KnowledgeEntry,
-  KnowledgeReindexResponse,
-  KnowledgeSearchParams,
-  KnowledgeSearchResponse,
-  KnowledgeSourceRef,
-} from '../../types/ops'
+import { useEffect, useState } from 'react'
+import ReactMarkdown from 'react-markdown'
+import remarkGfm from 'remark-gfm'
+import { KnowledgeVersionHistory } from './KnowledgeVersionHistory'
+import { getKnowledgeMarkdown } from '../../api/knowledge'
+import type { KnowledgeEntry, KnowledgeReindexResponse, KnowledgeSearchParams, KnowledgeSearchResponse } from '../../types/ops'
 
 type KnowledgeBrowserProps = {
   entries: KnowledgeEntry[]
@@ -20,164 +16,82 @@ type KnowledgeBrowserProps = {
   onSearch: (params?: KnowledgeSearchParams) => Promise<KnowledgeSearchResponse>
   onDeleteEntry: (entryId: string) => Promise<boolean>
   onReindex: () => Promise<KnowledgeReindexResponse | null>
+  onOpenConversation: (conversationId: string) => void
 }
 
-const PAGE_SIZE = 10
+const PAGE_SIZE = 30
 
-function compactText(value: string | null | undefined, fallback: string) {
-  const trimmed = value?.trim() ?? ''
-  return trimmed.length > 0 ? trimmed : fallback
-}
-
-function formatDate(value: string | null | undefined) {
-  if (!value) return '时间未知'
-  const date = new Date(value)
-  return Number.isNaN(date.getTime()) ? value : date.toLocaleString('zh-CN', { month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit' })
-}
-
-function joinSummary(items: string[], fallback: string) {
-  const compactItems = items.map((item) => item.trim()).filter(Boolean)
-  return compactItems.length > 0 ? compactItems.join(' · ') : fallback
-}
-
-function commandLabel(command: KnowledgeCommand) {
-  return [compactText(command.command, '未命名命令'), compactText(command.purpose, ''), compactText(command.outcome, '')].filter(Boolean).join(' / ')
-}
-
-function assetLabel(asset: KnowledgeAssetRef) {
-  const label = compactText(asset.label, '未命名资产')
-  return asset.assetId === null ? label : `${label} #${asset.assetId}`
-}
-
-function sourceLabel(source: KnowledgeSourceRef) {
-  const eventLabel = source.eventIndex !== null ? `事件 #${source.eventIndex}` : compactText(source.eventType, '来源')
-  return [eventLabel, compactText(source.relevance, '')].filter(Boolean).join(' / ')
-}
-
-export function KnowledgeBrowser({ entries, total, limit, offset, loading, error, reindexing, onSearch, onDeleteEntry, onReindex }: KnowledgeBrowserProps) {
+export function KnowledgeBrowser({ entries, total, limit, offset, loading, error, reindexing, onSearch, onDeleteEntry, onReindex, onOpenConversation }: KnowledgeBrowserProps) {
   const [query, setQuery] = useState('')
   const [tag, setTag] = useState('')
-  const [expandedEntryId, setExpandedEntryId] = useState<string | null>(null)
-  const hasLoadedRef = useRef(false)
-  const [appliedFilters, setAppliedFilters] = useState<KnowledgeSearchParams>({ limit: PAGE_SIZE, offset: 0 })
+  const [selectedId, setSelectedId] = useState<string | null>(null)
+  const [filters, setFilters] = useState<KnowledgeSearchParams>({ limit: PAGE_SIZE, offset: 0 })
+  const [document, setDocument] = useState<{ id: string; text: string; error: string | null } | null>(null)
+  const selected = entries.find((entry) => entry.id === selectedId) ?? entries[0] ?? null
+  const selectedEntryId = selected?.id
+  const selectedUpdatedAt = selected?.updatedAt
+  const markdown = document?.id === selectedEntryId ? document : null
 
+  useEffect(() => { void onSearch(filters) }, [onSearch, filters])
   useEffect(() => {
-    if (hasLoadedRef.current) return
-    hasLoadedRef.current = true
-    void onSearch({ limit: PAGE_SIZE, offset: 0 })
-  }, [onSearch])
+    if (!selectedEntryId) return
+    let active = true
+    void getKnowledgeMarkdown(selectedEntryId).then((text) => {
+      if (active) setDocument({ id: selectedEntryId, text, error: null })
+    }).catch((reason: unknown) => {
+      if (active) setDocument({ id: selectedEntryId, text: '', error: reason instanceof Error ? reason.message : '读取文件失败' })
+    })
+    return () => { active = false }
+  }, [selectedEntryId, selectedUpdatedAt])
 
-  const effectiveLimit = limit > 0 ? limit : PAGE_SIZE
-  const currentPage = Math.floor(offset / effectiveLimit) + 1
-  const totalPages = Math.max(1, Math.ceil(total / effectiveLimit))
-
-  const handleSearch = (nextOffset = 0, isNewSearch = false) => {
-    const nextParams: KnowledgeSearchParams = isNewSearch
-      ? { limit: PAGE_SIZE, offset: 0, query: query.trim() || undefined, tag: tag.trim() || undefined }
-      : { ...appliedFilters, offset: nextOffset }
-    setAppliedFilters(nextParams)
-    void onSearch(nextParams)
-  }
-
-  const clearFilters = () => {
-    setQuery('')
-    setTag('')
-    const next = { limit: PAGE_SIZE, offset: 0 }
-    setAppliedFilters(next)
-    void onSearch(next)
-  }
-
-  const handleDelete = (entry: KnowledgeEntry) => {
-    if (window.confirm(`确定删除知识「${compactText(entry.title, '未命名知识')}」吗？`)) void onDeleteEntry(entry.id)
+  const sourceIds = [...new Set([selected?.sourceConversation.id, ...(selected?.sources.map((source) => source.conversationId) ?? [])].filter((id): id is string => Boolean(id)))]
+  const pageSize = limit || PAGE_SIZE
+  const download = () => {
+    if (!selected || !markdown?.text) return
+    const url = URL.createObjectURL(new Blob([markdown.text], { type: 'text/markdown;charset=utf-8' }))
+    const link = window.document.createElement('a')
+    link.href = url
+    link.download = `${selected.title.replace(/[\\/:*?"<>|]/g, '_') || selected.id}.md`
+    link.click()
+    setTimeout(() => URL.revokeObjectURL(url), 1000)
   }
 
   return (
-    <section className="flex min-h-full flex-1 flex-col" aria-label="知识条目">
-      <div className="grid gap-3 border-b border-ops-border/25 pb-4 lg:grid-cols-[minmax(240px,1fr)_minmax(160px,220px)] xl:grid-cols-[minmax(0,1fr)_200px_auto]">
-        <label>
-          <span className="sr-only">搜索知识</span>
-          <input className="field-control h-9 w-full" value={query} placeholder="搜索标题、摘要、问题或处置方案" onChange={(event) => setQuery(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') handleSearch(0, true) }} />
-        </label>
-        <label>
-          <span className="sr-only">筛选标签</span>
-          <input className="field-control h-9 w-full" value={tag} placeholder="按标签筛选" onChange={(event) => setTag(event.target.value)} onKeyDown={(event) => { if (event.key === 'Enter') handleSearch(0, true) }} />
-        </label>
-        <div className="flex flex-wrap items-center gap-2 lg:col-span-2 xl:col-span-1">
-          <button type="button" className="button button-primary h-9 min-w-20 px-4" disabled={loading} onClick={() => handleSearch(0, true)}>{loading ? '搜索中' : '搜索'}</button>
-          <button type="button" className="button h-9 px-3" onClick={clearFilters}>重置</button>
-          <button type="button" className="button h-9 px-3" disabled={reindexing} onClick={() => void onReindex()}>{reindexing ? '重建中' : '重建索引'}</button>
-        </div>
+    <section className="flex min-h-0 flex-1 flex-col" aria-label="知识文件工作区">
+      {error ? <p className="border-b border-ops-danger/30 p-3 text-xs text-ops-danger" role="alert">{error}</p> : null}
+      <div className="grid min-h-0 flex-1 grid-cols-1 overflow-auto md:grid-cols-[240px_minmax(0,1fr)] xl:grid-cols-[260px_minmax(0,1fr)_250px] md:overflow-hidden">
+        <aside className="flex min-h-0 flex-col border-r border-ops-border/30 bg-ops-deep/30" aria-label="文件列表">
+          <form className="space-y-2 border-b border-ops-border/25 p-3" onSubmit={(event) => { event.preventDefault(); setFilters({ query: query.trim(), tag: tag.trim(), limit: PAGE_SIZE, offset: 0 }) }}>
+            <div className="flex items-center justify-between text-xs font-semibold text-ops-text"><span>知识文件</span><span className="text-ops-muted">{total}</span></div>
+            <input aria-label="搜索知识文件" className="field-control h-8 w-full" placeholder="搜索文件和内容…" value={query} onChange={(event) => setQuery(event.target.value)} />
+            <div className="flex gap-1"><input aria-label="筛选知识标签" className="field-control h-8 min-w-0 flex-1" placeholder="标签" value={tag} onChange={(event) => setTag(event.target.value)} /><button className="button px-2 text-xs" disabled={loading}>搜索</button></div>
+          </form>
+          <nav className="min-h-[140px] flex-1 overflow-y-auto p-2" aria-label="知识文件">
+            {entries.map((entry) => <button key={entry.id} type="button" aria-current={entry.id === selected?.id ? 'page' : undefined} className={`mb-1 w-full rounded px-3 py-2.5 text-left ${entry.id === selected?.id ? 'bg-ops-text/10 text-ops-text' : 'text-ops-muted hover:bg-ops-text/5'}`} onClick={() => setSelectedId(entry.id)}><span className="block truncate text-xs font-medium">{entry.title || '未命名知识'}.md</span><span className="mt-1 block truncate text-[10px] opacity-60">{entry.summary || '无摘要'}</span></button>)}
+            {!entries.length ? <p className="p-3 text-xs text-ops-muted">{loading ? '正在加载…' : '暂无知识文件，可从会话中提炼。'}</p> : null}
+          </nav>
+          <div className="flex items-center justify-between border-t border-ops-border/25 p-2 text-[11px] text-ops-muted"><button type="button" className="button px-2" disabled={loading || offset <= 0} onClick={() => setFilters({ ...filters, offset: Math.max(0, offset - pageSize) })}>上一页</button><span>{Math.floor(offset / pageSize) + 1} / {Math.max(1, Math.ceil(total / pageSize))}</span><button type="button" className="button px-2" disabled={loading || offset + pageSize >= total} onClick={() => setFilters({ ...filters, offset: offset + pageSize })}>下一页</button></div>
+          <button type="button" className="border-t border-ops-border/25 p-2 text-[11px] text-ops-muted" disabled={reindexing} onClick={() => void onReindex()}>{reindexing ? '重建中…' : '重建检索索引'}</button>
+        </aside>
+        <main className="min-h-[300px] min-w-0 overflow-y-auto bg-ops-bg" aria-label="Markdown 正文">
+          {selected ? <>
+            <div className="flex flex-wrap items-center justify-between gap-2 border-b border-ops-border/25 px-5 py-3 text-xs"><span className="truncate text-ops-muted">{selected.title}.md</span><div className="flex gap-3"><button type="button" className="text-ops-muted hover:text-ops-text" disabled={!markdown?.text} onClick={download}>导出 Markdown</button><button type="button" className="text-ops-muted hover:text-ops-danger" onClick={() => { if (window.confirm(`确定删除知识文件「${selected.title}」吗？`)) void onDeleteEntry(selected.id) }}>删除</button></div></div>
+            {markdown?.error ? <p role="alert" className="p-5 text-sm text-ops-danger">{markdown.error}</p> : <article className="mx-auto max-w-[850px] px-6 py-7 text-sm leading-7 text-ops-text [overflow-wrap:anywhere] [&_h1]:mb-6 [&_h1]:text-2xl [&_h1]:font-semibold [&_h2]:mb-3 [&_h2]:mt-8 [&_h2]:text-lg [&_h2]:font-semibold [&_h3]:mb-2 [&_h3]:mt-5 [&_h3]:font-semibold [&_p]:my-3 [&_ul]:list-disc [&_ul]:pl-5 [&_ol]:list-decimal [&_ol]:pl-5 [&_pre]:overflow-auto [&_pre]:rounded [&_pre]:bg-ops-deep [&_pre]:p-4 [&_blockquote]:border-l-2 [&_blockquote]:border-ops-border [&_blockquote]:pl-4 [&_blockquote]:text-ops-muted [&_a]:text-ops-cyan [&_table]:block [&_table]:overflow-auto [&_td]:border [&_td]:border-ops-border/30 [&_td]:p-2 [&_th]:border [&_th]:border-ops-border/30 [&_th]:p-2"><ReactMarkdown remarkPlugins={[remarkGfm]} components={{ img: ({ alt }) => <span>{alt || '图片'}</span> }}>{markdown?.text ?? '正在读取文件…'}</ReactMarkdown></article>}
+          </> : <div className="flex h-full items-center justify-center p-8 text-sm text-ops-muted">选择左侧文件阅读知识正文</div>}
+        </main>
+        <aside className="overflow-y-auto border-t border-ops-border/30 bg-ops-deep/20 p-4 md:col-span-2 xl:col-span-1 xl:border-l xl:border-t-0" aria-label="来源关联">
+          {selected ? <KnowledgeVersionHistory key={selected.id} entryId={selected.id} updatedAt={selected.updatedAt} onRestored={() => onSearch(filters)} /> : null}
+          <h2 className="text-xs font-semibold text-ops-text">来源关联</h2>
+          {selected ? <>
+            <p className="mt-3 text-[11px] text-ops-muted">更新于 {new Date(selected.updatedAt).toLocaleString('zh-CN')}</p>
+            <div className="mt-3 flex flex-wrap gap-1">{selected.tags.map((value) => <button type="button" key={value} className="rounded bg-ops-text/5 px-2 py-1 text-[10px] text-ops-muted" onClick={() => { setTag(value); setQuery(''); setFilters({ tag: value, limit: PAGE_SIZE, offset: 0 }) }}>#{value}</button>)}</div>
+            <h3 className="mb-2 mt-6 text-[11px] font-semibold text-ops-muted">关联会话 · {sourceIds.length}</h3>
+            {sourceIds.map((id) => <button type="button" key={id} className="mb-2 block w-full break-all rounded border border-ops-border/25 p-2 text-left text-xs text-ops-cyan hover:bg-ops-text/5" onClick={() => onOpenConversation(id)}>{id === selected.sourceConversation.id ? selected.sourceConversation.title || id : id}<span className="mt-1 block text-[10px] text-ops-muted">打开来源会话 ↗</span></button>)}
+            <h3 className="mb-2 mt-6 text-[11px] font-semibold text-ops-muted">证据摘录</h3>
+            {selected.sources.filter((source) => source.quote || source.relevance).map((source, index) => <div key={index} className="mb-3 border-l border-ops-border/40 pl-3 text-[11px] leading-5 text-ops-muted"><p>来源 {index + 1}</p>{source.quote ? <blockquote className="whitespace-pre-wrap break-words">{source.quote}</blockquote> : null}{source.relevance ? <p className="mt-1 opacity-70">{source.relevance}</p> : null}</div>)}
+          </> : <p className="mt-3 text-xs text-ops-muted">选中文件后查看关联会话和证据。</p>}
+        </aside>
       </div>
-
-      <div className="flex min-h-10 flex-wrap items-center justify-between gap-2 border-b border-ops-border/20 py-2 text-[11px] text-ops-muted">
-        <span>共 {total} 条知识</span>
-        <span>点击条目查看诊断、处置和来源</span>
-      </div>
-
-      {error ? <div className="my-3 border border-ops-danger/30 bg-ops-danger/5 px-3 py-2 text-xs text-ops-danger" role="alert">{error}</div> : null}
-
-      <div className="mt-3 flex-1 space-y-2">
-        {entries.length === 0 ? (
-          <div className="flex min-h-[240px] flex-1 flex-col items-center justify-center text-center">
-            <div className="mb-3 flex h-9 w-9 items-center justify-center rounded-md border border-ops-border/35 text-ops-muted" aria-hidden="true">
-              <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M4 19.5A2.5 2.5 0 0 1 6.5 17H20" /><path d="M4 4.5A2.5 2.5 0 0 1 6.5 2H20v20H6.5A2.5 2.5 0 0 1 4 19.5z" /></svg>
-            </div>
-            <p className="text-xs font-semibold text-ops-text">{loading ? '正在加载知识库' : '暂无匹配知识'}</p>
-            <p className="mt-1.5 text-[10px] text-ops-muted/65">可以从当前任务提炼第一条可复用知识。</p>
-          </div>
-        ) : entries.map((entry) => {
-          const entryExpanded = expandedEntryId === entry.id
-          return (
-            <article key={entry.id} className={`overflow-hidden rounded-md border transition-colors ${entryExpanded ? 'border-ops-border/45 bg-ops-panel/35' : 'border-ops-border/25 bg-ops-deep/20 hover:border-ops-border/40'}`}>
-              <div className="flex items-start gap-2 px-3 py-3.5 sm:gap-4 sm:px-4">
-                <button type="button" className="min-w-0 flex-1 text-left active:scale-[0.995]" onClick={() => setExpandedEntryId((current) => current === entry.id ? null : entry.id)} aria-expanded={entryExpanded}>
-                  <div className="flex min-w-0 flex-wrap items-center gap-2">
-                    <svg className="h-3.5 w-3.5 shrink-0 text-ops-muted" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" aria-hidden="true"><path d="M6 3h9l3 3v15H6z" /><path d="M9 12h6M9 16h4" /></svg>
-                    <h3 className="min-w-0 flex-1 truncate text-[13px] font-semibold text-ops-text">{compactText(entry.title, '未命名知识')}</h3>
-                    {entry.tags.slice(0, 3).map((item) => <span key={item} className="shrink-0 rounded border border-ops-border/30 px-1.5 py-0.5 text-[10px] text-ops-muted">{item}</span>)}
-                  </div>
-                  <p className="mt-2 line-clamp-2 pl-[22px] text-xs leading-5 text-ops-muted/80">{compactText(entry.summary, '暂无摘要')}</p>
-                  <div className="mt-2 flex flex-wrap items-center gap-2 pl-[22px] text-[10px] text-ops-muted/55">
-                    <span className="max-w-full truncate">{compactText(entry.sourceConversation.title, '未知任务')}</span><span>·</span><time dateTime={entry.updatedAt}>{formatDate(entry.updatedAt)}</time>
-                  </div>
-                </button>
-                <button type="button" className="shrink-0 rounded px-2 py-1 text-[10px] text-ops-muted transition-all duration-200 hover:bg-ops-danger/10 hover:text-ops-danger active:scale-95" onClick={() => handleDelete(entry)}>删除</button>
-              </div>
-
-              {entryExpanded ? (
-                <div className="border-t border-ops-border/15 px-4 py-4 sm:px-6">
-                  <div className="grid gap-5 md:grid-cols-2 xl:grid-cols-3">
-                    <DetailBlock title="问题" value={entry.problem} fallback="暂无问题描述" />
-                    <DetailBlock title="诊断" value={entry.diagnosis} fallback="暂无诊断内容" />
-                    <DetailBlock title="处置" value={entry.resolution} fallback="暂无处置方案" />
-                  </div>
-                  <dl className="mt-4 grid gap-3 border-t border-ops-border/15 pt-3 text-[11px] md:grid-cols-2 xl:grid-cols-3">
-                    <SummaryRow title="命令" value={joinSummary(entry.commands.map(commandLabel), '无命令摘要')} />
-                    <SummaryRow title="资产" value={joinSummary(entry.assets.map(assetLabel), '无资产摘要')} />
-                    <SummaryRow title="来源" value={joinSummary(entry.sources.map(sourceLabel), '无来源摘要')} />
-                  </dl>
-                </div>
-              ) : null}
-            </article>
-          )
-        })}
-      </div>
-
-      <footer className="mt-3 flex min-h-12 flex-wrap items-center justify-between gap-2 border-t border-ops-border/25 py-2 text-[11px] text-ops-muted">
-        <span>第 {currentPage} / {totalPages} 页</span>
-        <div className="flex items-center gap-2">
-          <button type="button" className="button h-8 px-3" disabled={offset <= 0 || loading} onClick={() => handleSearch(Math.max(0, offset - effectiveLimit), false)}>上一页</button>
-          <button type="button" className="button h-8 px-3" disabled={offset + effectiveLimit >= total || loading} onClick={() => handleSearch(offset + effectiveLimit, false)}>下一页</button>
-        </div>
-      </footer>
     </section>
   )
-}
-
-function DetailBlock({ title, value, fallback }: { title: string; value: string; fallback: string }) {
-  return <div><div className="mb-1.5 text-[10px] font-semibold tracking-[0.1em] text-ops-muted/60">{title}</div><p className="whitespace-pre-wrap text-xs leading-5 text-ops-text/85">{compactText(value, fallback)}</p></div>
-}
-
-function SummaryRow({ title, value }: { title: string; value: string }) {
-  return <div className="min-w-0"><dt className="text-ops-muted/50">{title}</dt><dd className="mt-1 line-clamp-2 text-ops-muted/75">{value}</dd></div>
 }

@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import json
 
-from app.core.loop.loop_state import LoopContext
-from app.core.loop.prompt_defaults import DEFAULT_PROMPTS
+from app.core.prompts.defaults import DEFAULT_PROMPTS
+
+from app.core.prompts.context import AgentPromptContext
 
 
-def build_skill_index_prompt(ctx: LoopContext) -> str:
+def build_skill_index_prompt(ctx: AgentPromptContext) -> str:
     if not ctx.available_skills:
         return ""
     lines = ["Available skills:"]
@@ -25,7 +26,7 @@ def build_skill_index_prompt(ctx: LoopContext) -> str:
     return "\n".join(lines)
 
 
-def build_manual_skill_system_prompt(ctx: LoopContext) -> str:
+def build_manual_skill_system_prompt(ctx: AgentPromptContext) -> str:
     if not ctx.loaded_skill_name or not ctx.manual_skill_content:
         return ""
     return (
@@ -35,7 +36,7 @@ def build_manual_skill_system_prompt(ctx: LoopContext) -> str:
     )
 
 
-def build_tool_calling_system_prompt(ctx: LoopContext) -> str:
+def build_tool_calling_system_prompt(ctx: AgentPromptContext) -> str:
     agent_instruction = ctx.agent_behavior_prompt.strip() or DEFAULT_PROMPTS["agentBehavior"]
     device_context = f"\nDevice Execution Rules:\n{ctx.device_context}\n" if ctx.device_context else "\n"
     skill_prompt = build_skill_index_prompt(ctx)
@@ -45,8 +46,8 @@ def build_tool_calling_system_prompt(ctx: LoopContext) -> str:
     asset_scope_context = json.dumps(
         {
             "mode": ctx.conversation_scope_mode,
-            "primaryAssetId": ctx.conversation_primary_asset_id if ctx.conversation_primary_asset_id is not None else ctx.asset_id,
-            "currentAssetId": ctx.asset_id,
+            "primaryAssetId": None if ctx.execution_profile == "unbound" else (ctx.conversation_primary_asset_id if ctx.conversation_primary_asset_id is not None else ctx.asset_id),
+            "currentAssetId": None if ctx.execution_profile == "unbound" else ctx.asset_id,
             "allowedAssetIds": ctx.allowed_asset_ids,
         },
         ensure_ascii=False,
@@ -71,10 +72,20 @@ def build_tool_calling_system_prompt(ctx: LoopContext) -> str:
         "The initial/current terminal is already authorized when an authorization_id is provided above; use execute_command with that authorization_id for current-terminal work and do not request a new terminal session for it. "
         "Treat Current Host Information and the initial/current terminal as authoritative for phrases like current system, current host, current machine, or current device. "
         "Prior remote terminal sessions mentioned in conversation history are historical and transient; do not infer the current asset from them. "
-        "Default to the current selected or already-authorized terminal context. Do not discover assets by default. "
+        "When Execution Profile is unbound, no device or local host is selected; never assume runtime asset 0 authorizes the console host. "
+        "Answer general questions directly. For tasks needing a device, discover candidates from the user's clues and request terminal access before execution; no UI asset selection is required. "
+        "Otherwise default to the current selected or already-authorized terminal context. Do not discover assets unnecessarily. "
         "Use list_assets only when the user explicitly asks about assets/hosts or the task cannot reasonably be completed in the current context without choosing a remote asset; every list_assets call must include its schema-required intent and justification. "
-        "A single-asset conversation must never access another asset. In multi-asset mode, every asset outside allowedAssetIds requires an explicit terminal request and user confirmation before access. "
-        "Use request_terminal_session only when the conversation scope permits it and the user explicitly asks to connect to or operate on a remote asset, or after you have first explained why remote access is required; every request_terminal_session call must include its schema-required intent. "
+        "Never execute against an asset outside allowedAssetIds. A single-asset conversation may REQUEST another asset when the user task requires it, but only explicit user approval of that terminal request expands the conversation scope. Rejection must preserve the original scope. "
+        "When the user describes a network outage and does not know the associated device, investigate within this conversation; never ask them to create another task or choose a troubleshooting mode. "
+        "The fault server may be unreachable or absent from the catalog. Do not assume the selected terminal is the fault server: compare the stated target to Current Host Information before running commands. "
+        "Use list_assets to search the target IP/name and known site/group/gateway clues, paging as needed; if evidence is insufficient, ask for a focused missing clue instead of guessing a device or scanning everything. "
+        "Explain evidence for each candidate before requesting its terminal. JumpServer is an access path, not proof of physical topology. "
+        "After approval, collect device/interface/neighbors information and use execute_command for vendor-appropriate read-only ARP/ND, MAC, VLAN, routing and interface configuration queries. "
+        "Trace IP to MAC at the relevant gateway, then MAC egress and LLDP/CDP to subsequent devices; account for VRFs, VLANs, bonds, virtual machines, overlays and routed hops. Missing table entries are inconclusive. "
+        "Record visited devices, command evidence, confirmed links, hypotheses and next steps with update_task_state; resume from that evidence after approvals and avoid repeated unchanged queries. "
+        "Diagnose first and propose fixes separately; preserve all connection and command approvals. For ordinary tasks about the selected server, keep using its authorized terminal without unnecessary discovery. "
+        "Use request_terminal_session when the user explicitly asks to connect to or operate on a remote asset, or after you have first explained why remote access is required; every request_terminal_session call must include its schema-required intent. "
         "Run commands only through execute_command with an authorization_id. Never treat asset_id or terminal_id as an execution credential. "
         "Before EVERY execute_command call, write a short Chinese explanation in normal assistant text: what you will inspect or change, why, and the expected result; mention impact for mutations. "
         "Then propose the command through the tool, never as a substitute markdown code block. Put explanation first in its arguments, then authorization_id and command. "

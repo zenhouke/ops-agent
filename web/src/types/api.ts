@@ -55,6 +55,11 @@ export type ConversationTokenUsageDto = {
 }
 
 export type ConversationContextStatusDto = {
+  context_measurement?: 'reported' | 'estimated'
+  request_input_tokens?: number | null
+  cache_read_tokens?: number | null
+  cache_write_tokens?: number | null
+
   context_percent: number
   context_status: 'normal' | 'warning' | 'critical'
   token_usage?: ConversationTokenUsageDto
@@ -77,7 +82,7 @@ export type SkillsResponseDto = {
 export type ConsoleRunRequest = {
   prompt: string
   mode?: 'standard' | 'incident'
-  assetId?: number
+  assetId?: number | null
   terminalId?: string | null
   modelName?: string
   conversationId?: string
@@ -88,7 +93,7 @@ export type ConsoleRunRequest = {
 export type ConsoleRunRequestDto = {
   prompt: string
   mode?: 'standard' | 'incident'
-  asset_id?: number
+  asset_id?: number | null
   terminal_id?: string | null
   model_name?: string
   conversation_id?: string

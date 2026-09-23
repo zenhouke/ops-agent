@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pydantic import BaseModel, ConfigDict, Field
+from typing import Literal
 
 
 class KnowledgeCommand(BaseModel):
@@ -84,6 +85,48 @@ class KnowledgeSearchFilters(BaseModel):
     source_conversation_id: str | None = Field(default=None, alias="sourceConversationId")
     limit: int = 20
     offset: int = 0
+
+
+class KnowledgeExtractionAction(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    action: Literal["create", "update", "keep"]
+    entry_id: str | None = None
+    draft: KnowledgeDraft | None = None
+
+
+class KnowledgeExtractionPlan(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    actions: list[KnowledgeExtractionAction] = Field(max_length=20)
+
+
+class KnowledgeExtractionJob(BaseModel):
+    id: str
+    conversation_id: str
+    status: Literal["queued", "running", "succeeded", "failed"] = "queued"
+    created_at: str
+    updated_at: str
+    created_ids: list[str] = Field(default_factory=list)
+    updated_ids: list[str] = Field(default_factory=list)
+    kept_ids: list[str] = Field(default_factory=list)
+    error: str | None = None
+    total_batches: int = 0
+    completed_batches: int = 0
+    retry_count: int = 0
+    progress: str = ""
+
+
+class KnowledgeExtractionBatch(BaseModel):
+    key: str
+    document: str
+    fingerprints: list[str]
+
+
+class KnowledgeExtractionTask(KnowledgeExtractionJob):
+    source: KnowledgeSourceConversation = Field(default_factory=KnowledgeSourceConversation)
+    model_name: str | None = None
+    batches: list[KnowledgeExtractionBatch] = Field(default_factory=list)
 
 
 class KnowledgeSearchHit(BaseModel):

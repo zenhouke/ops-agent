@@ -17,7 +17,7 @@ export interface UseAgentRunProps {
   activeConversationIdRef: RefObject<string | null>
   events: EventItem[]
   setEvents: (updater: EventItem[] | ((previous: EventItem[]) => EventItem[])) => void
-  createConversation: (assetId?: number, scopeMode?: ConversationScopeMode) => Promise<string>
+  createConversation: (assetId?: number | null, scopeMode?: ConversationScopeMode) => Promise<string>
   loadConversation: (conversationId: string) => Promise<ConversationSummary>
   upsertConversationSummary: (summary: ConversationSummary) => void
   refreshConversationList: () => Promise<unknown>

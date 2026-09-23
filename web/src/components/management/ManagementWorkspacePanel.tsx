@@ -24,6 +24,8 @@ type ManagementWorkspacePanelProps = {
   selectedModel: string
   contextStatus: ConversationContextStatus | null
   knowledge: KnowledgeBaseController
+  onOpenConversation: (conversationId: string) => void
+  onOpenAsset: (assetId: number, action: 'terminal' | 'diagnose') => void
   onGroupsChange: (groups: AssetGroup[]) => void
   onSSHKeysChange: (sshKeys: SSHKey[]) => void
 }
@@ -37,8 +39,9 @@ export function ManagementWorkspacePanel({
   conversationId,
   conversationTitle,
   selectedModel,
-  contextStatus,
   knowledge,
+  onOpenConversation,
+  onOpenAsset,
   onGroupsChange,
   onSSHKeysChange,
 }: ManagementWorkspacePanelProps) {
@@ -49,34 +52,15 @@ export function ManagementWorkspacePanel({
           conversationId={conversationId}
           conversationTitle={conversationTitle}
           selectedModel={selectedModel}
-          draft={knowledge.draft}
-          draftSourceConversation={knowledge.draftSourceConversation}
-          draftLoading={knowledge.draftLoading}
-          draftError={knowledge.draftError}
-          saving={knowledge.saving}
-          entries={knowledge.entries}
-          total={knowledge.total}
-          limit={knowledge.limit}
-          offset={knowledge.offset}
-          loading={knowledge.loading}
-          error={knowledge.error}
-          reindexing={knowledge.reindexing}
-          knowledgeEntriesInjected={contextStatus?.knowledgeEntriesInjected}
-          knowledgeContextChars={contextStatus?.knowledgeContextChars}
-          onSearch={knowledge.search}
-          onDeleteEntry={knowledge.deleteEntry}
-          onReindex={knowledge.reindex}
-          onGenerateDraft={knowledge.generateDraft}
-          onSaveDraft={knowledge.saveDraft}
-          onClearDraft={knowledge.clearDraft}
-          onDraftChange={knowledge.setDraft}
+          knowledge={knowledge}
+          onOpenConversation={onOpenConversation}
         />
       ) : workspace === 'topology' ? (
-        <NetworkTopologyWorkspace assets={assets} />
+        <NetworkTopologyWorkspace assets={assets} onOpenAsset={onOpenAsset} />
       ) : workspace === 'credentials' ? (
         <CredentialsWorkspace initialSSHKeys={sshKeys} onSSHKeysChange={onSSHKeysChange} />
       ) : workspace === 'automation' ? (
-        <AutomationWorkspace assets={assets} />
+        <AutomationWorkspace assets={assets} onOpenConversation={onOpenConversation} />
       ) : workspace === 'extensions' ? (
         <ExtensionsWorkspace />
       ) : (

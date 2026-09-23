@@ -40,6 +40,7 @@ class LoopContext:
     device_vendor: str | None = None
     device_context: str = ""
     recent_output: str = ""
+    knowledge_context: str = ""
     conversation_history: list[LLMMessage] = field(default_factory=list)
     available_skills: list[dict[str, str]] = field(default_factory=list)
     loaded_skill_name: str | None = None
@@ -98,6 +99,7 @@ class LoopState:
     last_output_excerpt: str = ""
     summary: str | None = None
     error_message: str | None = None
+    last_request_input_tokens: int = 0
     latest_usage: dict[str, int | str] | None = None
     started_monotonic: float = field(default_factory=time.monotonic)
     deadline_monotonic: float | None = None

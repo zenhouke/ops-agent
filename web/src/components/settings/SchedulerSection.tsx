@@ -64,6 +64,9 @@ export function SchedulerSection({ assets }: SchedulerSectionProps) {
 
   useEffect(() => {
     void loadJobs()
+    const reload = () => void loadJobs()
+    window.addEventListener('ops-agent:scheduler-changed', reload)
+    return () => window.removeEventListener('ops-agent:scheduler-changed', reload)
   }, [loadJobs])
 
   const startCreate = () => {
@@ -92,7 +95,7 @@ export function SchedulerSection({ assets }: SchedulerSectionProps) {
 
   const handleSave = async (e: FormEvent) => {
     e.preventDefault()
-    if (!name.trim() || !prompt.trim() || !assetId) {
+    if (!name.trim() || !prompt.trim() || (!editingJob?.instanceId && !assetId)) {
       return
     }
 
@@ -101,7 +104,8 @@ export function SchedulerSection({ assets }: SchedulerSectionProps) {
     try {
       const payload = {
         name: name.trim(),
-        asset_id: assetId,
+        asset_id: editingJob?.instanceId ? 0 : assetId,
+        ...(editingJob?.instanceId ? { instance_id: editingJob.instanceId, organization: editingJob.organization } : {}),
         prompt: prompt.trim(),
         interval_seconds: Number(intervalSeconds),
         enabled,
@@ -233,9 +237,11 @@ export function SchedulerSection({ assets }: SchedulerSectionProps) {
               <label className="text-[10px] font-black text-ops-muted tracking-wider">{t('scheduler.asset')}</label>
               <select
                 value={assetId}
+                disabled={Boolean(editingJob?.instanceId)}
                 onChange={(e) => setAssetId(Number(e.target.value))}
                 className="h-9 w-full rounded-lg bg-ops-deep px-3 text-[11px] font-medium text-ops-text border border-ops-border/20 focus:border-ops-cyan/40 outline-none"
               >
+                {editingJob?.instanceId ? <option value={0}>组织：{editingJob.organization || "未识别组织"}</option> : null}
                 {assets.map((asset) => (
                   <option key={asset.id} value={asset.id}>
                     {asset.name} ({asset.assetType})
@@ -354,7 +360,7 @@ export function SchedulerSection({ assets }: SchedulerSectionProps) {
                     </div>
 
                     <div className="flex flex-wrap gap-x-4 gap-y-1 text-[10px] text-ops-muted font-medium pt-1">
-                      <span>{t('scheduler.assetLabel')} <strong className="text-ops-cyan/90 font-bold">{getAssetName(job.assetId)}</strong></span>
+                      <span>{t('scheduler.assetLabel')} <strong className="text-ops-cyan/90 font-bold">{job.instanceId ? `组织：${job.organization || "未识别组织"}` : getAssetName(job.assetId)}</strong></span>
                       <span>{t('scheduler.intervalLabel')} <strong className="text-ops-text font-bold">{formatInterval(job.intervalSeconds)}</strong></span>
                       <span>{t('scheduler.lastRunLabel')} <strong className="text-ops-text font-bold">{formatTime(job.lastRunAt)}</strong></span>
                     </div>

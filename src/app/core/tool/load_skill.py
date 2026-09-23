@@ -8,11 +8,11 @@ from app.core.loop.loop_state import LoopState
 from app.core.loop.message_manager import MessageManager
 from app.core.tool.handler import ToolDisplayMetadata
 from app.core.tool.schema import LLMToolDefinition
-from app.services.skill_service import SkillService
+from app.core.tool.ports import SkillLoader
 
 
 class LoadSkillHandler:
-    def __init__(self, skill_service: SkillService) -> None:
+    def __init__(self, skill_service: SkillLoader) -> None:
         self._skill_service = skill_service
 
     @property

@@ -11,7 +11,6 @@ from sqlmodel import Session, col, select
 
 from app.db.models import AgentRuntimeEventRecord, AgentRuntimeRecord
 from app.db.session import engine
-from app.services.instance_service import get_instance_info
 
 
 TERMINAL_RUN_STATES = {"terminal", "interrupted"}
@@ -47,8 +46,8 @@ def _decode(payload: str) -> dict[str, Any]:
 
 
 class RuntimeStore:
-    def __init__(self) -> None:
-        self._instance_id = get_instance_info().instance_id
+    def __init__(self, *, instance_id: str) -> None:
+        self._instance_id = instance_id
         self._lease_seconds = self._read_lease_seconds()
 
     def save_snapshot(self, snapshot: dict[str, Any], *, run_state: str) -> None:

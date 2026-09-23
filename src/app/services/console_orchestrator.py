@@ -73,7 +73,7 @@ class TaskOrchestrator:
         session: Session,
         prompt: str,
         operator_prompt: str | None = None,
-        asset_id: int,
+        asset_id: int | None,
         terminal_id: str | None = None,
         model_name: str | None = None,
         selected_skill_name: str | None = None,

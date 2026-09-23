@@ -2,6 +2,7 @@ from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager
 import logging
 import os
+import asyncio
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
@@ -27,8 +28,11 @@ from app.api.conversations import router as conversations_router
 from app.api.skills import router as skills_router
 from app.api.ssh_keys import router as ssh_keys_router
 from app.api.system import router as system_router
-from app.api.terminal import get_terminal_service, router as terminal_router
+from app.api.terminal import router as terminal_router
+from app.composition import get_terminal_service
 from app.api.scheduler import router as scheduler_router
+from app.api.operations import router as operations_router
+from app.services.operations_service import get_operations_service
 from app.api.alerts import router as alerts_router
 from app.db.session import Session, engine, init_db
 from app.db.repositories.audit import backfill_legacy_audit_chain
@@ -37,9 +41,10 @@ from app.services.credential_migration_service import migrate_legacy_credentials
 from app.shared.config import APP_DIR
 from app.utils.secure_storage import harden_storage_tree
 from app.utils.process_lock import ProcessLock
-from app.services.scheduler_service import get_scheduler_service
-from app.api.console import get_console_app_service
+from app.composition import get_scheduler_service
+from app.composition import get_console_app_service
 from app.services.observability_service import configure_telemetry, shutdown_telemetry
+from app.services.knowledge_factory import get_knowledge_extraction_service
 
 logger = logging.getLogger(__name__)
 IS_PRODUCTION = os.environ.get("OPS_AGENT_ENV", "").lower() == "production"
@@ -88,11 +93,18 @@ async def lifespan(_: FastAPI) -> AsyncIterator[None]:
         recovered = get_console_app_service().recover_persisted_runtimes()
         if recovered:
             logger.warning("Recovered %d interrupted agent runtimes after restart.", recovered)
+        operations_service = get_operations_service()
+        operations_service.bind(inspect_asset=get_scheduler_service().inspect_asset, runtime_lookup=get_console_app_service().runtime_manager.get_runtime)
         get_scheduler_service().start_loop()
+        extraction_service = get_knowledge_extraction_service()
         try:
             yield
         finally:
+            await asyncio.to_thread(extraction_service.close)
+            get_knowledge_extraction_service.cache_clear()
             get_scheduler_service().stop_loop()
+            await asyncio.to_thread(operations_service.close)
+            get_operations_service.cache_clear()
             get_console_app_service().close()
             shutdown_telemetry()
 
@@ -146,6 +158,7 @@ app.include_router(skills_router)
 app.include_router(ssh_keys_router)
 app.include_router(system_router)
 app.include_router(scheduler_router)
+app.include_router(operations_router)
 app.include_router(alerts_router)
 
 

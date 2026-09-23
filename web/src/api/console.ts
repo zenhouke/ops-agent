@@ -200,7 +200,7 @@ function buildConsoleRunRequestDto({
 
 export async function streamRunAgent(
   prompt: string,
-  assetId?: number,
+  assetId?: number | null,
   terminalId?: string | null,
   modelName?: string,
   conversationId?: string,

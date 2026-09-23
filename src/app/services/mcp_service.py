@@ -8,6 +8,7 @@ from concurrent.futures import ThreadPoolExecutor, TimeoutError as FutureTimeout
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field
 from datetime import timedelta
+from functools import partial
 from typing import Any
 
 import anyio
@@ -15,6 +16,7 @@ from mcp import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters, stdio_client
 
+from app.core.tool.schema import LLMToolDefinition
 from app.core.runtime.control import get_runtime_control
 from app.services.mcp_config_store import (
     DiscoveredMCPTool,
@@ -56,9 +58,20 @@ class McpService:
         from app.core.tool.mcp import McpToolHandler
 
         return [
-            McpToolHandler(service=self, server=server, tool=tool)
+            McpToolHandler(
+                definition=LLMToolDefinition(name=tool.exposed_name,
+                    description=tool.description or f"MCP tool {tool.original_name}",
+                    input_schema=tool.input_schema or {"type": "object", "properties": {}}),
+                original_name=tool.original_name, server_id=server.id,
+                approval_policy=tool.approval_policy,
+                call=partial(self._call_for_handler, server, tool),
+            )
             for server, tool in self._store.list_injectable_tools()
         ]
+
+    def _call_for_handler(self, server: MCPServerConfig, tool: MCPToolConfig, args: dict[str, Any]) -> tuple[bool, str]:
+        result = self.call_tool(server, tool, args)
+        return result.ok, self.normalize_output(result)
 
     def refresh_server(self, server_id: str) -> MCPServerConfig | None:
         server = self._store.get_server(server_id)

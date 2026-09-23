@@ -83,12 +83,11 @@ export function useAssetCatalog({
     (modelOptions: string[]) => {
       setBootstrap({
         ...bootstrap,
-        modelOptions:
-          modelOptions.length > 0 ? modelOptions : bootstrap.modelOptions,
+        modelOptions,
       })
       if (modelOptions.length > 0) {
         setSelectedModel((currentModel: string) =>
-          modelOptions.includes(currentModel) ? currentModel : modelOptions[0]
+          modelOptions.includes(currentModel) ? currentModel : ''
         )
       }
     },

@@ -8,7 +8,7 @@ from sqlalchemy import desc
 from sqlmodel import Session, select
 
 from app.db.models import AuditLog
-from app.services.secret_key import get_ops_agent_secret_key
+from app.shared.secret_key import get_ops_agent_secret_key
 
 
 # Production is intentionally single-process for one data directory.  This lock

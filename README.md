@@ -33,7 +33,7 @@ Configure model -> Select asset -> Open terminal -> Ask AI -> Review proposed co
 - Terminal workspace with local PTY, SSH, serial, and network CLI support.
 - AI operations assistant that uses asset, terminal, and conversation context for investigation and troubleshooting.
 - Human approval before command execution, with traceable decisions, commands, and output.
-- Multiple model providers, including Anthropic, OpenAI Compatible, OpenAI Responses, Google Gemini, Azure OpenAI, and common compatible providers.
+- AI access through CC Switch using the Messages protocol, with a shared default model for agent runs and auxiliary generation.
 - MCP and skills support for extending assistant capabilities.
 - Web and desktop modes, with Tauri packaging for desktop builds.
 
@@ -50,7 +50,7 @@ Configure model -> Select asset -> Open terminal -> Ask AI -> Review proposed co
 | Layer | Stack |
 | --- | --- |
 | Backend | Python 3.13+, FastAPI, SQLModel, SQLite, Uvicorn |
-| AI / Tools | Anthropic SDK, OpenAI SDK, Google GenAI, MCP, LangGraph, Netmiko, Paramiko |
+| AI / Tools | Anthropic SDK (CC Switch Messages), MCP, LangGraph, Netmiko, Paramiko |
 | Frontend | React 18, TypeScript, Vite, Tailwind CSS, xterm.js |
 | Desktop | Tauri 2, Rust |
 | Package managers | pip, pnpm |
@@ -101,13 +101,13 @@ Startup scripts load `.env` from the repository root.
 | `OPS_AGENT_API_TOKEN` | `OPS_AGENT_SECRET_KEY` | Web/API access token; set a separate value for non-loopback deployments |
 | `OPS_AGENT_AUTH_DISABLED` | `false` | Disable authentication only for trusted loopback development; production and Tauri keep authentication enabled |
 | `OPS_AGENT_LEGACY_SECRET_KEY` | none | Temporary key used only while migrating legacy v1 credentials |
-| `OPS_AGENT_PROVIDER` | `openai_compatible` | Default model provider |
-| `OPS_AGENT_MODEL` | provider default | Default model name |
-| `OPS_AGENT_BASE_URL` | provider default | Default model base URL |
-| `OPS_AGENT_API_KEY` | `demo-key` | Default model API key |
-| `OPS_AGENT_TIMEOUT_SECONDS` | `30` | Model request timeout |
+| `OPS_AGENT_PROVIDER` | `anthropic` | CC Switch wire protocol |
+| `OPS_AGENT_MODEL` | `gpt-5.6-sol` | Fallback model name |
+| `OPS_AGENT_BASE_URL` | CC Switch local route | Fallback model base URL |
+| `OPS_AGENT_API_KEY` | `cc-switch-local` | Default model API key |
+| `OPS_AGENT_TIMEOUT_SECONDS` | `180` | Model request timeout |
 | `OPS_AGENT_TEMPERATURE` | `0.2` | Model temperature |
-| `OPS_AGENT_MAX_TOKENS` | `2560` | Max model output tokens |
+| `OPS_AGENT_MAX_TOKENS` | `4096` | Max model output tokens |
 | `OPS_AGENT_PROMPT_CACHE_ENABLED` | `true` | Enable prompt cache |
 | `OPS_AGENT_PROMPT_CACHE_TTL` | `ephemeral` | Prompt cache TTL |
 | `OPS_AGENT_PWSH_PATH` | auto-detect | Override PowerShell path on Windows |

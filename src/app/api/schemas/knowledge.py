@@ -41,7 +41,7 @@ class KnowledgeDraftView(BaseModel):
 
 
 class KnowledgeGenerateDraftRequest(BaseModel):
-    maxSourceEvents: int = 120
+    maxSourceEvents: int = Field(default=120, ge=1, le=1000)
     modelName: str | None = None
 
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+from app.core.llm.context import context_window_tokens, input_budget_tokens
+
 from dataclasses import asdict, dataclass, field
 import hashlib
 import json
@@ -86,12 +88,7 @@ class ContextManager:
         return sum(self.estimate_text_tokens(message.content) + 4 for message in messages)
 
     def context_window_tokens(self, model_config: ModelConfig) -> int:
-        model_name = model_config.model_name.lower()
-        if "claude" in model_name:
-            return 200_000
-        if "gpt-4" in model_name or "gpt-5" in model_name:
-            return 128_000
-        return self.default_context_window_tokens
+        return context_window_tokens(model_config)
 
     def source_revision(self, events: list[JsonObject]) -> str:
         payload = json.dumps(events, ensure_ascii=False, sort_keys=True, separators=(",", ":"))
@@ -162,11 +159,11 @@ class ContextManager:
         return result
 
     def context_percent_for_tokens(self, estimated_input_tokens: int, model_config: ModelConfig) -> int:
-        available_tokens = max(1, self.context_window_tokens(model_config) - self.output_reserve_tokens)
+        available_tokens = input_budget_tokens(model_config)
         return min(100, max(0, round(estimated_input_tokens * 100 / available_tokens)))
 
     def fits_context_window(self, estimated_input_tokens: int, model_config: ModelConfig) -> bool:
-        available_tokens = max(1, self.context_window_tokens(model_config) - self.output_reserve_tokens)
+        available_tokens = input_budget_tokens(model_config)
         return estimated_input_tokens <= available_tokens
 
     def normalize_events(self, events: list[JsonObject]) -> list[MessageSegment]:

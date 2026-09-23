@@ -9,14 +9,16 @@ from sqlmodel import Session, select, col
 from app.db.session import get_session
 from app.db.models import ScheduledJob
 from app.services.asset_service import get_asset_record
-from app.services.scheduler_service import get_scheduler_service
+from app.composition import get_scheduler_service
 
 router = APIRouter()
 
 
 class ScheduledJobCreate(BaseModel):
     name: str
-    asset_id: int
+    asset_id: int = 0
+    instance_id: int | None = None
+    organization: str | None = None
     prompt: str
     interval_seconds: int = 3600
     enabled: bool = True
@@ -25,12 +27,16 @@ class ScheduledJobCreate(BaseModel):
 class ScheduledJobUpdate(BaseModel):
     name: str | None = None
     asset_id: int | None = None
+    instance_id: int | None = None
+    organization: str | None = None
     prompt: str | None = None
     interval_seconds: int | None = None
     enabled: bool | None = None
 
 
 class ScheduledJobView(BaseModel):
+    instance_id: int | None = None
+    organization: str | None = None
     id: int
     name: str
     asset_id: int
@@ -40,6 +46,17 @@ class ScheduledJobView(BaseModel):
     last_run_at: datetime | None = None
     created_at: datetime
     updated_at: datetime
+
+
+def _validate_scope(instance_id: int | None, organization: str | None, prompt: str) -> None:
+    if (instance_id is None) != (organization is None):
+        raise HTTPException(status_code=400, detail="请同时指定 SSH 实例和组织。")
+    if instance_id is not None:
+        from app.services.operations_service import get_operations_service
+        try:
+            get_operations_service().validate("inspection", {"instanceId": instance_id, "organization": organization, "prompt": prompt})
+        except ValueError as exc:
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
 
 
 def _validate_job_fields(*, name: str | None, asset_id: int | None, prompt: str | None, interval_seconds: int | None, session: Session) -> None:
@@ -56,6 +73,8 @@ def _validate_job_fields(*, name: str | None, asset_id: int | None, prompt: str 
 def _to_job_view(job: ScheduledJob) -> ScheduledJobView:
     return ScheduledJobView(
         id=job.id or 0,
+        instance_id=job.instance_id,
+        organization=job.organization,
         name=job.name,
         asset_id=job.asset_id,
         prompt=job.prompt,
@@ -84,16 +103,19 @@ def get_job(job_id: int, session: Session = Depends(get_session)) -> ScheduledJo
 
 @router.post("/api/scheduler/jobs", response_model=ScheduledJobView, status_code=201)
 def create_job(payload: ScheduledJobCreate, session: Session = Depends(get_session)) -> ScheduledJobView:
+    _validate_scope(payload.instance_id, payload.organization, payload.prompt)
     _validate_job_fields(
         name=payload.name,
-        asset_id=payload.asset_id,
+        asset_id=payload.asset_id if payload.instance_id is None else None,
         prompt=payload.prompt,
         interval_seconds=payload.interval_seconds,
         session=session,
     )
     job = ScheduledJob(
         name=payload.name.strip(),
-        asset_id=payload.asset_id,
+        asset_id=payload.asset_id if payload.instance_id is None else 0,
+        instance_id=payload.instance_id,
+        organization=payload.organization,
         prompt=payload.prompt.strip(),
         interval_seconds=payload.interval_seconds,
         enabled=payload.enabled,
@@ -115,17 +137,24 @@ def update_job(
     job = session.get(ScheduledJob, job_id)
     if not job:
         raise HTTPException(status_code=404, detail="Job not found")
+    next_instance = payload.instance_id if "instance_id" in payload.model_fields_set else job.instance_id
+    next_org = payload.organization if "organization" in payload.model_fields_set else job.organization
+    _validate_scope(next_instance, next_org, payload.prompt if payload.prompt is not None else job.prompt)
     _validate_job_fields(
         name=payload.name,
-        asset_id=payload.asset_id,
+        asset_id=(payload.asset_id if payload.asset_id is not None else job.asset_id) if next_instance is None else None,
         prompt=payload.prompt,
         interval_seconds=payload.interval_seconds,
         session=session,
     )
 
+    job.instance_id = next_instance
+    job.organization = next_org
+    if next_instance is not None:
+        job.asset_id = 0
     if payload.name is not None:
         job.name = payload.name.strip()
-    if payload.asset_id is not None:
+    if payload.asset_id is not None and next_instance is None:
         job.asset_id = payload.asset_id
     if payload.prompt is not None:
         job.prompt = payload.prompt.strip()

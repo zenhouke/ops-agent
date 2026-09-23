@@ -7,7 +7,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 import re
 import threading
-from typing import Any, Literal
+from typing import Any, Callable, Literal
 from uuid import uuid4
 
 from app.utils.file_store import atomic_write_json
@@ -77,16 +77,21 @@ class ConversationService:
         self,
         selected_model: str | None,
         *,
-        asset_id: int = 0,
+        asset_id: int | None = None,
         scope_mode: ConversationScopeMode = "single",
         allowed_asset_ids: list[int] | None = None,
+        can_reuse: Callable[[str], bool] | None = None,
     ) -> ConversationSummary:
         if scope_mode not in {"single", "multi"}:
             raise ValueError("Conversation scope mode must be single or multi.")
-        normalized_allowed_asset_ids = sorted({
-            asset_id,
-            *(int(candidate) for candidate in (allowed_asset_ids or [])),
-        }) if scope_mode == "multi" else [asset_id]
+        if asset_id is None:
+            scope_mode = "multi"
+            normalized_allowed_asset_ids = []
+        else:
+            normalized_allowed_asset_ids = sorted({
+                asset_id,
+                *(int(candidate) for candidate in (allowed_asset_ids or [])),
+            }) if scope_mode == "multi" else [asset_id]
         conversation_id = f"conv_{uuid4().hex}"
         timestamp = self._utc_now()
         detail = ConversationDetail(
@@ -104,6 +109,24 @@ class ConversationService:
         )
         with self._lock:
             self._ensure_base_dir()
+            for summary in self.list_conversations():
+                if (summary.event_count != 0 or not self._is_default_title(summary.title)
+                        or summary.asset_id != asset_id or summary.scope_mode != scope_mode
+                        or sorted(summary.allowed_asset_ids) != normalized_allowed_asset_ids):
+                    continue
+                try:
+                    existing = self.get_conversation(summary.id)
+                except FileNotFoundError:
+                    continue
+                if existing.events or not self._is_default_title(existing.title):
+                    continue
+                if can_reuse is not None and not can_reuse(existing.id):
+                    continue
+                existing.selected_model = selected_model
+                existing.updated_at = timestamp
+                self._write_detail(existing)
+                self._upsert_summary(existing)
+                return self._to_summary(existing)
             self._write_detail(detail)
             self._upsert_summary(detail)
         return self._to_summary(detail)
@@ -153,17 +176,13 @@ class ConversationService:
             payload = json.loads(self._detail_path(conversation_id).read_text(encoding="utf-8"))
         return self._detail_from_payload(payload)
 
-    def ensure_asset_access(self, conversation_id: str, asset_id: int) -> ConversationDetail:
-        """Bind legacy conversations on first use and enforce the persisted asset scope."""
+    def ensure_asset_access(self, conversation_id: str, asset_id: int | None) -> ConversationDetail:
+        """Keep unbound conversations unbound and enforce explicit asset scope."""
         with self._lock:
             detail = self.get_conversation(conversation_id)
-            if detail.asset_id is None:
-                detail.asset_id = asset_id
-                detail.allowed_asset_ids = [asset_id]
-                detail.scope_mode = "single"
-                detail.updated_at = self._utc_now()
-                self._write_detail(detail)
-                self._upsert_summary(detail)
+            if asset_id is None:
+                if detail.asset_id is not None:
+                    raise ValueError("A device-bound conversation requires its target asset.")
                 return detail
             if asset_id not in self._normalized_allowed_asset_ids(detail):
                 if detail.scope_mode == "single":
@@ -176,13 +195,12 @@ class ConversationService:
             return detail
 
     def allow_asset(self, conversation_id: str, asset_id: int) -> ConversationDetail:
-        """Persist a user-approved scope expansion for a multi-asset conversation."""
+        """Persist an explicitly approved asset, promoting a single-device task if needed."""
         with self._lock:
             detail = self.get_conversation(conversation_id)
-            if detail.scope_mode != "multi":
-                raise ValueError("Single-asset conversations cannot expand their asset scope.")
             allowed_asset_ids = self._normalized_allowed_asset_ids(detail)
             if asset_id not in allowed_asset_ids:
+                detail.scope_mode = "multi"
                 detail.allowed_asset_ids = sorted({*allowed_asset_ids, asset_id})
                 detail.updated_at = self._utc_now()
                 self._write_detail(detail)
@@ -368,7 +386,7 @@ class ConversationService:
         )
 
     def _summary_from_payload(self, payload: dict[str, Any]) -> ConversationSummary:
-        normalized = dict(payload)
+        normalized = self._normalize_legacy_discovery(payload)
         normalized.setdefault("scope_mode", "single")
         normalized.setdefault("allowed_asset_ids", [])
         summary = ConversationSummary(**normalized)
@@ -376,12 +394,23 @@ class ConversationService:
         return summary
 
     def _detail_from_payload(self, payload: dict[str, Any]) -> ConversationDetail:
-        normalized = dict(payload)
+        normalized = self._normalize_legacy_discovery(payload)
         normalized.setdefault("scope_mode", "single")
         normalized.setdefault("allowed_asset_ids", [])
         detail = ConversationDetail(**normalized)
         detail.allowed_asset_ids = self._normalized_allowed_asset_ids(detail)
         return detail
+
+    @staticmethod
+    def _normalize_legacy_discovery(payload: dict[str, Any]) -> dict[str, Any]:
+        normalized = dict(payload)
+        context = normalized.pop("discovery_context", "")
+        if normalized.get("scope_mode") == "discovery":
+            normalized["scope_mode"] = "multi"
+            if context and "events" in normalized:
+                normalized["events"] = [{"id": "legacy-discovery-context", "kind": "user", "text": context}, *normalized["events"]]
+                normalized["event_count"] = len(normalized["events"])
+        return normalized
 
     def _normalized_allowed_asset_ids(self, conversation: ConversationSummary | ConversationDetail) -> list[int]:
         allowed = [int(asset_id) for asset_id in conversation.allowed_asset_ids]

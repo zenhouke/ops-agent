@@ -21,8 +21,11 @@ def save_topology(session: Session, snapshot: NetworkTopologySnapshot, nodes: li
     return snapshot
 
 
-def list_topology_snapshots(session: Session) -> list[NetworkTopologySnapshot]:
-    return list(session.exec(select(NetworkTopologySnapshot).order_by(desc(cast(Any, NetworkTopologySnapshot.created_at)))).all())
+def list_topology_snapshots(session: Session, *, instance_id: int | None = None, organization: str | None = None) -> list[NetworkTopologySnapshot]:
+    query = select(NetworkTopologySnapshot)
+    if instance_id is not None:
+        query = query.where(col(NetworkTopologySnapshot.instance_id) == instance_id, col(NetworkTopologySnapshot.organization) == organization)
+    return list(session.exec(query.order_by(desc(cast(Any, NetworkTopologySnapshot.created_at)))).all())
 
 
 def get_topology(session: Session, snapshot_id: int):

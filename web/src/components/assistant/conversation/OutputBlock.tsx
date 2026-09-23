@@ -1,6 +1,6 @@
 import { useState } from 'react'
 import { useAppearance } from '../../../hooks/useAppearance'
-import { stripAnsi } from './utils'
+import { stripAnsi } from '../../../utils/terminalText'
 
 type OutputBlockProps = {
   text: string

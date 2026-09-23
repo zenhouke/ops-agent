@@ -1,3 +1,4 @@
+import { HostKeyConfirmDialog } from './components/terminal/HostKeyConfirmDialog'
 import { lazy, Suspense, useCallback, useEffect, useRef, useState } from 'react'
 import { Group, Panel, Separator } from 'react-resizable-panels'
 import { getStoredTaskTerminalLayout, getStoredTerminalOpen } from './appLayoutState'
@@ -8,7 +9,6 @@ import { MultiAssetTaskDialog } from './components/assistant/MultiAssetTaskDialo
 import { ManagementWorkspacePanel, type ManagementWorkspace } from './components/management/ManagementWorkspacePanel'
 import { ActivityRail, type PrimaryWorkspace, type WorkspaceSection } from './components/layout/ActivityRail'
 import { LoadingState } from './components/layout/LoadingState'
-import { ConsolePlaceholder } from './components/layout/ConsolePlaceholder'
 import { TopBar } from './components/layout/TopBar'
 import { StatusBar } from './components/layout/StatusBar'
 import { TerminalPanel } from './components/terminal/TerminalPanel'
@@ -20,6 +20,7 @@ import { useConsolePageState } from './hooks/console/useConsolePageState'
 import { useTerminalSessions } from './hooks/console/useTerminalSessions'
 import { useAppearance } from './hooks/useAppearance'
 import { useKnowledgeBase } from './hooks/useKnowledgeBase'
+import { useKnowledgeExtraction } from './hooks/useKnowledgeExtraction'
 
 const SettingsDialog = lazy(() => import('./components/settings/SettingsDialog').then((module) => ({
   default: module.SettingsDialog,
@@ -65,6 +66,7 @@ export function App() {
 
   const {
     terminalTabs,
+    connectingAssetIds,
     activeTerminalAssetId,
     selectTerminalTab,
     selectedAsset,
@@ -77,6 +79,8 @@ export function App() {
     clearActiveTerminal,
     copyActiveTerminalOutput,
     reconnectActiveTerminal,
+    hostKeyChallenge,
+    answerHostKey,
   } = useTerminalSessions({
     assets: bootstrap.assets,
     historyByAsset: bootstrap.historyByAsset,
@@ -99,7 +103,9 @@ export function App() {
   })
 
   const terminalOutput = activeTerminalTab?.output ?? ''
-  const selectedAssetId = selectedAsset?.id ?? 0
+  const activeConversation = conversationSummaries.find((item) => item.id === activeConversationId)
+  const conversationAsset = activeConversation?.assetId == null ? null : selectedAsset
+  const selectedAssetId = conversationAsset?.id ?? null
   const [isConsoleInitialized, setIsConsoleInitialized] = useState(false)
   const [terminalOpen, setTerminalOpen] = useState(getStoredTerminalOpen)
   const [terminalFocused, setTerminalFocused] = useState(false)
@@ -150,6 +156,7 @@ export function App() {
   })
 
   const knowledgeBase = useKnowledgeBase()
+  const knowledgeExtraction = useKnowledgeExtraction(activeConversationId)
 
   const selectAssetWithConversation = useCallback(async (
     assetId: number,
@@ -179,6 +186,13 @@ export function App() {
     selectAsset,
     setLoadError,
   ])
+
+  useEffect(() => {
+    if (activeConversation?.assetId === null) {
+      setTerminalOpen(false)
+      setTerminalFocused(false)
+    }
+  }, [activeConversation?.id, activeConversation?.assetId])
 
   useEffect(() => {
     localStorage.setItem('ops-agent:terminal-open', String(terminalOpen))
@@ -244,7 +258,7 @@ export function App() {
           return
         }
 
-        await createConversation(selectedAsset?.id ?? 0)
+        await createConversation()
 
         if (!active) {
           return
@@ -286,15 +300,13 @@ export function App() {
   ])
 
   const renderAssistantPanel = () => {
-    if (!selectedAsset) return null
-    const activeConversation = conversationSummaries.find((item) => item.id === activeConversationId)
     return (
       <AssistantPanel
         conversationSummaries={conversationSummaries}
         activeConversationId={activeConversationId}
         activeConversationTitle={activeConversationTitle}
         conversationScopeMode={activeConversation?.scopeMode ?? 'single'}
-        allowedAssetCount={activeConversation?.allowedAssetIds.length ?? 1}
+        allowedAssetCount={activeConversation?.allowedAssetIds.length ?? 0}
         backgroundRuns={backgroundRuns}
         events={events}
         eventWindow={eventWindow}
@@ -305,7 +317,7 @@ export function App() {
         models={bootstrap.modelOptions}
         selectedModel={selectedModel}
         prompt={prompt}
-        selectedAsset={selectedAsset}
+        selectedAsset={conversationAsset}
         contextStatus={contextStatus}
         loadError={loadError}
         conversationSaveStatus={conversationSaveStatus}
@@ -322,7 +334,7 @@ export function App() {
             clearRunUnread(conversationId)
           })
         }}
-        onCreateConversation={() => void createConversation(selectedAsset.id, 'single')}
+        onCreateConversation={() => void createConversation().then(() => setPrompt(''))}
         onCreateMultiAssetConversation={() => {
           setMultiAssetError(null)
           setMultiAssetDialogOpen(true)
@@ -333,7 +345,7 @@ export function App() {
             clearRunUnread(conversationId)
           })
         }}
-        onDeleteConversation={(conversationId) => void deleteConversation(conversationId, selectedAsset.id)}
+        onDeleteConversation={(conversationId) => void deleteConversation(conversationId)}
         onRun={(nextPrompt, selectedSkillName, mode) => runAgent(nextPrompt, selectedSkillName, mode)}
         activeRunStatus={activeRunStatus}
         isRunActive={isRunActive}
@@ -364,11 +376,9 @@ export function App() {
         }}
         onExtractKnowledge={async () => {
           if (!activeConversationId || isRunActive) return
-          knowledgeBase.clearDraft()
-          setManagementWorkspace('knowledge')
-          setSidebarCollapsed(true)
-          await knowledgeBase.generateDraft(activeConversationId, { modelName: selectedModel || null })
+          await knowledgeExtraction.start(selectedModel || null)
         }}
+        knowledgeExtraction={knowledgeExtraction}
       />
     )
   }
@@ -381,7 +391,7 @@ export function App() {
     <div className="desktop-app-shell">
       <TopBar
         assets={bootstrap.assets}
-        selectedAsset={selectedAsset}
+        selectedAsset={conversationAsset}
         onSelectConversation={(conversationId) => {
           setManagementWorkspace(null)
           setActiveWorkspaceSection('conversations')
@@ -415,6 +425,7 @@ export function App() {
         />
 
         {managementWorkspace === null ? <AssetSidebar
+          connectingAssetIds={connectingAssetIds}
           assets={bootstrap.assets}
           groups={bootstrap.groups}
           conversationSummaries={conversationSummaries}
@@ -436,7 +447,7 @@ export function App() {
           }}
           onDeleteConversation={(conversationId, cancelActive) => {
             setLoadError(null)
-            void deleteConversation(conversationId, selectedAssetId, cancelActive).catch((error: unknown) => {
+            void deleteConversation(conversationId, null, cancelActive).catch((error: unknown) => {
               setLoadError(error instanceof Error ? error.message : '删除会话失败。')
             })
           }}
@@ -464,13 +475,34 @@ export function App() {
               selectedModel={selectedModel}
               contextStatus={contextStatus}
               knowledge={knowledgeBase}
+              onOpenConversation={(conversationId) => {
+                void loadConversation(conversationId).then((conversation) => {
+                  if (conversation.assetId !== null) selectAsset(conversation.assetId)
+                  setManagementWorkspace(null)
+                  setActiveWorkspaceSection('conversations')
+                }).catch((error: unknown) => setLoadError(error instanceof Error ? error.message : '来源会话不存在或无法打开。'))
+              }}
+              onOpenAsset={(assetId, action) => {
+                void createConversation(assetId, 'single').then(() => {
+                  selectAsset(assetId)
+                  setManagementWorkspace(null)
+                  setActiveWorkspaceSection('jumpserver')
+                  setTerminalOpen(true)
+                  setTerminalFocused(action === 'terminal')
+                  if (action === 'diagnose') {
+                    const asset = bootstrap.assets.find((item) => item.id === assetId)
+                    setPrompt(`请排查设备「${asset?.name ?? assetId}」的网络状态，结合接口和邻居信息分析异常。先进行只读检查，变更操作需人工审批。`)
+                  }
+                }).catch((error: unknown) => setLoadError(String(error)))
+              }}
               onGroupsChange={replaceGroups}
               onSSHKeysChange={replaceSSHKeys}
             />
-          ) : selectedAsset ? (
-            terminalFocused && terminalOpen ? (
+          ) : (
+            terminalFocused && terminalOpen && selectedAsset ? (
               <TerminalPanel
                 tabs={terminalTabs.map((item) => item.asset)}
+                connectingAssetIds={connectingAssetIds}
                 activeAssetId={activeTerminalAssetId}
                 output={terminalOutput}
                 busyCommand={busyCommand}
@@ -492,7 +524,7 @@ export function App() {
                   setTerminalOpen(false)
                 }}
               />
-            ) : terminalOpen ? (
+            ) : terminalOpen && selectedAsset ? (
               <Group
                 className="h-full min-h-0"
                 orientation="horizontal"
@@ -511,6 +543,7 @@ export function App() {
                 <Panel id="terminal" minSize="32%" defaultSize="42%">
                   <TerminalPanel
                     tabs={terminalTabs.map((item) => item.asset)}
+                    connectingAssetIds={connectingAssetIds}
                     activeAssetId={activeTerminalAssetId}
                     output={terminalOutput}
                     busyCommand={busyCommand}
@@ -530,12 +563,12 @@ export function App() {
             ) : (
               renderAssistantPanel()
             )
-          ) : <ConsolePlaceholder error={loadError} emptyMessage={t('app.awaitingTargetSelection')} />}
+          )}
         </section>
       </main>
 
       <StatusBar
-        asset={selectedAsset}
+        asset={conversationAsset}
         model={selectedModel}
         contextStatus={contextStatus}
         runtime={activeRuntimeSnapshot}
@@ -582,6 +615,8 @@ export function App() {
           }}
         />
       ) : null}
+
+      {hostKeyChallenge ? <HostKeyConfirmDialog key={hostKeyChallenge.token} challenge={hostKeyChallenge} onAnswer={answerHostKey} /> : null}
 
       {activeModal === 'settings' ? (
         <Suspense fallback={null}><SettingsDialog

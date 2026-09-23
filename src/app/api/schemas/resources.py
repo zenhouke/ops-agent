@@ -67,6 +67,7 @@ class AssetConnectionTestRequest(BaseModel):
 class AssetConnectionTestView(BaseModel):
     success: bool
     message: str
+    host_key: dict[str, str] | None = None
     detected_device_type: str | None = None
     detected_asset_type: str | None = None
     prompt: str | None = None
@@ -109,11 +110,11 @@ class ModelConfigView(BaseModel):
 
 
 class ModelConfigCreate(BaseModel):
-    name: str
-    provider: str
+    name: str = "API 服务"
+    provider: Literal["anthropic"] = "anthropic"
     base_url: str
     api_key: SecretStr
-    model_name: str = Field(min_length=1)
+    model_name: str = ""
     is_default: bool = False
     timeout_seconds: int = 30
     temperature: float = 0.2
@@ -125,10 +126,10 @@ class ModelConfigCreate(BaseModel):
 
 class ModelConfigUpdate(BaseModel):
     name: str | None = None
-    provider: str | None = None
+    provider: Literal["anthropic"] | None = None
     base_url: str | None = None
     api_key: SecretStr | None = None
-    model_name: str | None = Field(default=None, min_length=1)
+    model_name: str | None = None
     is_default: bool | None = None
     timeout_seconds: int | None = None
     temperature: float | None = None
@@ -139,7 +140,7 @@ class ModelConfigUpdate(BaseModel):
 
 
 class ModelConnectionTestRequest(BaseModel):
-    provider: str
+    provider: Literal["anthropic"]
     base_url: str
     api_key: SecretStr
     model_name: str = Field(min_length=1)
@@ -157,9 +158,10 @@ class ModelConnectionTestResponse(BaseModel):
 
 
 class ModelDiscoveryRequest(BaseModel):
-    provider: str
+    config_id: int | None = None
+    provider: Literal["anthropic"] = "anthropic"
     base_url: str
-    api_key: SecretStr
+    api_key: SecretStr | None = None
     timeout_seconds: int = 30
     provider_options: dict[str, Any] = Field(default_factory=dict)
 

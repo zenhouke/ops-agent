@@ -41,6 +41,8 @@ export type JumpServerAssetBinding = {
   id: number
   assetId: number
   externalAssetId: string
+  orgId: string
+  orgName: string
   name: string
   address: string
   platform: string
@@ -62,6 +64,9 @@ export type JumpServerOperation = {
 }
 
 export const listJumpServerInstances = () => requestJson<JumpServerInstance[]>('/api/jumpserver/instances')
+
+export type JumpServerOrganization = { id: string; name: string; assetCount: number; networkAssetIds: number[] }
+export const listJumpServerOrganizations = (id: number) => requestJson<JumpServerOrganization[]>(`/api/jumpserver/instances/${id}/organizations`)
 
 export const createJumpServerInstance = (payload: JumpServerInstancePayload) =>
   requestJson<JumpServerInstance>('/api/jumpserver/instances', { method: 'POST', body: JSON.stringify(payload) })

@@ -2,7 +2,6 @@ from __future__ import annotations
 
 import logging
 import uuid
-import json
 from collections.abc import Iterator
 from typing import Any, Protocol
 
@@ -21,10 +20,9 @@ from app.core.tool.schema import LLMToolDefinition
 from app.core.approval import ApprovalContext, is_multiline_network_command
 from app.core.connectors.device_profiles import NETWORK_CLI_PROFILE
 from app.core.connectors.execution import ExecutionContext
-from app.db.session import Session, engine
-from app.db.repositories.audit import create_audit_log
-from app.services.redaction_service import RedactionService
-from app.services.approval_service import get_approval_service
+
+
+from app.core.tool.ports import CommandPolicy
 
 
 class TerminalSessionResolver(Protocol):
@@ -52,8 +50,9 @@ class TerminalSessionResolver(Protocol):
 
 
 class ExecuteCommandHandler:
-    def __init__(self, terminal: TerminalSessionResolver) -> None:
+    def __init__(self, terminal: TerminalSessionResolver, *, policy: CommandPolicy) -> None:
         self._terminal = terminal
+        self._policy = policy
 
     @property
     def definition(self) -> LLMToolDefinition:
@@ -106,7 +105,7 @@ class ExecuteCommandHandler:
             profile=str(args.get("execution_profile", "posix-shell") or "posix-shell"),
             vendor=str(args.get("device_vendor", "") or "") or None,
         )
-        action, reason = get_approval_service().check_command(command, context)
+        action, reason = self._policy.check_command(command, context)
         if action == "deny":
             return action, reason
         return "ask", "请确认命令及目标后审批，批准后才会执行。"
@@ -201,24 +200,11 @@ class ExecuteCommandHandler:
                 command=command,
                 approval_policy=str(args.get("approval_policy", "allow")),
             )
-            with Session(engine) as audit_session:
-                create_audit_log(
-                    audit_session,
-                    action="command.submitted",
-                    entity_type="runtime",
-                    actor="agent-with-operator-policy",
-                    asset_id=authorization.asset_id,
-                    conversation_id=ctx.conversation_id,
-                    details=json.dumps(
-                        {
-                            "runtimeId": ctx.runtime_id,
-                            "terminalId": terminal_id,
-                            "approvalPolicy": str(args.get("approval_policy", "allow")),
-                            "command": RedactionService().redact_text(command),
-                        },
-                        ensure_ascii=False,
-                    ),
-                )
+            self._policy.record_submission(
+                runtime_id=ctx.runtime_id, terminal_id=terminal_id,
+                asset_id=authorization.asset_id, conversation_id=ctx.conversation_id,
+                command=command, approval_policy=str(args.get("approval_policy", "allow")),
+            )
             execution_id = str(uuid.uuid4())
             state.active_terminal_id = terminal_id
             state.active_execution_id = execution_id

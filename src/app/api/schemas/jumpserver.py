@@ -96,6 +96,8 @@ class JumpServerAssetBindingView(BaseModel):
     id: int
     assetId: int
     externalAssetId: str
+    orgId: str = ""
+    orgName: str = ""
     name: str
     address: str
     platform: str

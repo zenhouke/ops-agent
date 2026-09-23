@@ -10,8 +10,7 @@ from app.core.loop.message_manager import MessageManager
 from app.core.loop.runtime_manager import LoopRuntimeManager
 from app.core.tool.handler import ToolDisplayMetadata
 from app.core.tool.schema import LLMToolDefinition
-from app.db.repositories.assets import get_asset, list_assets
-from app.db.session import Session, engine
+from app.core.tool.ports import AssetCatalog
 
 
 def _json_tool_output(tool: str, status: str, payload: dict[str, Any] | None = None) -> str:
@@ -19,6 +18,9 @@ def _json_tool_output(tool: str, status: str, payload: dict[str, Any] | None = N
 
 
 class ListAssetsHandler:
+    def __init__(self, catalog: AssetCatalog) -> None:
+        self._catalog = catalog
+
     @property
     def definition(self) -> LLMToolDefinition:
         return LLMToolDefinition(
@@ -27,6 +29,10 @@ class ListAssetsHandler:
             input_schema={
                 "type": "object",
                 "properties": {
+                    "query": {"type": "string", "description": "Case-insensitive name, IP, vendor, group or tag search; leave empty to discover candidates."},
+                    "asset_type": {"type": "string", "description": "Optional exact asset type filter."},
+                    "offset": {"type": "integer", "minimum": 0, "default": 0},
+                    "limit": {"type": "integer", "minimum": 1, "maximum": 100, "default": 50},
                     "intent": {
                         "type": "string",
                         "enum": ["user_requested_assets", "remote_execution_required"],
@@ -57,24 +63,36 @@ class ListAssetsHandler:
         )
 
     def execute(self, *, state: LoopState, step_id: str, args: dict[str, Any], manager: MessageManager | None = None) -> Iterator[LoopEvent]:
-        _ = state, step_id, args
-        with Session(engine) as session:
-            assets = list_assets(session)
-            result = {
-                "assets": [
-                    {
-                        "asset_id": asset.id,
-                        "name": asset.name,
-                        "asset_type": asset.asset_type,
-                        "group_id": asset.group_id,
-                        "connection_status": "connectable",
-                        "tags": [tag.strip() for tag in asset.tags.split(",") if tag.strip()],
-                        "connectable": asset.id is not None,
-                    }
-                    for asset in assets
-                    if asset.id is not None
-                ]
-            }
+        _ = state, step_id
+        assets = self._catalog.list_assets()
+        query = str(args.get("query") or "").strip().casefold()
+        asset_type = str(args.get("asset_type") or "").strip()
+        assets = [asset for asset in assets
+                  if (not asset_type or asset.asset_type == asset_type)
+                  and (not query or query in " ".join((asset.name, asset.host, asset.vendor, asset.group_name, *asset.tags)).casefold())]
+        offset = max(0, int(args.get("offset") or 0))
+        limit = max(1, min(100, int(args.get("limit") or 50)))
+        result = {
+            "total": len(assets),
+            "next_offset": offset + limit if offset + limit < len(assets) else None,
+            "assets": [
+                {
+                    "asset_id": asset.id,
+                    "name": asset.name,
+                    "asset_type": asset.asset_type,
+                    "group_id": asset.group_id,
+                    "host": asset.host,
+                    "vendor": asset.vendor,
+                    "group_name": asset.group_name,
+                    "access_via": asset.access_via,
+                    "connection_status": "not_checked",
+                    "tags": list(asset.tags),
+                    "connectable": asset.id is not None,
+                }
+                for asset in assets[offset:offset + limit]
+                if asset.id is not None
+            ]
+        }
         output = _json_tool_output("list_assets", "ok", result)
         if manager:
             yield from manager.update(tool_output=output)
@@ -82,8 +100,9 @@ class ListAssetsHandler:
 
 
 class RequestTerminalSessionHandler:
-    def __init__(self, runtime_manager: LoopRuntimeManager) -> None:
+    def __init__(self, runtime_manager: LoopRuntimeManager, *, catalog: AssetCatalog) -> None:
         self._runtime_manager = runtime_manager
+        self._catalog = catalog
 
     @property
     def definition(self) -> LLMToolDefinition:
@@ -135,56 +154,40 @@ class RequestTerminalSessionHandler:
             if manager:
                 yield from manager.update(tool_output=output)
             return False, output
-        primary_asset_id = state.context.conversation_primary_asset_id if state.context.conversation_primary_asset_id is not None else state.context.asset_id
-        is_cross_asset = asset_id != primary_asset_id
-        if is_cross_asset and state.context.conversation_scope_mode != "multi":
+        scope_expansion_required = asset_id not in state.context.allowed_asset_ids
+        asset = self._catalog.get_asset(asset_id)
+        if asset is None or asset.id is None:
+            output = _json_tool_output("request_terminal_session", "error", {"assetId": asset_id, "message": "Asset is not visible or does not exist."})
+            if manager:
+                yield from manager.update(tool_output=output)
+            return False, output
+        if self._runtime_manager.has_active_initial_authorization(state.context.runtime_id, asset.id):
             output = _json_tool_output(
                 "request_terminal_session",
-                "scope_denied",
+                "already_authorized",
                 {
-                    "assetId": asset_id,
-                    "primaryAssetId": primary_asset_id,
-                    "message": "This conversation is bound to one asset. Create a multi-asset task before requesting another asset.",
+                    "assetId": asset.id,
+                    "assetName": asset.name,
+                    "message": "The current terminal is already authorized for this asset. Use execute_command with the current authorization instead of requesting a new terminal session.",
                 },
             )
             if manager:
                 yield from manager.update(tool_output=output)
             return False, output
-        scope_expansion_required = asset_id not in state.context.allowed_asset_ids
-        with Session(engine) as session:
-            asset = get_asset(session, asset_id)
-            if asset is None or asset.id is None:
-                output = _json_tool_output("request_terminal_session", "error", {"assetId": asset_id, "message": "Asset is not visible or does not exist."})
-                if manager:
-                    yield from manager.update(tool_output=output)
-                return False, output
-            if self._runtime_manager.has_active_initial_authorization(state.context.runtime_id, asset.id):
-                output = _json_tool_output(
-                    "request_terminal_session",
-                    "already_authorized",
-                    {
-                        "assetId": asset.id,
-                        "assetName": asset.name,
-                        "message": "The current terminal is already authorized for this asset. Use execute_command with the current authorization instead of requesting a new terminal session.",
-                    },
-                )
-                if manager:
-                    yield from manager.update(tool_output=output)
-                return False, output
-            request, _token, event = self._runtime_manager.create_terminal_request(
-                state.context.runtime_id,
-                conversation_id=state.context.conversation_id,
-                asset_id=asset.id,
-                asset_name=asset.name,
-                reason=reason,
-                scope_expansion_required=scope_expansion_required,
-            )
-            yield LoopEvent(
-                event_type="terminal_session_request",
-                runtime_id=state.context.runtime_id,
-                phase=state.phase,
-                payload=event,
-            )
+        request, _token, event = self._runtime_manager.create_terminal_request(
+            state.context.runtime_id,
+            conversation_id=state.context.conversation_id,
+            asset_id=asset.id,
+            asset_name=asset.name,
+            reason=reason,
+            scope_expansion_required=scope_expansion_required,
+        )
+        yield LoopEvent(
+            event_type="terminal_session_request",
+            runtime_id=state.context.runtime_id,
+            phase=state.phase,
+            payload=event,
+        )
         output = _json_tool_output(
             "request_terminal_session",
             "pending_user_confirmation",

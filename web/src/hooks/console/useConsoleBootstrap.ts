@@ -19,11 +19,15 @@ const emptyBootstrap: ConsoleBootstrap = {
 export function useConsoleBootstrap() {
   const [bootstrap, setBootstrap] = useState<ConsoleBootstrap>(emptyBootstrap)
   const [isBootstrapLoaded, setIsBootstrapLoaded] = useState(false)
-  const [selectedModel, setSelectedModel] = useState<string>('')
+  const [selectedModel, setSelectedModel] = useState<string>(() => localStorage.getItem('ops_agent_selected_model') || '')
   const [prompt, setPrompt] = useState(() => {
     return localStorage.getItem('ops_agent_prompt') ?? ''
   })
   const [loadError, setLoadError] = useState<string | null>(null)
+
+  useEffect(() => {
+    localStorage.setItem('ops_agent_selected_model', selectedModel)
+  }, [selectedModel])
 
   useEffect(() => {
     localStorage.setItem('ops_agent_prompt', prompt)

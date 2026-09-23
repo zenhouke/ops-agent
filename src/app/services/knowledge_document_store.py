@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import hashlib
+from contextlib import contextmanager
 import re
 import uuid
 from datetime import UTC, datetime
@@ -25,6 +27,101 @@ class KnowledgeDocumentStore:
         self._base_dir = base_dir
         self._entries_dir = base_dir / "entries"
         self._audit_log_path = base_dir / "audit.jsonl"
+        self._pending_batch: tuple[Path, dict] | None = None
+
+    def versions(self, entry_id: str) -> list[dict[str, str]]:
+        self.get(entry_id)
+        directory = self._version_dir(entry_id)
+        items = []
+        for path in directory.glob('v_*.json'):
+            try:
+                entry = KnowledgeEntry.model_validate_json(path.read_text(encoding='utf-8'))
+                if entry.id == entry_id:
+                    items.append({'id': path.stem, 'updatedAt': entry.updated_at, 'title': entry.title})
+            except (ValueError, OSError):
+                continue
+        return sorted(items, key=lambda item: item['updatedAt'], reverse=True)
+
+    def version(self, entry_id: str, version_id: str) -> KnowledgeEntry:
+        if not re.fullmatch(r'v_[a-f0-9]{64}', version_id):
+            raise ValueError('Invalid knowledge version')
+        entry = KnowledgeEntry.model_validate_json((self._version_dir(entry_id) / f'{version_id}.json').read_text(encoding='utf-8'))
+        if entry.id != entry_id:
+            raise ValueError('Knowledge version does not belong to entry')
+        return entry
+
+    def _version_dir(self, entry_id: str) -> Path:
+        self._entry_path(entry_id)
+        return self._base_dir / 'versions' / entry_id
+
+    def _save_version(self, entry: KnowledgeEntry) -> None:
+        payload = entry.model_dump(by_alias=True)
+        digest = hashlib.sha256(json.dumps(payload, sort_keys=True, ensure_ascii=False).encode()).hexdigest()
+        path = self._version_dir(entry.id) / f'v_{digest}.json'
+        if not path.exists():
+            atomic_write_json(path, payload)
+
+    def receipt(self, key: str) -> dict | None:
+        if not re.fullmatch(r'[a-f0-9]{64}', key):
+            raise ValueError('Invalid extraction batch key')
+        path = self._base_dir / 'receipts' / f'{key}.json'
+        return json.loads(path.read_text(encoding='utf-8')) if path.exists() else None
+
+    def processed_fingerprints(self, conversation_id: str) -> set[str]:
+        fingerprints: set[str] = set()
+        for path in (self._base_dir / 'receipts').glob('*.json'):
+            payload = json.loads(path.read_text(encoding='utf-8'))
+            if payload.get('conversation_id') == conversation_id:
+                fingerprints.update(payload.get('fingerprints', []))
+        return fingerprints
+
+    def recover_batches(self) -> bool:
+        recovered = False
+        for path in (self._base_dir / 'pending_batches').glob('*.json'):
+            journal = json.loads(path.read_text(encoding='utf-8'))
+            if self.receipt(path.stem) is None:
+                self._rollback(journal)
+                recovered = True
+            path.unlink()
+        return recovered
+
+    def _rollback(self, journal: dict) -> None:
+        for entry_id, original in journal.items():
+            if original is None:
+                self._entry_path(entry_id).unlink(missing_ok=True)
+                self._markdown_path(entry_id).unlink(missing_ok=True)
+            else:
+                self._write_entry(KnowledgeEntry.model_validate(original))
+
+    @contextmanager
+    def batch_transaction(self, key: str | None, receipt: dict):
+        if key is None:
+            yield
+            return
+        self.receipt(key)  # validate before building a filesystem path
+        path = self._base_dir / 'pending_batches' / f'{key}.json'
+        self._pending_batch = (path, {})
+        atomic_write_json(path, {})
+        try:
+            yield
+            # This durable receipt is the commit point; restart replays the result, not the model call.
+            atomic_write_json(self._base_dir / 'receipts' / f'{key}.json', receipt)
+        except Exception:
+            self._rollback(self._pending_batch[1])
+            path.unlink(missing_ok=True)
+            raise
+        else:
+            path.unlink(missing_ok=True)
+        finally:
+            self._pending_batch = None
+
+    def _track_before_write(self, entry_id: str) -> None:
+        if self._pending_batch is None:
+            return
+        path, originals = self._pending_batch
+        if entry_id not in originals:
+            originals[entry_id] = self.get(entry_id).model_dump(by_alias=True) if self._entry_path(entry_id).exists() else None
+            atomic_write_json(path, originals)
 
     def create(
         self,
@@ -49,6 +146,7 @@ class KnowledgeDocumentStore:
             createdAt=timestamp,
             updatedAt=timestamp,
         )
+        self._track_before_write(entry.id)
         try:
             self._write_entry(entry)
             self._append_audit("knowledge.created", entry.id)
@@ -90,6 +188,8 @@ class KnowledgeDocumentStore:
         embedding: List[float] | None = None,
     ) -> KnowledgeEntry:
         existing = self.get(entry_id)
+        self._track_before_write(entry_id)
+        self._save_version(existing)
         updated = KnowledgeEntry(
             id=existing.id,
             title=draft.title,
@@ -156,21 +256,20 @@ class KnowledgeDocumentStore:
             self._entry_path(entry.id),
             entry.model_dump(by_alias=True),
         )
-        atomic_write_text(self._markdown_path(entry.id), self._render_markdown(entry))
+        atomic_write_text(self._markdown_path(entry.id), self.render_markdown(entry))
 
-    def _render_markdown(self, entry: KnowledgeEntry) -> str:
+    def render_markdown(self, entry: KnowledgeEntry) -> str:
         title = " ".join(entry.title.split()) or "未命名知识"
         lines = [
             f"# {title}",
             "",
-            f"- 知识 ID：`{entry.id}`",
             f"- 创建时间：{entry.created_at}",
             f"- 更新时间：{entry.updated_at}",
         ]
         if entry.tags:
             lines.append(f"- 标签：{', '.join(entry.tags)}")
         if entry.source_conversation.id or entry.source_conversation.title:
-            source_label = entry.source_conversation.title or entry.source_conversation.id or ""
+            source_label = entry.source_conversation.title or "关联会话"
             lines.append(f"- 来源会话：{source_label}")
 
         self._append_section(lines, "摘要", entry.summary)
@@ -200,10 +299,7 @@ class KnowledgeDocumentStore:
         if entry.sources:
             lines.extend(["", "## 证据来源"])
             for index, source in enumerate(entry.sources, start=1):
-                reference = source.event_id or (
-                    f"事件 #{source.event_index}" if source.event_index is not None else source.event_type
-                ) or f"来源 {index}"
-                lines.extend(["", f"### {reference}"])
+                lines.extend(["", f"### 来源 {index}"])
                 if source.relevance.strip():
                     lines.extend(["", source.relevance.strip()])
                 if source.quote.strip():

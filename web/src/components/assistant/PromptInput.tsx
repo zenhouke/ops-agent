@@ -9,7 +9,7 @@ type PromptInputProps = {
   prompt: string
   models: string[]
   selectedModel: string
-  selectedAsset: Asset
+  selectedAsset: Asset | null
   contextStatus: ConversationContextStatus | null
   blockedRun: { message: string; actionLabel: string } | null
   onViewBlockedRun?: () => void
@@ -45,7 +45,10 @@ function contextLabel(status: ConversationContextStatus | null) {
 function contextUsageLabel(status: ConversationContextStatus | null) {
   if (!status?.tokenUsage) return contextLabel(status)
   if (status.tokenUsage.measurement === 'unavailable') return `${contextLabel(status)} · tokens --`
-  return `${contextLabel(status)} · ${formatTokenCount(status.tokenUsage.totalTokens)} tokens`
+  const input = status.contextMeasurement === 'reported' && status.requestInputTokens != null
+    ? `最近输入 ${formatTokenCount(status.requestInputTokens)} · 缓存命中 ${formatTokenCount(status.cacheReadTokens ?? 0)}`
+    : '历史估算'
+  return `${input} · ${contextLabel(status)} · 累计 ${formatTokenCount(status.tokenUsage.totalTokens)} tokens`
 }
 
 function contextUsageTitle(status: ConversationContextStatus | null) {
@@ -54,7 +57,8 @@ function contextUsageTitle(status: ConversationContextStatus | null) {
   if (usage.measurement === 'unavailable') {
     return `上下文窗口 ${contextLabel(status)}；当前模型没有返回可核验的 token 用量`
   }
-  return `上下文窗口 ${contextLabel(status)}；本会话真实累计 ${usage.totalTokens} tokens（input ${usage.inputTokens}，output ${usage.outputTokens}，cache read ${usage.cacheReadInputTokens}，cache write ${usage.cacheCreationInputTokens}）`
+  const request = status.contextMeasurement === 'reported' ? `最近一次调用输入 ${status.requestInputTokens} tokens（含缓存读取 ${status.cacheReadTokens ?? 0}、写入 ${status.cacheWriteTokens ?? 0}）；` : '历史上下文估算，尚无本次调用的实际用量；'
+  return `${request}上下文窗口 ${contextLabel(status)}；本会话真实累计 ${usage.totalTokens} tokens（input ${usage.inputTokens}，output ${usage.outputTokens}，cache read ${usage.cacheReadInputTokens}，cache write ${usage.cacheCreationInputTokens}）`
 }
 
 function getSlashSuggestionQuery(prompt: string) {
@@ -201,7 +205,7 @@ export function PromptInput({
                 void submitPrompt()
               }
             }}
-            placeholder={isRunning ? runningCopy.placeholder : t('assistant.promptPlaceholder')}
+            placeholder={isRunning ? runningCopy.placeholder : selectedAsset ? t('assistant.promptPlaceholder') : '直接描述问题；需要设备时，Agent 会查找并申请连接…'}
           />
 
           <button
@@ -239,8 +243,8 @@ export function PromptInput({
           <div className="flex min-w-0 flex-1 items-center gap-2 overflow-visible">
             <div className="flex min-w-0 items-center gap-1.5 rounded-full px-1.5 py-1" aria-label={t('assistant.context')}>
               <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-ops-green" />
-              <span className="max-w-[150px] truncate text-[9px] font-semibold text-ops-text/75">{selectedAsset.name}</span>
-              <span className="hidden max-w-[120px] truncate font-mono text-[9px] text-ops-muted/45 lg:inline">{selectedAsset.host || '本地'}</span>
+              <span className="max-w-[150px] truncate text-[9px] font-semibold text-ops-text/75">{selectedAsset?.name ?? '未关联设备'}</span>
+              <span className="hidden max-w-[120px] truncate font-mono text-[9px] text-ops-muted/45 lg:inline">{selectedAsset ? selectedAsset.host || '本地' : '可直接提问'}</span>
             </div>
             <button
               type="button"

@@ -349,6 +349,11 @@ export type ConversationTokenUsage = {
 }
 
 export type ConversationContextStatus = {
+  contextMeasurement?: 'reported' | 'estimated'
+  requestInputTokens?: number | null
+  cacheReadTokens?: number | null
+  cacheWriteTokens?: number | null
+
   contextPercent: number
   contextStatus: 'normal' | 'warning' | 'critical'
   tokenUsage?: ConversationTokenUsage

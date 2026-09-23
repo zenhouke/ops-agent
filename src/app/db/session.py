@@ -41,8 +41,18 @@ def init_db() -> None:
     _ensure_proxy_columns()
     _ensure_model_usage_columns()
     _ensure_scheduler_columns()
+    with engine.begin() as connection:
+        columns = {column[1] for column in connection.exec_driver_sql("PRAGMA table_info(scheduled_jobs)")}
+        for name, definition in (("instance_id", "INTEGER"), ("organization", "VARCHAR")):
+            if name not in columns:
+                connection.execute(text(f"ALTER TABLE scheduled_jobs ADD COLUMN {name} {definition}"))
     _ensure_runtime_columns()
     _ensure_jumpserver_columns()
+    with engine.begin() as connection:
+        columns = {column[1] for column in connection.exec_driver_sql("PRAGMA table_info(network_topology_snapshots)")}
+        for name, definition in (("instance_id", "INTEGER"), ("organization", "VARCHAR")):
+            if name not in columns:
+                connection.execute(text(f"ALTER TABLE network_topology_snapshots ADD COLUMN {name} {definition}"))
     _ensure_audit_columns()
     record_schema_version(engine, CURRENT_SCHEMA_VERSION)
     for sqlite_path in (DB_PATH, Path(f"{DB_PATH}-wal"), Path(f"{DB_PATH}-shm")):
@@ -164,6 +174,10 @@ def _ensure_jumpserver_columns() -> None:
         return
     existing = {column["name"] for column in inspector.get_columns("jumpserver_instances")}
     with engine.begin() as connection:
+        binding_columns = {column["name"] for column in inspector.get_columns("jumpserver_asset_bindings")}
+        for name in ("org_id", "org_name"):
+            if name not in binding_columns:
+                connection.execute(text(f"ALTER TABLE jumpserver_asset_bindings ADD COLUMN {name} VARCHAR NOT NULL DEFAULT ''"))
         if "auth_mode" not in existing:
             connection.execute(text(
                 "ALTER TABLE jumpserver_instances "

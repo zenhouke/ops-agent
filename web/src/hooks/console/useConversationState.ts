@@ -237,9 +237,9 @@ export function useConversationState(selectedModel: string) {
   }, [])
 
   const createConversation = useCallback(async (
-    assetId = 0,
+    assetId: number | null = null,
     scopeMode: 'single' | 'multi' = 'single',
-    allowedAssetIds: number[] = [assetId],
+    allowedAssetIds: number[] = assetId === null ? [] : [assetId],
   ) => {
     const created = await createConversationApi(selectedModel || null, assetId, scopeMode, allowedAssetIds)
     setConversationSummaries((currentItems) => {
@@ -277,7 +277,7 @@ export function useConversationState(selectedModel: string) {
   }, [])
 
   const deleteConversation = useCallback(
-    async (conversationId: string, replacementAssetId = 0, cancelActive = false) => {
+    async (conversationId: string, replacementAssetId: number | null = null, cancelActive = false) => {
       await deleteConversationApi(conversationId, cancelActive)
       const remainingItems = await refreshConversationList()
 

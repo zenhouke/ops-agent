@@ -51,6 +51,10 @@ export function mapConversationAppendResponse(dto: ConversationAppendEventsRespo
 
 export function mapConversationContextStatus(dto: ConversationContextStatusDto): ConversationContextStatus {
   return {
+    contextMeasurement: dto.context_measurement,
+    requestInputTokens: dto.request_input_tokens,
+    cacheReadTokens: dto.cache_read_tokens,
+    cacheWriteTokens: dto.cache_write_tokens,
     contextPercent: dto.context_percent,
     contextStatus: dto.context_status,
     tokenUsage: dto.token_usage
@@ -73,9 +77,9 @@ export async function getConversations(): Promise<ConversationSummary[]> {
 
 export async function createConversation(
   selectedModel: string | null,
-  assetId: number,
+  assetId: number | null,
   scopeMode: 'single' | 'multi' = 'single',
-  allowedAssetIds: number[] = [assetId],
+  allowedAssetIds: number[] = assetId === null ? [] : [assetId],
 ): Promise<{ conversation: ConversationSummary; events: EventItem[] }> {
   const response = await requestJson<ConversationCreateResponseDto>('/api/conversations', {
     method: 'POST',
@@ -83,7 +87,7 @@ export async function createConversation(
       selected_model: selectedModel,
       asset_id: assetId,
       scope_mode: scopeMode,
-      allowed_asset_ids: scopeMode === 'multi' ? allowedAssetIds : [assetId],
+      allowed_asset_ids: assetId === null ? [] : scopeMode === 'multi' ? allowedAssetIds : [assetId],
     }),
   })
   return {

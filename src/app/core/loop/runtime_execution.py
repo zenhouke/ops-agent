@@ -10,6 +10,7 @@ from contextlib import contextmanager
 from typing import Any, Literal
 
 from app.core.llm.types import LLMMessage
+from app.core.llm.retry import ModelRetryExhausted, is_retryable_model_error
 from app.core.loop.agent_loop import AgentLoop
 from app.core.loop.loop_events import LoopEvent
 from app.core.loop.loop_state import LoopContext, LoopRuntimeStep, LoopState
@@ -30,6 +31,10 @@ logger = logging.getLogger(__name__)
 
 
 def _user_facing_runtime_error(error: Exception) -> str:
+    if isinstance(error, ModelRetryExhausted):
+        return str(error)
+    if is_retryable_model_error(error):
+        return "模型服务暂时不可用或响应中断，请稍后在原会话继续。已完成的命令不会重复执行。"
     message = str(error)
     normalized = message.lower()
     if "model is not found" in normalized or "model_not_found" in normalized:
@@ -360,6 +365,19 @@ class RuntimeExecutionMixin:
         yield self._append_runtime_event(runtime, "task_state", runtime.state.context.task_state.to_payload())
 
         if not waiting_for_answer:
+            # Recover older runs left waiting after a terminal-open HTTP failure.
+            requests = list(runtime.terminal_requests.values())
+            failed = next((item for item in reversed(requests) if item.terminal_creation_status == "failed"), None)
+            if (
+                runtime.state.phase == "waiting_terminal_approval"
+                and failed is not None
+                and not runtime.execution_lock.locked()
+                and not any(item.user_decision_status == "pending" or item.terminal_creation_status == "opening" for item in requests)
+            ):
+                result = self._terminal_request_decision_response(failed)
+                yield from self.resume_after_terminal_request(
+                    runtime_id=runtime_id, resume_message=result["resumeMessage"], terminal_service=terminal_service,
+                )
             return
 
         loop = AgentLoop(tools=self._tools_factory(terminal_service), usage_callback=self._usage_callback)
@@ -381,7 +399,8 @@ class RuntimeExecutionMixin:
         if authorization_id:
             runtime.state.context.default_authorization_id = authorization_id
             authorization = runtime.terminal_authorizations.get(authorization_id)
-            if authorization and authorization.asset_id not in runtime.state.context.allowed_asset_ids:
+            if authorization and authorization.status == "active" and authorization.asset_id not in runtime.state.context.allowed_asset_ids:
+                runtime.state.context.conversation_scope_mode = "multi"
                 runtime.state.context.allowed_asset_ids.append(authorization.asset_id)
         runtime.state.messages.append(
             LLMMessage(role="user", content=self._terminal_request_resume_prompt(runtime, resume_message))
@@ -430,11 +449,8 @@ class RuntimeExecutionMixin:
         return max(active, key=lambda item: item.created_at).authorization_id if active else None
 
     def _context_percent_for_tokens(self: Any, token_count: int, model_config: Any) -> int:
-        model_name = model_config.model_name.lower()
-        context_window = 200_000 if "claude" in model_name else 128_000 if any(
-            name in model_name for name in ("gpt-4", "gpt-5")
-        ) else 32_000
-        return min(100, max(0, round(token_count * 100 / max(1, context_window - 4_000))))
+        from app.core.llm.context import input_budget_tokens
+        return min(100, max(0, round(token_count * 100 / input_budget_tokens(model_config))))
 
     def _context_status_for_percent(
         self: Any,
@@ -448,9 +464,16 @@ class RuntimeExecutionMixin:
         if usage is None:
             return None
         state.latest_usage = None
-        percent = self._context_percent_for_tokens(int(usage.get("totalTokens") or 0), state.context.model_config)
+        request_input_tokens = int(usage.pop("requestInputTokens", 0))
+        cache_read = int(usage.pop("requestCacheReadTokens", 0))
+        cache_write = int(usage.pop("requestCacheWriteTokens", 0))
+        percent = self._context_percent_for_tokens(request_input_tokens, state.context.model_config)
         return self._append_runtime_event(runtime, "context_status", {
             "contextPercent": percent,
+            "contextMeasurement": "reported",
+            "requestInputTokens": request_input_tokens,
+            "cacheReadTokens": cache_read,
+            "cacheWriteTokens": cache_write,
             "contextStatus": self._context_status_for_percent(percent),
             "tokenUsage": usage,
         })

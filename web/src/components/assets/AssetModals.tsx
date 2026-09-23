@@ -1,3 +1,5 @@
+import { HostKeyConfirmDialog } from '../terminal/HostKeyConfirmDialog'
+import { useHostKeyConfirmation } from '../../hooks/console/useHostKeyConfirmation'
 import { type FormEvent, forwardRef, useEffect, useImperativeHandle, useState } from 'react'
 import { getSerialPorts, testAssetConnection, type AssetPayload, type SerialPort } from '../../api'
 import type { Asset, AssetGroup, SSHKey } from '../../types/ops'
@@ -356,6 +358,7 @@ function DeleteAssetModal({ asset, error, onClose, onDelete }: DeleteAssetModalP
 
 export const AssetModals = forwardRef<AssetModalsRef, AssetModalsProps>(
   ({ assets, groups, sshKeys, onAddAsset, onUpdateAsset, onDeleteAsset }, ref) => {
+    const { hostKeyChallenge, answerHostKey, withHostKeyConfirmation } = useHostKeyConfirmation()
     const [activeModal, setActiveModal] = useState<ActiveModal>(null)
     const [targetAsset, setTargetAsset] = useState<Asset | null>(null)
     const [addAssetForm, setAddAssetForm] = useState<AddAssetForm>(emptyAddAssetForm)
@@ -478,7 +481,9 @@ export const AssetModals = forwardRef<AssetModalsRef, AssetModalsProps>(
       setConnectionTestResult(null)
       setTestingConnection(true)
       try {
-        const result = await testAssetConnection(buildAssetPayload(addAssetForm, targetAsset), targetAsset?.id)
+        const payload = buildAssetPayload(addAssetForm, targetAsset)
+        const assetId = targetAsset?.id ?? null
+        const result = await withHostKeyConfirmation(assetId, () => testAssetConnection(payload, assetId))
         const details = [result.detected_device_type, result.prompt].filter(Boolean).join(' · ')
         setConnectionTestResult(`${result.success ? '✓' : '✕'} ${result.message}${details ? ` (${details})` : ''}`)
       } catch (error) {
@@ -503,6 +508,7 @@ export const AssetModals = forwardRef<AssetModalsRef, AssetModalsProps>(
 
     return (
       <>
+        {hostKeyChallenge ? <HostKeyConfirmDialog key={hostKeyChallenge.token} challenge={hostKeyChallenge} onAnswer={answerHostKey} /> : null}
         {(activeModal === 'add-asset' || activeModal === 'edit-asset') ? (
           <AssetFormModal
             mode={activeModal}

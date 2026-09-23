@@ -27,6 +27,7 @@ export type ModelConnectionTestPayload = {
 }
 
 export type ModelDiscoveryPayload = {
+  configId?: number
   provider: string
   baseUrl: string
   apiKey: string
@@ -84,9 +85,10 @@ type ModelConnectionTestRequest = {
 }
 
 type ModelDiscoveryRequest = {
+  config_id?: number
   provider: string
   base_url: string
-  api_key: string
+  api_key?: string
   timeout_seconds: number
   provider_options?: Record<string, unknown>
 }
@@ -121,9 +123,10 @@ function toConnectionTestRequest(payload: ModelConnectionTestPayload): ModelConn
 
 function toModelDiscoveryRequest(payload: ModelDiscoveryPayload): ModelDiscoveryRequest {
   return {
+    config_id: payload.configId,
     provider: payload.provider,
     base_url: payload.baseUrl,
-    api_key: payload.apiKey,
+    api_key: payload.apiKey || undefined,
     timeout_seconds: payload.timeoutSeconds,
     provider_options: payload.providerOptions,
   }
@@ -188,4 +191,9 @@ export async function testModelConfig(payload: ModelConnectionTestPayload): Prom
     method: 'POST',
     body: JSON.stringify(toConnectionTestRequest(payload)),
   })
+}
+
+export async function getAvailableModels(): Promise<string[]> {
+  const result = await requestJson<{ available_models: string[] }>('/api/models')
+  return result.available_models
 }

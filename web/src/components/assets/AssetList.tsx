@@ -1,12 +1,14 @@
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { ListItemCard } from '../layout/ListItemCard'
 import type { Asset, AssetGroup } from '../../types/ops'
 import { useAppearance } from '../../hooks/useAppearance'
 
 type AssetListProps = {
+  organizationTree?: boolean
+  connectingAssetIds?: number[]
   assets: Asset[]
   groups: AssetGroup[]
-  selectedAssetId: number
+  selectedAssetId: number | null
   onSelectAsset: (assetId: number) => void
   onUpdateAsset?: (assetId: number, payload: any) => Promise<any>
   onDeleteAsset?: (assetId: number) => Promise<void>
@@ -17,6 +19,7 @@ type AssetListProps = {
 type AssetListGroup = {
   id: number | null
   label: string
+  instanceLabel?: string
 }
 
 function getAssetMeta(asset: Asset, localSystemLabel: string): string {
@@ -24,13 +27,25 @@ function getAssetMeta(asset: Asset, localSystemLabel: string): string {
   return `${asset.host}:${asset.port}${asset.authType === 'jumpserver' ? ' · JumpServer' : ''}`
 }
 
-export function AssetList({ assets, groups, selectedAssetId, onSelectAsset, onEditAsset, onDeleteAssetConfirm }: AssetListProps) {
+export function AssetList({ organizationTree = false, connectingAssetIds = [], assets, groups, selectedAssetId, onSelectAsset, onEditAsset, onDeleteAssetConfirm }: AssetListProps) {
   const { t } = useAppearance()
   const [menuAssetId, setMenuAssetId] = useState<number | null>(null)
+  const [expandedOrganizations, setExpandedOrganizations] = useState<Record<string, boolean>>({})
   const visibleAssets = assets.filter((asset) => asset.assetType !== 'local_terminal')
+  const selectedGroupId = assets.find((asset) => asset.id === selectedAssetId)?.groupId
+
+  useEffect(() => {
+    if (organizationTree && selectedGroupId !== undefined) {
+      setExpandedOrganizations((current) => ({ ...current, [String(selectedGroupId)]: true }))
+    }
+  }, [organizationTree, selectedAssetId, selectedGroupId])
 
   const assetGroups: AssetListGroup[] = [
-    ...groups.map((group) => ({ id: group.id, label: group.name })),
+    ...groups.map((group) => {
+      const isOrganization = organizationTree && group.description.startsWith('ops-agent:jumpserver-instance:') && group.description.includes(':org:')
+      const parts = group.name.split(' · ')
+      return { id: group.id, label: isOrganization ? parts.slice(2).join(' · ') || group.name : group.name, instanceLabel: isOrganization ? parts.slice(0, 2).join(' · ') : undefined }
+    }),
     { id: null, label: t('assets.unassigned') },
   ]
 
@@ -45,6 +60,7 @@ export function AssetList({ assets, groups, selectedAssetId, onSelectAsset, onEd
 
   return (
     <div className="flex h-full flex-col bg-ops-deep/50" aria-label={t('assets.hostConnectionList')} onMouseLeave={() => setMenuAssetId(null)}>
+      {organizationTree && visibleAssets.length > 0 ? <div className="flex items-center justify-between px-3 py-2 text-[10px] text-ops-muted/70"><span>按组织浏览 · {visibleAssets.length} 台资产</span><button type="button" className="text-ops-cyan/80 hover:text-ops-cyan" onClick={() => setExpandedOrganizations({})}>全部收起</button></div> : null}
       {visibleAssets.length === 0 ? <p className="text-center py-10 text-ops-muted text-[11px]  tracking-widest font-medium opacity-50">{t('assets.emptyWorkspace')}</p> : null}
       {assetGroups.map((group) => {
         const groupKey = String(group.id)
@@ -52,11 +68,19 @@ export function AssetList({ assets, groups, selectedAssetId, onSelectAsset, onEd
         if (groupAssets.length === 0) {
           return null
         }
+        const expanded = !organizationTree || Boolean(expandedOrganizations[groupKey])
 
         return (
           <section key={groupKey} className="mb-1" aria-label={group.label}>
-            <h3 className="border-y border-ops-border/20 bg-ops-bg/35 px-3 py-1.5 text-[9px] font-bold tracking-[0.1em] text-ops-muted/65">{group.label}</h3>
-            <ul className="flex flex-col list-none m-0 p-0">
+            {organizationTree ? <h3>
+              <button type="button" aria-expanded={expanded} aria-controls={`organization-assets-${groupKey}`} title={group.instanceLabel ? `${group.instanceLabel} / ${group.label}` : group.label} className={`flex w-full items-center gap-2 border-y border-ops-border/20 px-3 py-3 text-left hover:bg-ops-panel/70 ${expanded ? 'bg-ops-cyan/5' : 'bg-ops-bg/35'}`} onClick={() => setExpandedOrganizations((current) => ({ ...current, [groupKey]: !expanded }))}>
+                <svg width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" className={`shrink-0 text-ops-muted transition-transform ${expanded ? 'rotate-90' : ''}`} aria-hidden="true"><path d="m9 5 7 7-7 7" /></svg>
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.6" className="shrink-0 text-ops-cyan/80" aria-hidden="true"><rect x="8" y="2" width="8" height="6" rx="1" /><path d="M12 8v5M4 16v-3h16v3" /><rect x="1" y="16" width="6" height="6" rx="1" /><rect x="9" y="16" width="6" height="6" rx="1" /><rect x="17" y="16" width="6" height="6" rx="1" /></svg>
+                <span className="min-w-0 flex-1"><span className="block truncate text-[11px] font-semibold text-ops-text">{group.label}</span>{group.instanceLabel ? <span className="mt-0.5 block truncate text-[9px] font-normal text-ops-muted/55">{group.instanceLabel}</span> : null}</span>
+                <span className="rounded border border-ops-border/30 px-1.5 py-0.5 text-[9px] text-ops-muted">{groupAssets.length}</span>
+              </button>
+            </h3> : <h3 className="border-y border-ops-border/20 bg-ops-bg/35 px-3 py-1.5 text-[9px] font-bold tracking-[0.1em] text-ops-muted/65">{group.label}</h3>}
+            <ul id={`organization-assets-${groupKey}`} hidden={!expanded} className={`${expanded ? 'flex' : 'hidden'} flex-col list-none m-0 p-0 ${organizationTree ? 'ml-5 border-l border-ops-cyan/15' : ''}`}>
               {groupAssets.map((asset) => {
                 const selected = asset.id === selectedAssetId
                 const managedByJumpServer = asset.authType === 'jumpserver'
@@ -66,7 +90,9 @@ export function AssetList({ assets, groups, selectedAssetId, onSelectAsset, onEd
                   <li key={asset.id} className="relative group">
                     <div className={`relative flex items-center transition-all duration-200 ${selected ? 'bg-ops-cyan/5 shadow-[inset_2px_0_0_0_rgb(var(--ops-cyan))]' : 'hover:bg-ops-panel/40'} ${menuOpen ? 'bg-ops-panel/80' : ''}`}>
                       <ListItemCard
-                        title={asset.name}
+                        title={connectingAssetIds.includes(asset.id) ? `${asset.name} · 连接中…` : asset.name}
+                        aria-busy={connectingAssetIds.includes(asset.id)}
+                        disabled={connectingAssetIds.includes(asset.id)}
                         meta={getAssetMeta(asset, t('assets.localSystem'))}
                         active={selected}
                         onClick={() => onSelectAsset(asset.id)}

@@ -217,7 +217,7 @@ class ConversationDetailView(BaseModel):
 
 class ConversationCreateRequest(BaseModel):
     selected_model: str | None = None
-    asset_id: int = 0
+    asset_id: int | None = None
     scope_mode: Literal["single", "multi"] = "single"
     allowed_asset_ids: list[int] = Field(default_factory=list, max_length=200)
 
@@ -246,6 +246,10 @@ class ConversationTokenUsageView(BaseModel):
 
 
 class ConversationContextStatusView(BaseModel):
+    context_measurement: Literal["reported", "estimated"] = "estimated"
+    request_input_tokens: int | None = None
+    cache_read_tokens: int | None = None
+    cache_write_tokens: int | None = None
     context_percent: int
     context_status: Literal["normal", "warning", "critical"]
     token_usage: ConversationTokenUsageView = Field(default_factory=ConversationTokenUsageView)
