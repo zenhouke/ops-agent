@@ -62,7 +62,7 @@ textfsm==2.1.0
 tqdm==4.67.3
 typing-inspection==0.4.2
 typing_extensions==4.15.0
-urllib3==2.7.0
+urllib3==2.8.0
 uuid_utils==0.14.1
 uvicorn==0.46.0
 xxhash==3.7.0
