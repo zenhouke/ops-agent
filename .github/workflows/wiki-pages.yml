@@ -1,0 +1,68 @@
+name: Documentation Pages
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'wiki/**'
+      - '.github/workflows/wiki-pages.yml'
+  pull_request:
+    paths:
+      - 'wiki/**'
+      - '.github/workflows/wiki-pages.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: documentation-pages-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262
+      - name: Setup Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.13'
+      - name: Setup Node
+        uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020
+        with:
+          node-version: '22'
+      - name: Install documentation dependencies
+        run: npm ci --prefix wiki --ignore-scripts --no-audit --no-fund
+      - name: Check documentation scripts
+        run: |
+          python -m py_compile wiki/build.py wiki/serve.py wiki/scripts/export_openapi.py
+          node --check wiki/assets/app.js
+          node --check wiki/assets/swagger-init.js
+      - name: Validate root hosting
+        run: python wiki/build.py --check
+      - name: Build and validate GitHub Pages hosting
+        env:
+          WIKI_BASE_PATH: /${{ github.event.repository.name }}
+        run: npm --prefix wiki run build
+      - name: Upload Pages artifact
+        if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+        uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
+        with:
+          path: wiki/dist
+
+  deploy:
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+    steps:
+      - name: Deploy GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@368f82528645a54fb793d4d04e342629a3f51346 # v5.0.1

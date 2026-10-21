@@ -1,3 +1,4 @@
+const siteRoot = new URL('../', document.currentScript.src);
 const menu = document.querySelector('#menu');
 menu.addEventListener('click', () => {
   const open = document.body.classList.toggle('nav-open');
@@ -23,7 +24,7 @@ input.addEventListener('input', async () => {
   results.replaceChildren();
   if (!query) return;
   try {
-    searchData ??= fetch('/assets/search.json').then(response => {
+    searchData ??= fetch(new URL('assets/search.json', siteRoot)).then(response => {
       if (!response.ok) throw new Error('Search unavailable');
       return response.json();
     });
@@ -33,7 +34,7 @@ input.addEventListener('input', async () => {
     if (!matches.length) results.textContent = lang === 'zh' ? '没有找到相关内容' : 'No matching topics';
     for (const page of matches) {
       const link = document.createElement('a');
-      link.href = `/${lang}/${page.id}.html`;
+      link.href = new URL(`${lang}/${page.id}.html`, siteRoot).href;
       link.textContent = page.title;
       results.append(link);
     }
@@ -42,14 +43,16 @@ input.addEventListener('input', async () => {
     if (sequence === searchSequence) results.textContent = lang === 'zh' ? '搜索暂时不可用，请使用目录' : 'Search unavailable; use the navigation';
   }
 });
-let version;
-setInterval(async () => {
-  if (document.hidden) return;
-  try {
-    const response = await fetch('/__version');
-    if (!response.ok) return;
-    const next = (await response.json()).version;
-    if (version && version !== next) location.reload();
-    version = next;
-  } catch { /* Static hosting does not require the development reload endpoint. */ }
-}, 3000);
+if (location.port === '33003') {
+  let version;
+  setInterval(async () => {
+    if (document.hidden) return;
+    try {
+      const response = await fetch(new URL('__version', siteRoot));
+      if (!response.ok) return;
+      const next = (await response.json()).version;
+      if (version && version !== next) location.reload();
+      version = next;
+    } catch { /* Retry local development reload on the next interval. */ }
+  }, 3000);
+}

@@ -4,6 +4,7 @@ from html import escape
 from html.parser import HTMLParser
 import argparse
 import json
+import os
 import re
 import shutil
 
@@ -55,12 +56,32 @@ def resources():
     assets['/assets/search.json'] = json.dumps(search,ensure_ascii=False).encode()
     return assets
 
-def build():
+def normalize_base_path(value):
+    base = value.rstrip('/')
+    if not base:
+        return ''
+    if not re.fullmatch(r'(?:/[A-Za-z0-9_.-]+)+', base) or any(
+        part in ('.', '..') for part in base.split('/')
+    ):
+        raise ValueError('Base path must contain only absolute path segments')
+    return base
+
+def build(base_path=''):
+    base_path = normalize_base_path(base_path)
     output = resources()
     for lang in LANGS:
         for page in load_pages():
             output[f'/{lang}/{page["id"]}.html'] = render(page['id'],lang).encode()
     output['/index.html'] = render().encode()
+    output['/.nojekyll'] = b''
+    if base_path:
+        for path, data in output.items():
+            if path.endswith('.html'):
+                output[path] = re.sub(
+                    r'\b(href|src)="/(?!/)',
+                    lambda match: f'{match[1]}="{base_path}/',
+                    data.decode(),
+                ).encode()
     return output
 
 class Links(HTMLParser):
@@ -72,7 +93,8 @@ class Links(HTMLParser):
         for key in ('href','src'):
             if key in attrs: self.links.append(attrs[key])
 
-def check(output):
+def check(output, base_path=''):
+    base_path = normalize_base_path(base_path)
     pages=load_pages()
     assert len({p['id'] for p in pages})==len(pages)
     for p in pages:
@@ -84,7 +106,11 @@ def check(output):
         if not path.endswith('.html'): continue
         doc=Links(); doc.feed(data.decode()); assert len(doc.ids)==len(set(doc.ids)), path
         for link in doc.links:
-            base,_,anchor=link.partition('#'); target=base or path
+            base,_,anchor=link.partition('#')
+            if base and base_path:
+                assert base.startswith(base_path + '/'), (path, link)
+                base = base[len(base_path):]
+            target=base or path
             assert target in output, (path,link)
             if anchor:
                 parsed=Links(); parsed.feed(output[target].decode()); assert anchor in parsed.ids,(path,link)
@@ -104,8 +130,12 @@ def check(output):
     print(f'Validated {len(pages)*2} localized pages, all local links/anchors, bilingual content and OpenAPI references.')
 
 if __name__=='__main__':
-    parser=argparse.ArgumentParser(); parser.add_argument('--check',action='store_true'); args=parser.parse_args()
-    output=build(); check(output)
+    parser=argparse.ArgumentParser()
+    parser.add_argument('--check',action='store_true')
+    parser.add_argument('--base-path',default=os.environ.get('WIKI_BASE_PATH', ''))
+    args=parser.parse_args()
+    base_path = normalize_base_path(args.base_path)
+    output=build(base_path); check(output,base_path)
     if not args.check:
         dest=ROOT/'dist'
         if dest.exists(): shutil.rmtree(dest)
